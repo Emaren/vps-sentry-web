@@ -5,36 +5,50 @@ import GoogleProvider from "next-auth/providers/google";
 import EmailProvider from "next-auth/providers/email";
 import { prisma } from "@/lib/prisma";
 
-function requiredEnv(key: string): string {
+/**
+ * IMPORTANT: Do NOT throw during module import.
+ * Build/env/systemd contexts differ; keep `pnpm build` resilient.
+ */
+
+function envTrim(key: string): string | undefined {
   const v = process.env[key];
-  if (!v || !v.trim()) throw new Error(`Missing env var: ${key}`);
-  return v.trim();
+  const t = v?.trim();
+  return t && t.length > 0 ? t : undefined;
+}
+
+function requiredEnv(key: string): string {
+  const v = envTrim(key);
+  if (!v) throw new Error(`Missing env var: ${key}`);
+  return v;
 }
 
 function optionalEnv(key: string): string | undefined {
-  const v = process.env[key]?.trim();
-  return v && v.length > 0 ? v : undefined;
+  return envTrim(key);
 }
 
 export function hasGoogleEnv(): boolean {
-  return Boolean(
-    process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim()
-  );
+  return Boolean(envTrim("GOOGLE_CLIENT_ID") && envTrim("GOOGLE_CLIENT_SECRET"));
 }
 
 export function hasEmailEnv(): boolean {
   return Boolean(
-    process.env.EMAIL_SERVER_HOST?.trim() &&
-      process.env.EMAIL_SERVER_PORT?.trim() &&
-      process.env.EMAIL_SERVER_USER?.trim() &&
-      process.env.EMAIL_SERVER_PASSWORD?.trim() &&
-      process.env.EMAIL_FROM?.trim()
+    envTrim("EMAIL_SERVER_HOST") &&
+      envTrim("EMAIL_SERVER_PORT") &&
+      envTrim("EMAIL_SERVER_USER") &&
+      envTrim("EMAIL_SERVER_PASSWORD") &&
+      envTrim("EMAIL_FROM")
   );
 }
 
 const debugEnabled =
   process.env.NEXTAUTH_DEBUG === "true" ||
+  process.env.NEXTAUTH_DEBUG === "1" ||
   (process.env.DEBUG?.includes("next-auth") ?? false);
+
+// Next build sets NEXT_PHASE=phase-production-build
+const isBuildTime =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
 
 function buildProviders() {
   const providers: any[] = [];
@@ -42,11 +56,18 @@ function buildProviders() {
   // ---- Magic Link (Email) ----
   if (hasEmailEnv()) {
     const host = requiredEnv("EMAIL_SERVER_HOST");
-    const port = Number(requiredEnv("EMAIL_SERVER_PORT"));
+
+    const portRaw = requiredEnv("EMAIL_SERVER_PORT");
+    const port = Number(portRaw);
+    if (!Number.isFinite(port) || port <= 0) {
+      throw new Error(`Invalid EMAIL_SERVER_PORT: ${portRaw}`);
+    }
+
     const user = requiredEnv("EMAIL_SERVER_USER");
     const pass = requiredEnv("EMAIL_SERVER_PASSWORD");
     const from = requiredEnv("EMAIL_FROM");
 
+    // ✅ DO NOT override template: keep NextAuth default email HTML
     providers.push(
       EmailProvider({
         server: {
@@ -59,7 +80,7 @@ function buildProviders() {
         maxAge: 15 * 60, // 15 minutes
       })
     );
-  } else {
+  } else if (!isBuildTime && process.env.NODE_ENV === "production") {
     console.warn(
       "[next-auth] Email provider NOT enabled (missing EMAIL_SERVER_* and/or EMAIL_FROM)."
     );
@@ -73,7 +94,7 @@ function buildProviders() {
         clientSecret: requiredEnv("GOOGLE_CLIENT_SECRET"),
       })
     );
-  } else {
+  } else if (!isBuildTime && process.env.NODE_ENV === "production") {
     console.warn("[next-auth] Google provider NOT enabled (missing GOOGLE_CLIENT_* env).");
   }
 
@@ -81,7 +102,9 @@ function buildProviders() {
 }
 
 export const authOptions: NextAuthOptions = {
-  secret: requiredEnv("NEXTAUTH_SECRET"),
+  // ✅ don't hard-require at module load (keeps build resilient)
+  secret: process.env.NEXTAUTH_SECRET,
+
   debug: debugEnabled,
 
   adapter: PrismaAdapter(prisma),
@@ -128,15 +151,17 @@ export const authOptions: NextAuthOptions = {
   },
 };
 
+// ✅ never throw here; safe for build/debug screens
 export const authEnv = {
-  NEXTAUTH_SECRET: requiredEnv("NEXTAUTH_SECRET"),
-  NEXTAUTH_URL: requiredEnv("NEXTAUTH_URL"),
+  NEXTAUTH_SECRET: optionalEnv("NEXTAUTH_SECRET") ? "[set]" : undefined,
+  NEXTAUTH_URL: optionalEnv("NEXTAUTH_URL"),
 
   GOOGLE_CLIENT_ID: optionalEnv("GOOGLE_CLIENT_ID"),
-  GOOGLE_CLIENT_SECRET: optionalEnv("GOOGLE_CLIENT_SECRET"),
+  GOOGLE_CLIENT_SECRET: optionalEnv("GOOGLE_CLIENT_SECRET") ? "[set]" : undefined,
 
   EMAIL_SERVER_HOST: optionalEnv("EMAIL_SERVER_HOST"),
   EMAIL_SERVER_PORT: optionalEnv("EMAIL_SERVER_PORT"),
   EMAIL_SERVER_USER: optionalEnv("EMAIL_SERVER_USER"),
+  EMAIL_SERVER_PASSWORD: optionalEnv("EMAIL_SERVER_PASSWORD") ? "[set]" : undefined,
   EMAIL_FROM: optionalEnv("EMAIL_FROM"),
 };

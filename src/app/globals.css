@@ -1,3 +1,4 @@
+/* /var/www/vps-sentry-web/src/app/globals.css */
 @import "tailwindcss";
 
 :root {
@@ -19,8 +20,61 @@
   }
 }
 
+/* ✅ baseline: make sizing predictable across devices */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ✅ stop iOS Safari “helpful” font scaling + ensure full-height layouts behave */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+
+  /* iOS Safari / mobile browsers */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ✅ keep your look the same, but use your Geist font variables by default */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+
+  /* prevents horizontal drift from long pre/code/strings on mobile */
+  overflow-x: hidden;
+}
+
+/* ✅ make images/iframes behave on small screens */
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ✅ long code/JSON/IDs should wrap/scroll instead of blowing out the layout */
+pre,
+code {
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+pre {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  white-space: pre-wrap; /* wrap long lines */
+  word-break: break-word;
+}
+
+/* ✅ nicer tap behavior on mobile */
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
 }

@@ -30,6 +30,7 @@ export default async function BillingPage() {
         Signed in as <span className="font-medium">{user.email}</span>
       </p>
 
+      {/* Current plan box: INFO + Manage subscription ONLY */}
       <div className="mt-6 rounded-lg border p-4">
         <div className="flex flex-col gap-1">
           <div className="text-sm">
@@ -38,7 +39,7 @@ export default async function BillingPage() {
           </div>
           <div className="text-sm">
             <span className="opacity-70">Status:</span>{" "}
-            <span className="font-medium">{user.subscriptionStatus ?? "Basic"}</span>
+            <span className="font-medium">{user.subscriptionStatus ?? "Trial"}</span>
           </div>
           <div className="text-sm">
             <span className="opacity-70">Host limit:</span>{" "}
@@ -53,34 +54,35 @@ export default async function BillingPage() {
         </div>
 
         <div className="mt-4">
-          <BillingActions />
+          <BillingActions mode="portal" />
         </div>
       </div>
 
+      {/* Plan cards: Upgrade ONLY */}
       <div className="mt-8 grid gap-4 md:grid-cols-2">
         <div className="rounded-lg border p-5">
-          <h2 className="text-lg font-semibold">PRO</h2>
+          <h2 className="text-lg font-semibold">$4 BASIC</h2>
           <p className="mt-1 text-sm opacity-80">For solo builders.</p>
           <ul className="mt-3 list-disc pl-5 text-sm opacity-90">
-            <li>10 hosts</li>
+            <li>3 hosts</li>
             <li>Email + Discord alerts</li>
             <li>Baseline + diffs</li>
           </ul>
           <div className="mt-4">
-            <BillingActions defaultPlan="PRO" />
+            <BillingActions mode="upgrade" defaultPlan="BASIC" />
           </div>
         </div>
 
         <div className="rounded-lg border p-5">
-          <h2 className="text-lg font-semibold">ELITE</h2>
+          <h2 className="text-lg font-semibold">$9 PRO</h2>
           <p className="mt-1 text-sm opacity-80">For agencies / multiple VPS.</p>
           <ul className="mt-3 list-disc pl-5 text-sm opacity-90">
-            <li>50 hosts</li>
+            <li>4+ hosts</li>
             <li>Priority monitoring features</li>
             <li>More headroom</li>
           </ul>
           <div className="mt-4">
-            <BillingActions defaultPlan="ELITE" />
+            <BillingActions mode="upgrade" defaultPlan="PRO" />
           </div>
         </div>
       </div>

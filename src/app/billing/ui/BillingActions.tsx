@@ -1,11 +1,19 @@
+// /var/www/vps-sentry-web/src/app/billing/ui/BillingActions.tsx
 "use client";
 
 import { useState } from "react";
 
-type Plan = "PRO" | "ELITE";
+type Plan = "BASIC" | "PRO";
+type Mode = "upgrade" | "portal";
 
-export default function BillingActions({ defaultPlan }: { defaultPlan?: Plan }) {
-  const [loading, setLoading] = useState<"checkout" | "portal" | null>(null);
+export default function BillingActions({
+  defaultPlan,
+  mode = "upgrade",
+}: {
+  defaultPlan?: Plan;
+  mode?: Mode;
+}) {
+  const [loading, setLoading] = useState<"checkout" | "portal" | "cancel" | null>(null);
 
   async function startCheckout(plan: Plan) {
     setLoading("checkout");
@@ -15,11 +23,12 @@ export default function BillingActions({ defaultPlan }: { defaultPlan?: Plan }) 
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ plan }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok) throw new Error(data?.error || "Checkout failed");
+      if (!data?.url) throw new Error("Checkout missing url");
       window.location.href = data.url;
     } catch (e: any) {
-      alert(e.message || "Checkout failed");
+      alert(e?.message || "Checkout failed");
     } finally {
       setLoading(null);
     }
@@ -29,18 +38,70 @@ export default function BillingActions({ defaultPlan }: { defaultPlan?: Plan }) 
     setLoading("portal");
     try {
       const res = await fetch("/api/billing/portal", { method: "POST" });
-      const data = await res.json();
+      const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok) throw new Error(data?.error || "Portal failed");
+      if (!data?.url) throw new Error("Portal missing url");
       window.location.href = data.url;
     } catch (e: any) {
-      alert(e.message || "Portal failed");
+      alert(e?.message || "Portal failed");
     } finally {
       setLoading(null);
     }
   }
 
-  const plan = defaultPlan;
+  async function cancelSubscription() {
+    const ok = window.confirm(
+      "Cancel subscription? (This will cancel at period end unless you change it in Stripe.)"
+    );
+    if (!ok) return;
 
+    setLoading("cancel");
+    try {
+      const res = await fetch("/api/billing/cancel", { method: "POST" });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(data?.error || "Cancel failed");
+      // Keep it simple + raw
+      alert("Cancellation requested. (Usually cancels at period end.)");
+      window.location.reload();
+    } catch (e: any) {
+      alert(e?.message || "Cancel failed");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  // Current plan box: Dashboard + Manage + Cancel
+  if (mode === "portal") {
+    return (
+      <div className="flex flex-wrap gap-3">
+        <a
+          href="/dashboard"
+          className="rounded-md border px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
+        >
+          Dashboard
+        </a>
+
+        <button
+          onClick={openPortal}
+          disabled={loading !== null}
+          className="rounded-md border px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
+        >
+          {loading === "portal" ? "Opening…" : "Manage subscription"}
+        </button>
+
+        <button
+          onClick={cancelSubscription}
+          disabled={loading !== null}
+          className="rounded-md border px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
+        >
+          {loading === "cancel" ? "Canceling…" : "Cancel subscription"}
+        </button>
+      </div>
+    );
+  }
+
+  // Plan cards: upgrade ONLY
+  const plan = defaultPlan;
   return (
     <div className="flex flex-wrap gap-3">
       {plan ? (
@@ -51,32 +112,7 @@ export default function BillingActions({ defaultPlan }: { defaultPlan?: Plan }) 
         >
           {loading === "checkout" ? "Redirecting…" : `Upgrade to ${plan}`}
         </button>
-      ) : (
-        <>
-          <button
-            onClick={() => startCheckout("PRO")}
-            disabled={loading !== null}
-            className="rounded-md border px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
-          >
-            {loading === "checkout" ? "Redirecting…" : "Upgrade to PRO"}
-          </button>
-          <button
-            onClick={() => startCheckout("ELITE")}
-            disabled={loading !== null}
-            className="rounded-md border px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
-          >
-            {loading === "checkout" ? "Redirecting…" : "Upgrade to ELITE"}
-          </button>
-        </>
-      )}
-
-      <button
-        onClick={openPortal}
-        disabled={loading !== null}
-        className="rounded-md border px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
-      >
-        {loading === "portal" ? "Opening…" : "Manage subscription"}
-      </button>
+      ) : null}
     </div>
   );
 }
