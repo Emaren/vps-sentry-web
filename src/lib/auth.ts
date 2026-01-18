@@ -30,13 +30,24 @@ export function hasGoogleEnv(): boolean {
   return Boolean(envTrim("GOOGLE_CLIENT_ID") && envTrim("GOOGLE_CLIENT_SECRET"));
 }
 
+/**
+ * Email can be configured either as:
+ *  A) EMAIL_SERVER="smtp://user:pass@host:587" + EMAIL_FROM
+ *  B) EMAIL_SERVER_HOST/PORT/USER/PASSWORD + EMAIL_FROM
+ */
 export function hasEmailEnv(): boolean {
+  const from = envTrim("EMAIL_FROM");
+  if (!from) return false;
+
+  // Option A (URL)
+  if (envTrim("EMAIL_SERVER")) return true;
+
+  // Option B (pieces)
   return Boolean(
     envTrim("EMAIL_SERVER_HOST") &&
       envTrim("EMAIL_SERVER_PORT") &&
       envTrim("EMAIL_SERVER_USER") &&
-      envTrim("EMAIL_SERVER_PASSWORD") &&
-      envTrim("EMAIL_FROM")
+      envTrim("EMAIL_SERVER_PASSWORD")
   );
 }
 
@@ -50,39 +61,102 @@ const isBuildTime =
   process.env.NEXT_PHASE === "phase-production-build" ||
   process.env.npm_lifecycle_event === "build";
 
+type EmailServerConfig =
+  | string
+  | {
+      host: string;
+      port: number;
+      auth?: { user: string; pass: string };
+      secure?: boolean;
+    };
+
+function buildEmailServerFromUrl(urlStr: string): EmailServerConfig | null {
+  try {
+    // Accept smtp://user:pass@host:port or smtps://...
+    const u = new URL(urlStr);
+    const protocol = (u.protocol || "").replace(":", "");
+    const host = u.hostname;
+    const port = u.port ? Number(u.port) : protocol === "smtps" ? 465 : 587;
+
+    if (!host) return null;
+    if (!Number.isFinite(port) || port <= 0) return null;
+
+    const user = u.username ? decodeURIComponent(u.username) : "";
+    const pass = u.password ? decodeURIComponent(u.password) : "";
+
+    const secure = protocol === "smtps" || port === 465;
+
+    const cfg: EmailServerConfig = {
+      host,
+      port,
+      secure,
+      ...(user && pass ? { auth: { user, pass } } : {}),
+    };
+
+    return cfg;
+  } catch {
+    return null;
+  }
+}
+
 function buildProviders() {
   const providers: any[] = [];
 
   // ---- Magic Link (Email) ----
   if (hasEmailEnv()) {
-    const host = requiredEnv("EMAIL_SERVER_HOST");
-
-    const portRaw = requiredEnv("EMAIL_SERVER_PORT");
-    const port = Number(portRaw);
-    if (!Number.isFinite(port) || port <= 0) {
-      throw new Error(`Invalid EMAIL_SERVER_PORT: ${portRaw}`);
-    }
-
-    const user = requiredEnv("EMAIL_SERVER_USER");
-    const pass = requiredEnv("EMAIL_SERVER_PASSWORD");
     const from = requiredEnv("EMAIL_FROM");
 
-    // ✅ DO NOT override template: keep NextAuth default email HTML
-    providers.push(
-      EmailProvider({
-        server: {
-          host,
-          port,
-          secure: port === 465, // 465=SMTPS, 587=STARTTLS
-          auth: { user, pass },
-        },
-        from,
-        maxAge: 15 * 60, // 15 minutes
-      })
-    );
+    // Prefer URL form if present
+    const serverUrl = envTrim("EMAIL_SERVER");
+    if (serverUrl) {
+      const server = buildEmailServerFromUrl(serverUrl);
+      if (server) {
+        providers.push(
+          EmailProvider({
+            server,
+            from,
+            maxAge: 15 * 60, // 15 minutes
+          })
+        );
+      } else if (!isBuildTime && process.env.NODE_ENV === "production") {
+        console.warn(
+          "[next-auth] Email provider NOT enabled (EMAIL_SERVER present but could not be parsed)."
+        );
+      }
+    } else {
+      // Fallback to split vars
+      const host = requiredEnv("EMAIL_SERVER_HOST");
+
+      const portRaw = requiredEnv("EMAIL_SERVER_PORT");
+      const port = Number(portRaw);
+      if (!Number.isFinite(port) || port <= 0) {
+        // keep runtime error (not import-time), but do not blow up builds
+        if (isBuildTime) {
+          console.warn(`[next-auth] Invalid EMAIL_SERVER_PORT during build: ${portRaw}`);
+        } else {
+          throw new Error(`Invalid EMAIL_SERVER_PORT: ${portRaw}`);
+        }
+      } else {
+        const user = requiredEnv("EMAIL_SERVER_USER");
+        const pass = requiredEnv("EMAIL_SERVER_PASSWORD");
+
+        providers.push(
+          EmailProvider({
+            server: {
+              host,
+              port,
+              secure: port === 465, // 465=SMTPS, 587=STARTTLS
+              auth: { user, pass },
+            },
+            from,
+            maxAge: 15 * 60, // 15 minutes
+          })
+        );
+      }
+    }
   } else if (!isBuildTime && process.env.NODE_ENV === "production") {
     console.warn(
-      "[next-auth] Email provider NOT enabled (missing EMAIL_SERVER_* and/or EMAIL_FROM)."
+      "[next-auth] Email provider NOT enabled (missing EMAIL_SERVER or EMAIL_SERVER_* and/or EMAIL_FROM)."
     );
   }
 
@@ -101,13 +175,39 @@ function buildProviders() {
   return providers;
 }
 
+/**
+ * Patch: swallow Prisma "record not found" on deleteSession.
+ * This fixes magic-link callbacks failing with:
+ *   CALLBACK_EMAIL_ERROR DeleteSessionError / P2025
+ */
+function isPrismaRecordNotFound(e: unknown): boolean {
+  const any = e as any;
+  return any?.code === "P2025";
+}
+
+const baseAdapter = PrismaAdapter(prisma) as any;
+
+const patchedAdapter = {
+  ...baseAdapter,
+  async deleteSession(sessionToken: string) {
+    try {
+      // NextAuth expects: deleting a missing session should not be fatal.
+      if (typeof baseAdapter.deleteSession !== "function") return null;
+      return await baseAdapter.deleteSession(sessionToken);
+    } catch (e) {
+      if (isPrismaRecordNotFound(e)) return null;
+      throw e;
+    }
+  },
+};
+
 export const authOptions: NextAuthOptions = {
   // ✅ don't hard-require at module load (keeps build resilient)
   secret: process.env.NEXTAUTH_SECRET,
 
   debug: debugEnabled,
 
-  adapter: PrismaAdapter(prisma),
+  adapter: patchedAdapter,
   session: { strategy: "database" },
 
   providers: buildProviders(),
@@ -159,6 +259,10 @@ export const authEnv = {
   GOOGLE_CLIENT_ID: optionalEnv("GOOGLE_CLIENT_ID"),
   GOOGLE_CLIENT_SECRET: optionalEnv("GOOGLE_CLIENT_SECRET") ? "[set]" : undefined,
 
+  // URL form (preferred in your systemd file)
+  EMAIL_SERVER: optionalEnv("EMAIL_SERVER") ? "[set]" : undefined,
+
+  // split form (optional)
   EMAIL_SERVER_HOST: optionalEnv("EMAIL_SERVER_HOST"),
   EMAIL_SERVER_PORT: optionalEnv("EMAIL_SERVER_PORT"),
   EMAIL_SERVER_USER: optionalEnv("EMAIL_SERVER_USER"),

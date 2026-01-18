@@ -24,16 +24,30 @@ const buttonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-async function openBillingPortal() {
+async function postJson(path: string) {
+  const res = await fetch(path, { method: "POST" });
+  const data = (await res.json().catch(() => ({}))) as any;
+  if (!res.ok) throw new Error(data?.error || `${path} ${res.status}`);
+  return data;
+}
+
+async function sendTestEmail() {
   try {
-    const res = await fetch("/api/billing/portal", { method: "POST" });
-    const data = (await res.json()) as { url?: string; error?: string };
-    if (!res.ok) throw new Error(data?.error || `portal ${res.status}`);
-    if (!data?.url) throw new Error("Missing portal url");
-    window.location.href = data.url;
+    await postJson("/api/ops/test-email");
+    alert("✅ Test email sent.");
   } catch (e: any) {
     console.error(e);
-    alert(e?.message ?? "Failed to open billing portal");
+    alert(e?.message ?? "Failed to send test email");
+  }
+}
+
+async function sendReportNow() {
+  try {
+    const data = await postJson("/api/ops/report-now");
+    alert(data?.message ?? "✅ Report triggered.");
+  } catch (e: any) {
+    console.error(e);
+    alert(e?.message ?? "Failed to trigger report");
   }
 }
 
@@ -48,8 +62,12 @@ export default function DashboardActions() {
         Billing
       </Link>
 
-      <button type="button" onClick={openBillingPortal} style={buttonStyle}>
-        Manage subscription
+      <button type="button" onClick={sendTestEmail} style={buttonStyle}>
+        Send test email
+      </button>
+
+      <button type="button" onClick={sendReportNow} style={buttonStyle}>
+        Send report now
       </button>
 
       <button

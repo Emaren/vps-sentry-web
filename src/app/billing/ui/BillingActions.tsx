@@ -1,6 +1,7 @@
 // /var/www/vps-sentry-web/src/app/billing/ui/BillingActions.tsx
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 type Plan = "BASIC" | "PRO";
@@ -50,18 +51,13 @@ export default function BillingActions({
   }
 
   async function cancelSubscription() {
-    const ok = window.confirm(
-      "Cancel subscription? (This will cancel at period end unless you change it in Stripe.)"
-    );
-    if (!ok) return;
-
+    if (!confirm("Cancel subscription now?")) return;
     setLoading("cancel");
     try {
       const res = await fetch("/api/billing/cancel", { method: "POST" });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok) throw new Error(data?.error || "Cancel failed");
-      // Keep it simple + raw
-      alert("Cancellation requested. (Usually cancels at period end.)");
+      alert("✅ Cancellation requested. Check status in a moment.");
       window.location.reload();
     } catch (e: any) {
       alert(e?.message || "Cancel failed");
@@ -70,16 +66,15 @@ export default function BillingActions({
     }
   }
 
-  // Current plan box: Dashboard + Manage + Cancel
   if (mode === "portal") {
     return (
       <div className="flex flex-wrap gap-3">
-        <a
+        <Link
           href="/dashboard"
-          className="rounded-md border px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
+          className="rounded-md border px-4 py-2 text-sm hover:bg-black/5"
         >
           Dashboard
-        </a>
+        </Link>
 
         <button
           onClick={openPortal}
@@ -94,14 +89,14 @@ export default function BillingActions({
           disabled={loading !== null}
           className="rounded-md border px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
         >
-          {loading === "cancel" ? "Canceling…" : "Cancel subscription"}
+          {loading === "cancel" ? "Cancelling…" : "Cancel subscription"}
         </button>
       </div>
     );
   }
 
-  // Plan cards: upgrade ONLY
   const plan = defaultPlan;
+
   return (
     <div className="flex flex-wrap gap-3">
       {plan ? (
