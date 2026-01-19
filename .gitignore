@@ -38,8 +38,6 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
-prisma/dev.db
 
 prisma/*.db
 prisma/*.db-journal
