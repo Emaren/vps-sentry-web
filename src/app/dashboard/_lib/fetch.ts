@@ -11,7 +11,11 @@ export async function getStatusEnvelopeSafe() {
   const base = await getBaseUrlFromHeaders();
 
   try {
-    const res = await fetch(`${base}/api/status`, { cache: "no-store" });
+    const res = await fetch(`${base}/api/status`, {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+
     const ts = new Date().toISOString();
 
     // Try to parse JSON even on non-200 so we can render something.

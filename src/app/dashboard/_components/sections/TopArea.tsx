@@ -17,6 +17,16 @@ export default function TopArea(props: {
 }) {
   const { status: s, billing, signedInAs, derived: d } = props;
 
+  // actionable = unexpected if present, else total (fallback)
+  const actionablePublicPorts = d.publicPortsCount;
+  const totalPublicPorts = d.publicPortsTotalCount;
+  const expectedPublicPorts = d.expectedPublicPorts ?? null;
+
+  const showPortsContext =
+    typeof totalPublicPorts === "number" &&
+    typeof actionablePublicPorts === "number" &&
+    totalPublicPorts !== actionablePublicPorts;
+
   return (
     <div
       style={{
@@ -36,7 +46,13 @@ export default function TopArea(props: {
             summary={d.actionSummary}
             level={d.level}
             alertsCount={s.alerts_count}
-            publicPortsCount={s.public_ports_count}
+            // IMPORTANT: pass actionable ports, not raw total
+            publicPortsCount={actionablePublicPorts}
+            // Optional context for richer messaging inside popup
+            publicPortsTotalCount={
+              typeof totalPublicPorts === "number" ? totalPublicPorts : undefined
+            }
+            expectedPublicPorts={expectedPublicPorts}
             stale={d.stale}
             host={s.host}
             version={s.version}
@@ -45,6 +61,18 @@ export default function TopArea(props: {
             baselineLabel={fmt(s.baseline_last_accepted_ts)}
             signedInAs={signedInAs}
           />
+
+          {/* Optional: show allowlist context when total != actionable */}
+          {showPortsContext ? (
+            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
+              Total public ports: <b>{totalPublicPorts}</b>{" "}
+              {expectedPublicPorts && expectedPublicPorts.length ? (
+                <>
+                  · Allowlisted: <b>{expectedPublicPorts.join(", ")}</b>
+                </>
+              ) : null}
+            </div>
+          ) : null}
         </Box>
 
         {billing ? (
@@ -126,7 +154,14 @@ export default function TopArea(props: {
         }}
       >
         <StatCard label="Alerts" value={s.alerts_count} />
-        <StatCard label="Public Ports" value={s.public_ports_count} />
+
+        {/* Label clarified: this is actionable/unexpected count */}
+        <StatCard label="Public Ports (Unexpected)" value={actionablePublicPorts} />
+
+        {showPortsContext ? (
+          <StatCard label="Public Ports (Total)" value={totalPublicPorts as number} />
+        ) : null}
+
         <StatCard label="SSH Failed" value={s.auth?.ssh_failed_password ?? 0} />
         <StatCard label="Invalid User" value={s.auth?.ssh_invalid_user ?? 0} />
 

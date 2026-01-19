@@ -11,14 +11,18 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  if (!session?.user) redirect("/login");
 
-  const env = await getStatusEnvelopeSafe();
+  const email = session.user.email ?? null;
+  const signedInAs = email ?? session.user.name ?? "user";
 
-  const email = session.user?.email ?? null;
-  const billing = await getUserBilling(email);
+  // Fetch in parallel (env does not depend on billing)
+  const [env, billing] = await Promise.all([
+    getStatusEnvelopeSafe(),
+    getUserBilling(email),
+  ]);
 
-  const signedInAs = session.user?.email ?? session.user?.name ?? "user";
-
-  return <DashboardView env={env as any} billing={billing} signedInAs={signedInAs} />;
+  return (
+    <DashboardView env={env as any} billing={billing} signedInAs={signedInAs} />
+  );
 }

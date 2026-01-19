@@ -32,6 +32,33 @@ function safeParse(s: string) {
   }
 }
 
+function isPlainObject(v: any): v is Record<string, any> {
+  return v && typeof v === "object" && !Array.isArray(v);
+}
+
+function derivePublicPortsTotalCount(base: any): number {
+  if (typeof base?.public_ports_count === "number") return base.public_ports_count;
+  if (Array.isArray(base?.ports_public)) return base.ports_public.length;
+  return 0;
+}
+
+function deriveUnexpectedPublicPortsCount(base: any): number | null {
+  if (typeof base?.unexpected_public_ports_count === "number") {
+    return base.unexpected_public_ports_count;
+  }
+  if (Array.isArray(base?.ports_public_unexpected)) {
+    return base.ports_public_unexpected.length;
+  }
+  return null;
+}
+
+function deriveExpectedPublicPorts(base: any): string[] | null {
+  if (Array.isArray(base?.expected_public_ports)) {
+    return base.expected_public_ports.filter((x: any) => typeof x === "string");
+  }
+  return null;
+}
+
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
@@ -61,26 +88,17 @@ export async function POST(
   });
 
   if (!host) {
-    return NextResponse.json(
-      { ok: false, error: "Host not found" },
-      { status: 404 }
-    );
+    return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
   }
 
   const key = host.apiKeys.find((k) => k.tokenHash === tokenHash);
   if (!key) {
-    return NextResponse.json(
-      { ok: false, error: "Invalid token" },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 });
   }
 
   const payload = await req.json().catch(() => null);
   if (!payload || typeof payload !== "object") {
-    return NextResponse.json(
-      { ok: false, error: "Invalid JSON body" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
   // Supports BOTH:
@@ -94,9 +112,7 @@ export async function POST(
 
   // Base object used for counts/version + stored statusJson
   const base =
-    statusObj && typeof statusObj === "object" && !Array.isArray(statusObj)
-      ? statusObj
-      : payload;
+    isPlainObject(statusObj) ? statusObj : (payload as any);
 
   // Prefer base.ts; fallback payload.ts; fallback now
   const ts = asIsoDate((base as any)?.ts ?? (payload as any).ts);
@@ -108,19 +124,21 @@ export async function POST(
         ? (base as any).alerts.length
         : 0;
 
-  const publicPortsCount =
-    typeof (base as any)?.public_ports_count === "number"
-      ? (base as any).public_ports_count
-      : Array.isArray((base as any)?.ports_public)
-        ? (base as any).ports_public.length
-        : 0;
+  // TOTAL public ports (raw)
+  const publicPortsTotalCount = derivePublicPortsTotalCount(base);
+
+  // ACTIONABLE ports = "unexpected" if the normalizer/allowlist is active
+  const unexpectedMaybe = deriveUnexpectedPublicPortsCount(base);
+  const publicPortsCount = (unexpectedMaybe ?? publicPortsTotalCount);
+
+  const unexpectedPublicPortsCount = publicPortsCount; // always numeric for clients
+  const expectedPublicPorts = deriveExpectedPublicPorts(base);
 
   const agentVersion =
     typeof (base as any)?.version === "string" && (base as any).version
       ? (base as any).version
       : null;
 
-  // Persist snapshot + update host heartbeat
   await prisma.$transaction([
     prisma.hostApiKey.update({
       where: { id: key.id },
@@ -142,6 +160,7 @@ export async function POST(
         diffJson: diffObj ? JSON.stringify(diffObj) : null,
         ok,
         alertsCount,
+        // NOTE: store actionable count in the snapshot column
         publicPortsCount,
       },
     }),
@@ -149,7 +168,7 @@ export async function POST(
       data: {
         hostId,
         action: "host.ingest",
-        detail: `Ingest snapshot: ok=${ok} alerts=${alertsCount} publicPorts=${publicPortsCount}`,
+        detail: `Ingest snapshot: ok=${ok} alerts=${alertsCount} unexpectedPublicPorts=${publicPortsCount} totalPublicPorts=${publicPortsTotalCount}`,
       },
     }),
   ]);
@@ -161,7 +180,16 @@ export async function POST(
     persisted: true,
     ts: ts.toISOString(),
     alertsCount,
+
+    // Backward-compat: publicPortsCount is now ACTIONABLE count
     publicPortsCount,
+
+    // New: raw total + actionable (unexpected) count
+    publicPortsTotalCount,
+    unexpectedPublicPortsCount,
+
+    // Nice-to-have context for UI/debug panels
+    expectedPublicPorts,
   });
 }
 
@@ -171,7 +199,6 @@ export async function GET(
 ) {
   const { hostId } = await ctx.params;
 
-  // Allow GET using the same Bearer token (so you can curl it)
   const token = bearerToken(req);
   if (!token) {
     return NextResponse.json(
@@ -190,18 +217,12 @@ export async function GET(
   });
 
   if (!host) {
-    return NextResponse.json(
-      { ok: false, error: "Host not found" },
-      { status: 404 }
-    );
+    return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
   }
 
   const allowed = host.apiKeys.some((k) => k.tokenHash === tokenHash);
   if (!allowed) {
-    return NextResponse.json(
-      { ok: false, error: "Invalid token" },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 });
   }
 
   const snap = await prisma.hostSnapshot.findFirst({
@@ -211,6 +232,14 @@ export async function GET(
 
   if (!snap) return NextResponse.json({ ok: true, hostId, snapshot: null });
 
+  const statusParsed: any = safeParse(snap.statusJson);
+  const base = isPlainObject(statusParsed) ? statusParsed : {};
+
+  const publicPortsTotalCount = derivePublicPortsTotalCount(base);
+  const unexpectedMaybe = deriveUnexpectedPublicPortsCount(base);
+  const actionable = (unexpectedMaybe ?? publicPortsTotalCount);
+  const expectedPublicPorts = deriveExpectedPublicPorts(base);
+
   return NextResponse.json({
     ok: true,
     hostId,
@@ -219,8 +248,16 @@ export async function GET(
       ts: snap.ts,
       ok: snap.ok,
       alertsCount: snap.alertsCount,
+
+      // Stored column is actionable count (by POST logic)
       publicPortsCount: snap.publicPortsCount,
-      status: safeParse(snap.statusJson),
+
+      // Derived from statusJson for UI/debug
+      publicPortsTotalCount,
+      unexpectedPublicPortsCount: actionable,
+      expectedPublicPorts,
+
+      status: statusParsed,
       last: snap.lastJson ? safeParse(snap.lastJson) : null,
       diff: snap.diffJson ? safeParse(snap.diffJson) : null,
     },
