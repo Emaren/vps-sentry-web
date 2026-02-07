@@ -25,25 +25,29 @@ function safeParse(s: string) {
   }
 }
 
-function derivePublicPortsTotalCount(base: any): number {
-  if (typeof base?.public_ports_count === "number") return base.public_ports_count;
-  if (Array.isArray(base?.ports_public)) return base.ports_public.length;
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+}
+
+function derivePublicPortsTotalCount(base: Record<string, unknown>): number {
+  if (typeof base.public_ports_count === "number") return base.public_ports_count;
+  if (Array.isArray(base.ports_public)) return base.ports_public.length;
   return 0;
 }
 
-function deriveUnexpectedPublicPortsCount(base: any): number | null {
-  if (typeof base?.unexpected_public_ports_count === "number") {
+function deriveUnexpectedPublicPortsCount(base: Record<string, unknown>): number | null {
+  if (typeof base.unexpected_public_ports_count === "number") {
     return base.unexpected_public_ports_count;
   }
-  if (Array.isArray(base?.ports_public_unexpected)) {
+  if (Array.isArray(base.ports_public_unexpected)) {
     return base.ports_public_unexpected.length;
   }
   return null;
 }
 
-function deriveExpectedPublicPorts(base: any): string[] | null {
-  if (Array.isArray(base?.expected_public_ports)) {
-    const out = base.expected_public_ports.filter((x: any) => typeof x === "string");
+function deriveExpectedPublicPorts(base: Record<string, unknown>): string[] | null {
+  if (Array.isArray(base.expected_public_ports)) {
+    const out = base.expected_public_ports.filter((x): x is string => typeof x === "string");
     return out.length ? out : null;
   }
   return null;
@@ -271,8 +275,8 @@ export async function GET(
     });
   }
 
-  const statusParsed: any = safeParse(snap.statusJson);
-  const base = statusParsed && typeof statusParsed === "object" ? statusParsed : {};
+  const statusParsed = safeParse(snap.statusJson);
+  const base = asRecord(statusParsed) ?? {};
 
   const publicPortsTotalCount = derivePublicPortsTotalCount(base);
   const unexpectedMaybe = deriveUnexpectedPublicPortsCount(base);

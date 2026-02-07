@@ -10,8 +10,12 @@ const LAST_PATH = "/var/lib/vps-sentry/public/last.json";
 const DIFF_PATH = "/var/lib/vps-sentry/public/diff.json";
 
 type ReadResult =
-  | { ok: true; path: string; data: any }
+  | { ok: true; path: string; data: unknown }
   | { ok: false; path: string; error: string };
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 async function readJsonSafe(path: string): Promise<ReadResult> {
   try {
@@ -21,12 +25,12 @@ async function readJsonSafe(path: string): Promise<ReadResult> {
       return { ok: false, path, error: "empty file" };
     }
     return { ok: true, path, data: JSON.parse(raw) };
-  } catch (e: any) {
-    return { ok: false, path, error: String(e?.message ?? e) };
+  } catch (e: unknown) {
+    return { ok: false, path, error: errorMessage(e) };
   }
 }
 
-function noStoreJson(body: any, init?: { status?: number }) {
+function noStoreJson(body: unknown, init?: { status?: number }) {
   const res = NextResponse.json(body, { status: init?.status ?? 200 });
   // be explicit: status should never be cached by proxies/CDNs
   res.headers.set("Cache-Control", "no-store, max-age=0");

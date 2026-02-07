@@ -14,6 +14,10 @@ function stripeConfigured(): boolean {
   return Boolean(requireEnv("STRIPE_SECRET_KEY"));
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export async function POST() {
   if (!stripeConfigured()) {
     return NextResponse.json(
@@ -32,22 +36,22 @@ export async function POST() {
       id: true,
       stripeCustomerId: true,
       subscriptionId: true,
-    } as any,
+    },
   });
 
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
   // Try to find a subscription id: prefer DB, else look up by customer
-  let subscriptionId: string | null = (user as any).subscriptionId?.trim?.() || null;
+  let subscriptionId: string | null = user.subscriptionId?.trim() || null;
 
   if (!subscriptionId) {
-    const customerId: string | null = (user as any).stripeCustomerId?.trim?.() || null;
+    const customerId: string | null = user.stripeCustomerId?.trim() || null;
     if (!customerId) {
       return NextResponse.json({ error: "No Stripe customer on file" }, { status: 400 });
     }
 
-    const subs = await stripe.subscriptions.list({ customer: customerId, limit: 10 } as any);
-    const active = subs.data.find((s: any) => s.status === "active" || s.status === "trialing");
+    const subs = await stripe.subscriptions.list({ customer: customerId, limit: 10 });
+    const active = subs.data.find((s) => s.status === "active" || s.status === "trialing");
     subscriptionId = active?.id ?? null;
   }
 
@@ -58,18 +62,19 @@ export async function POST() {
   // Cancel at period end (safe default)
   const updated = await stripe.subscriptions.update(subscriptionId, {
     cancel_at_period_end: true,
-  } as any);
+  });
 
   // Best-effort DB update (schema may vary)
   try {
     await prisma.user.update({
-      where: { id: (user as any).id },
+      where: { id: user.id },
       data: {
         subscriptionId,
         subscriptionStatus: "CANCEL_AT_PERIOD_END",
-      } as any,
+      },
     });
-  } catch {
+  } catch (err: unknown) {
+    console.warn("[billing.cancel] failed to persist cancel state:", errorMessage(err));
     // ignore schema mismatch
   }
 

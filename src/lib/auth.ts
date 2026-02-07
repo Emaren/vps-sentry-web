@@ -1,5 +1,6 @@
 // /var/www/vps-sentry-web/src/lib/auth.ts
 import type { NextAuthOptions } from "next-auth";
+import type { Adapter } from "next-auth/adapters";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import GoogleProvider from "next-auth/providers/google";
 import EmailProvider from "next-auth/providers/email";
@@ -100,7 +101,7 @@ function buildEmailServerFromUrl(urlStr: string): EmailServerConfig | null {
 }
 
 function buildProviders() {
-  const providers: any[] = [];
+  const providers: NextAuthOptions["providers"] = [];
 
   // ---- Magic Link (Email) ----
   if (hasEmailEnv()) {
@@ -181,21 +182,21 @@ function buildProviders() {
  *   CALLBACK_EMAIL_ERROR DeleteSessionError / P2025
  */
 function isPrismaRecordNotFound(e: unknown): boolean {
-  const any = e as any;
-  return any?.code === "P2025";
+  const maybeErr = e as { code?: unknown };
+  return maybeErr?.code === "P2025";
 }
 
-const baseAdapter = PrismaAdapter(prisma) as any;
+const baseAdapter = PrismaAdapter(prisma) as Adapter;
 
-const patchedAdapter = {
+const patchedAdapter: Adapter = {
   ...baseAdapter,
-  async deleteSession(sessionToken: string) {
+  async deleteSession(sessionToken: string): Promise<void> {
+    // NextAuth expects: deleting a missing session should not be fatal.
+    if (!baseAdapter.deleteSession) return;
     try {
-      // NextAuth expects: deleting a missing session should not be fatal.
-      if (typeof baseAdapter.deleteSession !== "function") return null;
-      return await baseAdapter.deleteSession(sessionToken);
+      await baseAdapter.deleteSession(sessionToken);
     } catch (e) {
-      if (isPrismaRecordNotFound(e)) return null;
+      if (isPrismaRecordNotFound(e)) return;
       throw e;
     }
   },

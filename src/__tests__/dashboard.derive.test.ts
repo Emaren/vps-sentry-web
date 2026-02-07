@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveDashboard } from "../app/dashboard/_lib/derive";
+import type { Status } from "../lib/status";
 
 describe("deriveDashboard", () => {
   it("uses actionable counts for alerts and ports", () => {
@@ -23,7 +24,7 @@ describe("deriveDashboard", () => {
             sig: "udp|68",
           },
         ],
-      } as any,
+      } as Status,
     });
 
     expect(typeof out.alertsCount).toBe("number");

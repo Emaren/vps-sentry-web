@@ -14,6 +14,12 @@ VPS_APP_DIR="${VPS_APP_DIR:-}"
 VPS_WEB_SERVICE="${VPS_WEB_SERVICE:-vps-sentry-web.service}"
 VPS_ARCHIVE_BASE="${VPS_ARCHIVE_BASE:-/home/tony/_archive/vps-sentry}"
 VPS_HYGIENE_MAX_DEPTH="${VPS_HYGIENE_MAX_DEPTH:-6}"
+VPS_SSH_CONNECT_TIMEOUT="${VPS_SSH_CONNECT_TIMEOUT:-10}"
+VPS_SSH_CONNECTION_ATTEMPTS="${VPS_SSH_CONNECTION_ATTEMPTS:-2}"
+VPS_SSH_SERVER_ALIVE_INTERVAL="${VPS_SSH_SERVER_ALIVE_INTERVAL:-15}"
+VPS_SSH_SERVER_ALIVE_COUNT_MAX="${VPS_SSH_SERVER_ALIVE_COUNT_MAX:-3}"
+VPS_SSH_RETRIES="${VPS_SSH_RETRIES:-4}"
+VPS_SSH_RETRY_DELAY_SECONDS="${VPS_SSH_RETRY_DELAY_SECONDS:-5}"
 
 require_app_dir() {
   if [[ -z "$VPS_APP_DIR" ]]; then
@@ -22,11 +28,52 @@ require_app_dir() {
   fi
 }
 
+require_positive_int() {
+  local name="$1"
+  local value="$2"
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || [[ "$value" -le 0 ]]; then
+    echo "[hygiene] $name must be a positive integer: $value"
+    exit 1
+  fi
+}
+
 remote() {
-  ssh "$VPS_HOST" "$@"
+  local attempt=1
+  local max_attempts="$VPS_SSH_RETRIES"
+  local retry_delay="$VPS_SSH_RETRY_DELAY_SECONDS"
+  local exit_code=0
+
+  while true; do
+    if ssh \
+      -o BatchMode=yes \
+      -o LogLevel=ERROR \
+      -o ConnectTimeout="$VPS_SSH_CONNECT_TIMEOUT" \
+      -o ConnectionAttempts="$VPS_SSH_CONNECTION_ATTEMPTS" \
+      -o ServerAliveInterval="$VPS_SSH_SERVER_ALIVE_INTERVAL" \
+      -o ServerAliveCountMax="$VPS_SSH_SERVER_ALIVE_COUNT_MAX" \
+      "$VPS_HOST" "$@"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+
+    if [[ "$exit_code" -ne 255 || "$attempt" -ge "$max_attempts" ]]; then
+      return "$exit_code"
+    fi
+
+    echo "[hygiene] ssh_retry:$attempt/$max_attempts host=$VPS_HOST delay=${retry_delay}s" >&2
+    sleep "$retry_delay"
+    attempt=$((attempt + 1))
+  done
 }
 
 require_app_dir
+require_positive_int "VPS_SSH_CONNECT_TIMEOUT" "$VPS_SSH_CONNECT_TIMEOUT"
+require_positive_int "VPS_SSH_CONNECTION_ATTEMPTS" "$VPS_SSH_CONNECTION_ATTEMPTS"
+require_positive_int "VPS_SSH_SERVER_ALIVE_INTERVAL" "$VPS_SSH_SERVER_ALIVE_INTERVAL"
+require_positive_int "VPS_SSH_SERVER_ALIVE_COUNT_MAX" "$VPS_SSH_SERVER_ALIVE_COUNT_MAX"
+require_positive_int "VPS_SSH_RETRIES" "$VPS_SSH_RETRIES"
+require_positive_int "VPS_SSH_RETRY_DELAY_SECONDS" "$VPS_SSH_RETRY_DELAY_SECONDS"
 
 echo "[hygiene] host: $VPS_HOST"
 echo "[hygiene] app_dir: $VPS_APP_DIR"
@@ -63,9 +110,32 @@ fi
 
 dirty_status="$(git -C "$VPS_APP_DIR" status --porcelain || true)"
 if [[ -n "$dirty_status" ]]; then
-  echo "[hygiene] remote_git_dirty:$VPS_APP_DIR"
-  echo "$dirty_status"
-  fail=1
+  only_generated=1
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    path="${line#?? }"
+    if [[ "$path" != "next-env.d.ts" ]]; then
+      only_generated=0
+      break
+    fi
+  done <<<"$dirty_status"
+
+  if [[ "$only_generated" -eq 1 ]]; then
+    echo "[hygiene] remote_git_autoclean:next-env.d.ts"
+    git -C "$VPS_APP_DIR" checkout -- next-env.d.ts || true
+    clean_after="$(git -C "$VPS_APP_DIR" status --porcelain || true)"
+    if [[ -n "$clean_after" ]]; then
+      echo "[hygiene] remote_git_dirty_after_autoclean:$VPS_APP_DIR"
+      echo "$clean_after"
+      fail=1
+    else
+      echo "[hygiene] remote_git_clean:$VPS_APP_DIR"
+    fi
+  else
+    echo "[hygiene] remote_git_dirty:$VPS_APP_DIR"
+    echo "$dirty_status"
+    fail=1
+  fi
 else
   echo "[hygiene] remote_git_clean:$VPS_APP_DIR"
 fi

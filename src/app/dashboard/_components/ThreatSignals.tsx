@@ -3,15 +3,19 @@ import React from "react";
 import Box from "./Box";
 import { safeJson } from "@/lib/status";
 
-export default function ThreatSignals({ threat }: { threat?: any }) {
-  const t = threat ?? {};
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+}
+
+export default function ThreatSignals({ threat }: { threat?: unknown }) {
+  const t = asRecord(threat) ?? {};
 
   const blocks: React.ReactNode[] = [];
   const entries: Array<[string, unknown]> = [
-    ["Suspicious processes", t.suspicious_processes],
-    ["Top CPU (new hogs)", t.top_cpu],
-    ["Outbound suspicious (pool/stratum)", t.outbound_suspicious],
-    ["Persistence hits (user/system)", t.persistence_hits],
+    ["Suspicious processes", t["suspicious_processes"]],
+    ["Top CPU (new hogs)", t["top_cpu"]],
+    ["Outbound suspicious (pool/stratum)", t["outbound_suspicious"]],
+    ["Persistence hits (user/system)", t["persistence_hits"]],
   ];
 
   for (let i = 0; i < entries.length; i++) {

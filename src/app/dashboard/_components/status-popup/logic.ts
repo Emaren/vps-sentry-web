@@ -2,6 +2,14 @@
 import type { ActionSummary } from "../../_lib/explain";
 import type { FixStep, FixStepStatus } from "./types";
 
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+}
+
+function asArray(v: unknown): unknown[] | null {
+  return Array.isArray(v) ? v : null;
+}
+
 export function buildActionsNeeded(input: {
   alertsCount: number;
   publicPortsCount: number; // actionable (unexpected)
@@ -48,11 +56,11 @@ export function buildExplainText(input: {
   const lines: string[] = [];
 
   // Try to pull something structured if it exists (best-effort).
-  const anySummary: any = input.summary as any;
+  const summaryObj = asRecord(input.summary) ?? {};
   const maybeArray =
-    (Array.isArray(anySummary?.bullets) && anySummary.bullets) ||
-    (Array.isArray(anySummary?.actions) && anySummary.actions) ||
-    (Array.isArray(anySummary?.items) && anySummary.items) ||
+    asArray(summaryObj.bullets) ||
+    asArray(summaryObj.actions) ||
+    asArray(summaryObj.items) ||
     null;
 
   lines.push("Here’s what this snapshot means:");
@@ -99,7 +107,15 @@ export function buildExplainText(input: {
     lines.push("Extra detail:");
     for (let i = 0; i < Math.min(maybeArray.length, 6); i++) {
       const v = maybeArray[i];
-      const s = typeof v === "string" ? v : v?.title || v?.label || JSON.stringify(v);
+      if (typeof v === "string") {
+        lines.push(`• ${v}`);
+        continue;
+      }
+      const obj = asRecord(v);
+      const s =
+        (typeof obj?.title === "string" && obj.title) ||
+        (typeof obj?.label === "string" && obj.label) ||
+        JSON.stringify(v);
       lines.push(`• ${s}`);
     }
   }

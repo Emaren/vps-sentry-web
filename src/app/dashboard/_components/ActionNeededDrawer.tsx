@@ -44,6 +44,10 @@ function sevBadge(sev: ActionItem["severity"]) {
   );
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 async function post(endpoint: string) {
   const res = await fetch(endpoint, { method: "POST" });
   const data = await res.json().catch(() => null);
@@ -231,8 +235,8 @@ export default function ActionNeededDrawer(props: {
                             setBusy(a.endpoint);
                             const out = await post(a.endpoint);
                             setToast(out?.ok ? "Done." : "Done (check results).");
-                          } catch (e: any) {
-                            setToast(`Failed: ${String(e?.message ?? e)}`);
+                          } catch (e: unknown) {
+                            setToast(`Failed: ${errorMessage(e)}`);
                           } finally {
                             setBusy(null);
                           }

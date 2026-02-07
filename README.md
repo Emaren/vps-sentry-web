@@ -22,12 +22,21 @@ Next.js frontend for VPS Sentry.
      - `VPS_DEPLOY_STRATEGY=abort` (recommended)
      - `VPS_REQUIRE_CLEAN_LOCAL=1`
      - `VPS_REQUIRE_PUSHED_REF=1`
+     - `VPS_REQUIRE_NONINTERACTIVE_SUDO=1` (recommended for zero-interactive deploys)
+   - SSH reliability defaults:
+     - `VPS_SSH_CONNECT_TIMEOUT=10`
+     - `VPS_SSH_CONNECTION_ATTEMPTS=2`
+     - `VPS_SSH_SERVER_ALIVE_INTERVAL=15`
+     - `VPS_SSH_SERVER_ALIVE_COUNT_MAX=3`
+     - `VPS_SSH_RETRIES=4`
+     - `VPS_SSH_RETRY_DELAY_SECONDS=5`
    - If the VPS repo has drift/local commits and you explicitly want to reset it safely:
      - set `VPS_DEPLOY_STRATEGY=reset` (script creates `backup/pre-deploy-*` then hard-resets to origin)
    - Set either `VPS_SERVICE` (systemd) or `VPS_PM2_APP` (pm2).
 3. Run commands:
    ```bash
    cd /Users/tonyblum/projects/vps-sentry-web
+   make vps-doctor
    make vps-check
    make vps-hygiene-check
    make deploy
@@ -35,6 +44,19 @@ Next.js frontend for VPS Sentry.
    make logs
    make rollback TO=HEAD~1
    ```
+
+## Reliability Backbone (Step 1)
+
+Deploy path now runs in zero-interactive mode:
+
+- SSH uses batch mode + timeout knobs so it fails fast.
+- SSH commands auto-retry on transient connection refusals.
+- Service restart uses `sudo -n` and will fail clearly if sudo would prompt.
+- Run `make vps-doctor` before deploys to validate readiness.
+
+Recovery runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/vps-recovery-runbook.md`
 
 ## Alert Quality Knobs
 
@@ -138,6 +160,11 @@ Hardening controls:
   - per-host execute hourly cap
   - block concurrent execute for the same host/action
 - Runner output redaction masks likely secrets (`Authorization Bearer`, `token=`, `password=`).
+- RBAC gate for privileged admin/ops surfaces:
+  - `/admin`
+  - `POST /api/ops/report-now`
+  - `POST /api/ops/test-email`
+- Privileged actions now write structured `AuditLog` entries with IP/user-agent where request context exists.
 
 Tuning env knobs:
 
@@ -148,15 +175,166 @@ Tuning env knobs:
 - `VPS_REMEDIATE_ENFORCE_ALLOWLIST` (default `1`)
 - `VPS_REMEDIATE_MAX_COMMANDS_PER_ACTION` (default `20`)
 - `VPS_REMEDIATE_MAX_COMMAND_LENGTH` (default `800`)
+- `VPS_ADMIN_EMAILS` (optional; comma/newline-separated admin allowlist)
+  - fallback default: `tonyblumdev@gmail.com`
 - Optional regex extensions:
   - `VPS_REMEDIATE_ALLOWLIST_REGEX`
   - `VPS_REMEDIATE_BLOCKLIST_REGEX`
+
+## v2.1 Step 4 Features (Support + Notify + Breaches)
+
+Support bundle API:
+
+- `GET /api/support/bundle`
+  - Auth required (session)
+  - Query params:
+    - `hostId` (optional)
+    - `limit` (optional, default 80)
+    - `includeRaw=1` (optional)
+    - `download=1` (optional; returns attachment header)
+- `POST /api/support/bundle`
+  - Auth required (session)
+  - Body supports same options as GET.
+
+Notify test API:
+
+- `POST /api/notify/test`
+  - Admin RBAC required
+  - Sends real notify tests to saved endpoints (`NotificationEndpoint`) or ad-hoc `target`.
+  - Body:
+    - `kind`: `EMAIL` or `WEBHOOK` (optional if inferable from `target`)
+    - `target`: email or webhook URL (optional)
+    - `hostId`: optional host context
+    - `title`, `detail`: optional custom test message
+  - Persists `NotificationEvent` rows for each attempt.
+
+Breaches API:
+
+- `GET /api/hosts/:hostId/breaches`
+  - Auth required (session, host ownership enforced)
+  - Filters:
+    - `state=open|fixed|ignored|all`
+    - `severity=info|warn|critical|all`
+    - `q` (title/detail/code search)
+    - `cursor` + `limit` (pagination)
+    - `includeEvidence=1`
+- `POST /api/hosts/:hostId/breaches`
+  - Auth required (session, host ownership enforced)
+  - Actions:
+    - `create`
+    - `mark-fixed`
+    - `reopen`
+    - `ignore`
+    - `set-state`
+
+## v2.2 Step 5 (SQLite -> Postgres Migration)
+
+Migration artifacts:
+
+- Postgres Prisma schema: `/Users/tonyblum/projects/vps-sentry-web/prisma/schema.postgres.prisma`
+- Postgres baseline SQL: `/Users/tonyblum/projects/vps-sentry-web/prisma/postgres/0001_init.sql`
+- Runbook: `/Users/tonyblum/projects/vps-sentry-web/docs/sqlite-postgres-migration.md`
+
+Commands:
+
+```bash
+# env setup
+export POSTGRES_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/vps_sentry_web?schema=public"
+export SQLITE_DB_PATH="/Users/tonyblum/projects/vps-sentry-web/prisma/dev.db"
+
+# phased
+make db-pg-init
+make db-pg-copy
+make db-pg-verify
+
+# one-command (backup + init + copy + verify)
+make db-pg-migrate
+```
+
+Zero-data-loss controls:
+
+- Pre-cutover source snapshot (`.db-migration-backups/<timestamp>/sqlite-precutover.db`).
+- Optional Postgres pre/post copy dumps if `pg_dump` is present.
+- Parity verification:
+  - row counts
+  - keyset identity checks
+  - null-vs-empty text invariants.
+
+## v2.3 Step 6 (Production Ops: Monitor + Alert + Backup + Restore Drill)
+
+New scripts:
+
+- `/Users/tonyblum/projects/vps-sentry-web/scripts/vps-monitor.sh`
+  - Checks service health, smoke endpoints, disk threshold, and backup freshness.
+- `/Users/tonyblum/projects/vps-sentry-web/scripts/vps-alert.sh`
+  - Sends alerts to webhook and/or local mail/sendmail transports.
+- `/Users/tonyblum/projects/vps-sentry-web/scripts/vps-backup.sh`
+  - Creates snapshot artifacts (app archive, sqlite snapshot, optional postgres dump).
+- `/Users/tonyblum/projects/vps-sentry-web/scripts/vps-restore-drill.sh`
+  - Verifies backup integrity and performs a non-prod restore drill.
+- `/Users/tonyblum/projects/vps-sentry-web/scripts/vps-backup-automation.sh`
+  - Installs/removes/checks VPS cron automation for hourly backups.
+
+Runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/production-ops-runbook.md`
+
+Make targets:
+
+```bash
+make vps-monitor
+make vps-monitor-alert
+make vps-backup-dry-run
+make vps-backup
+make vps-restore-drill
+make vps-backup-automation-status
+make vps-backup-automation-install
+make vps-backup-automation-remove
+```
+
+Recommended operator flow:
+
+```bash
+# 1) Preview backup output
+make vps-backup-dry-run
+
+# 2) Take real snapshot and write freshness marker
+make vps-backup
+
+# 3) Validate restore path
+make vps-restore-drill
+
+# 4) Install hourly automation on VPS cron
+make vps-backup-automation-install
+
+# 5) Run monitor with alert fanout
+make vps-monitor-alert
+```
+
+Step 6 env knobs live in:
+
+- `/Users/tonyblum/projects/vps-sentry-web/.vps.example.env`
+
+Important Postgres drill note:
+
+- If backup includes `postgres.sql`, set `VPS_RESTORE_DRILL_POSTGRES_URL` to a dedicated scratch DB.
+- Restore drill resets `public` schema on that drill DB (never point it at live production DB).
 
 Release gate commands:
 
 ```bash
 make release-gate   # test + typecheck + vps-check + vps-hygiene-check + smoke
 make release        # release-gate + deploy + smoke
+```
+
+CI gate:
+
+- GitHub Actions workflow: `/Users/tonyblum/projects/vps-sentry-web/.github/workflows/ci.yml`
+- Pipeline order: `test -> typecheck -> lint -> build`
+- Local equivalent:
+
+```bash
+npm test && npx tsc --noEmit && npm run lint && npm run build
 ```
 
 Archive pruning:

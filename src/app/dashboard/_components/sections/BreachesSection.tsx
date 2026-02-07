@@ -14,12 +14,12 @@ export default function BreachesSection(props: { derived: DerivedDashboard; snap
   if (Array.isArray(breaches)) {
     for (let i = 0; i < breaches.length; i++) {
       const b = breaches[i] ?? {};
-      const title = pickString((b as any).title) ?? "Breach";
-      const detail = pickString((b as any).detail) ?? null;
-      const sev = pickString((b as any).severity) ?? null;
-      const state = pickString((b as any).state) ?? null;
-      const opened = pickString((b as any).opened_ts) ?? null;
-      const fixed = pickString((b as any).fixed_ts) ?? null;
+      const title = pickString(b.title) ?? "Breach";
+      const detail = pickString(b.detail) ?? null;
+      const sev = pickString(b.severity) ?? null;
+      const state = pickString(b.state) ?? null;
+      const opened = pickString(b.opened_ts) ?? null;
+      const fixed = pickString(b.fixed_ts) ?? null;
 
       breachCards.push(
         <Box key={i}>

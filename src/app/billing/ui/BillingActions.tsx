@@ -7,6 +7,11 @@ import { useState } from "react";
 type Plan = "BASIC" | "PRO";
 type Mode = "upgrade" | "portal";
 
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
+
 export default function BillingActions({
   defaultPlan,
   mode = "upgrade",
@@ -28,8 +33,8 @@ export default function BillingActions({
       if (!res.ok) throw new Error(data?.error || "Checkout failed");
       if (!data?.url) throw new Error("Checkout missing url");
       window.location.href = data.url;
-    } catch (e: any) {
-      alert(e?.message || "Checkout failed");
+    } catch (e: unknown) {
+      alert(errorMessage(e, "Checkout failed"));
     } finally {
       setLoading(null);
     }
@@ -43,8 +48,8 @@ export default function BillingActions({
       if (!res.ok) throw new Error(data?.error || "Portal failed");
       if (!data?.url) throw new Error("Portal missing url");
       window.location.href = data.url;
-    } catch (e: any) {
-      alert(e?.message || "Portal failed");
+    } catch (e: unknown) {
+      alert(errorMessage(e, "Portal failed"));
     } finally {
       setLoading(null);
     }
@@ -59,8 +64,8 @@ export default function BillingActions({
       if (!res.ok) throw new Error(data?.error || "Cancel failed");
       alert("✅ Cancellation requested. Check status in a moment.");
       window.location.reload();
-    } catch (e: any) {
-      alert(e?.message || "Cancel failed");
+    } catch (e: unknown) {
+      alert(errorMessage(e, "Cancel failed"));
     } finally {
       setLoading(null);
     }

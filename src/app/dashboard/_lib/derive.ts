@@ -1,6 +1,6 @@
 // /var/www/vps-sentry-web/src/app/dashboard/_lib/derive.ts
 import React from "react";
-import { minutesAgo, fmt, type Status } from "@/lib/status";
+import { minutesAgo, fmt, type Status, type Breach, type Port, type Shipping } from "@/lib/status";
 import { buildActionSummary } from "./explain";
 import {
   applyAlertPolicy,
@@ -33,6 +33,11 @@ function pickStringArray(v: unknown): string[] | null {
 }
 
 type AlertItem = RawAlertItem;
+type DashboardPort = Pick<Port, "proto" | "host" | "port" | "proc" | "pid">;
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+}
 
 function isPortsNoiseAlert(alert: AlertItem, expectedPortsLower: string[]): boolean {
   const t = `${alert.title ?? ""} ${alert.detail ?? ""}`.toLowerCase();
@@ -134,21 +139,15 @@ export type DerivedDashboard = {
   publicPortsCount: number; // actionable (unexpected if present, else total)
   unexpectedPublicPortsCount: number; // alias of actionable count (always numeric)
   expectedPublicPorts: string[] | null; // e.g. ["udp:68"]
-  portsPublicForAction: any[]; // unexpected list if present, else total list
+  portsPublicForAction: DashboardPort[]; // unexpected list if present, else total list
 
   // Optional future signals (present = show)
   breachesOpen: number | null;
   breachesFixed: number | null;
-  breaches: any[] | null;
+  breaches: Breach[] | null;
   hasBreachSignals: boolean;
 
-  shipping:
-    | {
-        last_ship_ok?: boolean;
-        last_ship_ts?: string;
-        last_ship_error?: string;
-      }
-    | undefined;
+  shipping: Shipping | undefined;
   hasShippingSignals: boolean;
 
   // Debug extras (from /api/status envelope raw)
@@ -175,17 +174,10 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
   const stale = typeof ageMin === "number" ? ageMin >= 15 : false;
 
   // Future fields (optional)
-  const breachesOpen = pickNumber((s as any).breaches_open);
-  const breachesFixed = pickNumber((s as any).breaches_fixed);
-  const breaches = Array.isArray((s as any).breaches) ? ((s as any).breaches as any[]) : null;
-
-  const shipping = (s as any).shipping as
-    | {
-        last_ship_ok?: boolean;
-        last_ship_ts?: string;
-        last_ship_error?: string;
-      }
-    | undefined;
+  const breachesOpen = pickNumber(s.breaches_open);
+  const breachesFixed = pickNumber(s.breaches_fixed);
+  const breaches = Array.isArray(s.breaches) ? s.breaches : null;
+  const shipping = s.shipping;
 
   const hasBreachSignals =
     breachesOpen !== null || breachesFixed !== null || (Array.isArray(breaches) && breaches.length > 0);
@@ -196,18 +188,17 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
     Boolean(shipping?.last_ship_error);
 
   // ---- Public ports: prefer "unexpected" (actionable) if present ----
-  const publicPortsTotalCount =
-    typeof (s as any).public_ports_count === "number" ? (s as any).public_ports_count : 0;
+  const publicPortsTotalCount = s.public_ports_count;
 
-  const unexpectedMaybe = pickNumber((s as any).unexpected_public_ports_count);
+  const unexpectedMaybe = pickNumber(s.unexpected_public_ports_count);
   const publicPortsCount = unexpectedMaybe ?? publicPortsTotalCount;
 
   const unexpectedPublicPortsCount = publicPortsCount;
 
-  const expectedPublicPorts = pickStringArray((s as any).expected_public_ports);
+  const expectedPublicPorts = pickStringArray(s.expected_public_ports);
 
-  const portsPublicUnexpected = Array.isArray((s as any).ports_public_unexpected)
-    ? ((s as any).ports_public_unexpected as any[])
+  const portsPublicUnexpected = Array.isArray(s.ports_public_unexpected)
+    ? (s.ports_public_unexpected as unknown as DashboardPort[])
     : null;
 
   // What we feed into summary + action popup:
@@ -216,8 +207,8 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
   const portsPublicForAction = portsPublicUnexpected ?? (s.ports_public ?? []);
 
   // ---- Alerts: best-effort filter out allowlisted ports noise ----
-  const alertsRaw: AlertItem[] = Array.isArray((s as any).alerts) ? ((s as any).alerts as AlertItem[]) : [];
-  const alertsTotalCount = typeof (s as any).alerts_count === "number" ? (s as any).alerts_count : alertsRaw.length;
+  const alertsRaw: AlertItem[] = Array.isArray(s.alerts) ? s.alerts : [];
+  const alertsTotalCount = s.alerts_count;
 
   let alertsForAction: ScoredAlert[] = [];
   let alertsCount = alertsTotalCount;
@@ -272,18 +263,14 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
     `${fmt(snapshotTs)}` + (typeof ageMin === "number" ? ` · Age: ${ageMin}m${stale ? " (stale)" : ""}` : "");
 
   // Extract canonical status object + warnings/paths from raw /api/status
-  const rawAny = env.raw as any;
-  const canonicalStatus = rawAny && typeof rawAny === "object" ? (rawAny as any).status : undefined;
+  const rawObj = asRecord(env.raw);
+  const canonicalStatus = rawObj?.status;
 
-  const rawWarnings =
-    rawAny && typeof rawAny === "object" && Array.isArray((rawAny as any).warnings)
-      ? ((rawAny as any).warnings as string[])
-      : undefined;
+  const rawWarnings = Array.isArray(rawObj?.warnings)
+    ? rawObj.warnings.filter((x): x is string => typeof x === "string")
+    : undefined;
 
-  const rawPaths =
-    rawAny && typeof rawAny === "object" && (rawAny as any).paths && typeof (rawAny as any).paths === "object"
-      ? (rawAny as any).paths
-      : undefined;
+  const rawPaths = asRecord(rawObj?.paths) ?? undefined;
 
   const footerLinks = {
     discord: "https://discord.gg/REPLACE_ME",
@@ -358,13 +345,14 @@ function hasAlertMatch(alerts: AlertItem[], pattern: RegExp): boolean {
 }
 
 export function deriveThreatIndicators(s: Status): ThreatIndicator[] {
-  const alerts: AlertItem[] = Array.isArray((s as any).alerts) ? ((s as any).alerts as AlertItem[]) : [];
+  const alerts: AlertItem[] = Array.isArray(s.alerts) ? s.alerts : [];
   const indicators: ThreatIndicator[] = [];
 
+  const threat = asRecord(s.threat);
   const hasRuntimeSignals =
-    Boolean((s as any)?.threat?.suspicious_processes) ||
-    Boolean((s as any)?.threat?.outbound_suspicious) ||
-    Boolean((s as any)?.threat?.persistence_hits);
+    Boolean(threat?.suspicious_processes) ||
+    Boolean(threat?.outbound_suspicious) ||
+    Boolean(threat?.persistence_hits);
 
   if (!hasRuntimeSignals) {
     indicators.push({

@@ -8,6 +8,10 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
  * Stripe Webhook (LIVE)
  *
@@ -50,11 +54,11 @@ export async function POST(req: Request) {
   try {
     // This MUST use the raw text body (not JSON) to validate the signature.
     event = stripe.webhooks.constructEvent(body, sig, whsec);
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
       {
         error: "Webhook signature verification failed",
-        detail: err?.message ?? String(err),
+        detail: errorMessage(err),
         requestId,
       },
       { status: 400 }
@@ -99,9 +103,9 @@ export async function POST(req: Request) {
     const resolvedPlan = planFromMetaOrPrice(sub);
 
     // Stripe object shape differs by API version; be tolerant.
-    const subAny = sub as any;
+    const subAny = sub as unknown as Record<string, unknown>;
     const periodEnd =
-      typeof subAny?.current_period_end === "number"
+      typeof subAny.current_period_end === "number"
         ? new Date(subAny.current_period_end * 1000)
         : null;
 
@@ -115,6 +119,8 @@ export async function POST(req: Request) {
     const active = isActiveStatus(sub.status);
     const finalPlan: "FREE" | "PRO" | "ELITE" = active ? resolvedPlan : "FREE";
     const hostLimit = active ? hostLimitFor(resolvedPlan) : 1;
+    const persistedPlan: "FREE" | "BASIC" | "PRO" =
+      finalPlan === "ELITE" ? "PRO" : finalPlan;
 
     // Subscription row (keeps history/state per user)
     await prisma.subscription.upsert({
@@ -144,7 +150,7 @@ export async function POST(req: Request) {
         subscriptionId: sub.id,
         subscriptionStatus: sub.status,
         currentPeriodEnd: periodEnd,
-        plan: finalPlan as any, // keep as-any until your Prisma enum is locked
+        plan: persistedPlan,
         hostLimit,
       },
     });
@@ -185,12 +191,12 @@ export async function POST(req: Request) {
       default:
         break;
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Stripe will retry on 5xx; return 500 so you don’t silently miss state updates.
     return NextResponse.json(
       {
         error: "Webhook handler failed",
-        detail: err?.message ?? String(err),
+        detail: errorMessage(err),
         eventType: event.type,
         requestId,
       },

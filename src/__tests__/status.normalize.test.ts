@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeStatusEnvelope } from "../lib/status";
+import type { Status } from "../lib/status";
 
 describe("normalizeStatusEnvelope", () => {
   it("normalizes raw status payload", () => {
@@ -11,7 +12,7 @@ describe("normalizeStatusEnvelope", () => {
       alerts: [{ title: "A" }, { title: "B" }],
       public_ports_count: 1,
       ports_public: [],
-    } as any);
+    } as Status);
 
     expect(out.last.host).toBe("test-host");
     expect(out.last.alerts_count).toBe(2);

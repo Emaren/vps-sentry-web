@@ -31,6 +31,15 @@ function stripeConfigured(): boolean {
   return Boolean(envTrim("STRIPE_SECRET_KEY"));
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function errorCode(err: unknown): string | null {
+  const candidate = err as { code?: unknown };
+  return typeof candidate?.code === "string" ? candidate.code : null;
+}
+
 function getPriceId(plan: Plan): string | null {
   // Prefer MONTHLY vars if you have them, but allow your older names too.
   const basic =
@@ -56,16 +65,15 @@ async function ensureStripeCustomer(user: {
   if (existing) {
     try {
       const c = await stripe.customers.retrieve(existing);
-      const anyC = c as any;
-      if (anyC?.deleted) {
+      if ("deleted" in c && c.deleted) {
         throw Object.assign(new Error("Customer is deleted"), {
           code: "resource_missing",
         });
       }
       return existing;
-    } catch (e: any) {
-      const msg = String(e?.message ?? "");
-      const code = String(e?.code ?? "");
+    } catch (e: unknown) {
+      const msg = errorMessage(e);
+      const code = errorCode(e) ?? "";
 
       if (code === "resource_missing" || msg.toLowerCase().includes("no such customer")) {
         await prisma.user.update({
@@ -129,8 +137,9 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "User not found", requestId: rid }, { status: 404 });
 
     let plan: Plan = "PRO";
-    const body = (await req.json().catch(() => null)) as any;
-    plan = normalizePlan(body?.plan);
+    const body = (await req.json().catch(() => null)) as unknown;
+    const bodyObj = body && typeof body === "object" ? (body as { plan?: unknown }) : null;
+    plan = normalizePlan(bodyObj?.plan);
 
     const priceId = getPriceId(plan);
     if (!priceId) {
@@ -185,9 +194,9 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ url: checkout.url, requestId: rid });
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
-      { error: String(err?.message ?? err), requestId: rid },
+      { error: errorMessage(err), requestId: rid },
       { status: 500 }
     );
   }

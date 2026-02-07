@@ -18,6 +18,13 @@ VPS_GIT_REF="${VPS_GIT_REF:-}"
 VPS_DEPLOY_STRATEGY="${VPS_DEPLOY_STRATEGY:-abort}"
 VPS_REQUIRE_CLEAN_LOCAL="${VPS_REQUIRE_CLEAN_LOCAL:-1}"
 VPS_REQUIRE_PUSHED_REF="${VPS_REQUIRE_PUSHED_REF:-1}"
+VPS_REQUIRE_NONINTERACTIVE_SUDO="${VPS_REQUIRE_NONINTERACTIVE_SUDO:-1}"
+VPS_SSH_CONNECT_TIMEOUT="${VPS_SSH_CONNECT_TIMEOUT:-10}"
+VPS_SSH_CONNECTION_ATTEMPTS="${VPS_SSH_CONNECTION_ATTEMPTS:-2}"
+VPS_SSH_SERVER_ALIVE_INTERVAL="${VPS_SSH_SERVER_ALIVE_INTERVAL:-15}"
+VPS_SSH_SERVER_ALIVE_COUNT_MAX="${VPS_SSH_SERVER_ALIVE_COUNT_MAX:-3}"
+VPS_SSH_RETRIES="${VPS_SSH_RETRIES:-4}"
+VPS_SSH_RETRY_DELAY_SECONDS="${VPS_SSH_RETRY_DELAY_SECONDS:-5}"
 
 usage() {
   cat <<'EOF'
@@ -25,6 +32,7 @@ Usage: ./scripts/vps.sh <command> [args]
 
 Commands:
   check                Validate SSH + app directory + optional service/pm2 target.
+  doctor               Run fail-fast readiness checks for SSH/sudo/restart path.
   deploy               Pull latest code, install deps, build, then restart app target.
   restart              Restart app target (systemd or pm2).
   logs                 Tail app logs (systemd journal or pm2 logs).
@@ -41,6 +49,16 @@ Deploy safety knobs:
     - 1 (default): require clean local git worktree before deploy.
   VPS_REQUIRE_PUSHED_REF=1|0
     - 1 (default): if VPS_GIT_REF is set, require local HEAD to exist on origin/<ref>.
+  VPS_REQUIRE_NONINTERACTIVE_SUDO=1|0
+    - 1 (default): fail fast if sudo would prompt (zero-interactive deploy mode).
+
+SSH reliability knobs:
+  VPS_SSH_CONNECT_TIMEOUT=10
+  VPS_SSH_CONNECTION_ATTEMPTS=2
+  VPS_SSH_SERVER_ALIVE_INTERVAL=15
+  VPS_SSH_SERVER_ALIVE_COUNT_MAX=3
+  VPS_SSH_RETRIES=4
+  VPS_SSH_RETRY_DELAY_SECONDS=5
 EOF
 }
 
@@ -49,6 +67,24 @@ require_app_dir() {
     echo "VPS_APP_DIR is not set. Add it in $ENV_FILE."
     exit 1
   fi
+}
+
+require_positive_int() {
+  local name="$1"
+  local value="$2"
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || [[ "$value" -le 0 ]]; then
+    echo "$name must be a positive integer: $value"
+    exit 1
+  fi
+}
+
+validate_runtime_config() {
+  require_positive_int "VPS_SSH_CONNECT_TIMEOUT" "$VPS_SSH_CONNECT_TIMEOUT"
+  require_positive_int "VPS_SSH_CONNECTION_ATTEMPTS" "$VPS_SSH_CONNECTION_ATTEMPTS"
+  require_positive_int "VPS_SSH_SERVER_ALIVE_INTERVAL" "$VPS_SSH_SERVER_ALIVE_INTERVAL"
+  require_positive_int "VPS_SSH_SERVER_ALIVE_COUNT_MAX" "$VPS_SSH_SERVER_ALIVE_COUNT_MAX"
+  require_positive_int "VPS_SSH_RETRIES" "$VPS_SSH_RETRIES"
+  require_positive_int "VPS_SSH_RETRY_DELAY_SECONDS" "$VPS_SSH_RETRY_DELAY_SECONDS"
 }
 
 require_local_deploy_safety() {
@@ -72,11 +108,108 @@ require_local_deploy_safety() {
 }
 
 remote() {
-  ssh "$VPS_HOST" "$@"
+  local attempt=1
+  local max_attempts="$VPS_SSH_RETRIES"
+  local retry_delay="$VPS_SSH_RETRY_DELAY_SECONDS"
+  local exit_code=0
+
+  while true; do
+    if ssh \
+      -o BatchMode=yes \
+      -o LogLevel=ERROR \
+      -o ConnectTimeout="$VPS_SSH_CONNECT_TIMEOUT" \
+      -o ConnectionAttempts="$VPS_SSH_CONNECTION_ATTEMPTS" \
+      -o ServerAliveInterval="$VPS_SSH_SERVER_ALIVE_INTERVAL" \
+      -o ServerAliveCountMax="$VPS_SSH_SERVER_ALIVE_COUNT_MAX" \
+      "$VPS_HOST" "$@"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+
+    if [[ "$exit_code" -ne 255 || "$attempt" -ge "$max_attempts" ]]; then
+      return "$exit_code"
+    fi
+
+    echo "ssh_retry:$attempt/$max_attempts host=$VPS_HOST delay=${retry_delay}s" >&2
+    sleep "$retry_delay"
+    attempt=$((attempt + 1))
+  done
 }
 
 remote_tty() {
-  ssh -t "$VPS_HOST" "$@"
+  local attempt=1
+  local max_attempts="$VPS_SSH_RETRIES"
+  local retry_delay="$VPS_SSH_RETRY_DELAY_SECONDS"
+  local exit_code=0
+
+  while true; do
+    if ssh -tt \
+      -o BatchMode=yes \
+      -o LogLevel=ERROR \
+      -o ConnectTimeout="$VPS_SSH_CONNECT_TIMEOUT" \
+      -o ConnectionAttempts="$VPS_SSH_CONNECTION_ATTEMPTS" \
+      -o ServerAliveInterval="$VPS_SSH_SERVER_ALIVE_INTERVAL" \
+      -o ServerAliveCountMax="$VPS_SSH_SERVER_ALIVE_COUNT_MAX" \
+      "$VPS_HOST" "$@"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+
+    if [[ "$exit_code" -ne 255 || "$attempt" -ge "$max_attempts" ]]; then
+      return "$exit_code"
+    fi
+
+    echo "ssh_retry_tty:$attempt/$max_attempts host=$VPS_HOST delay=${retry_delay}s" >&2
+    sleep "$retry_delay"
+    attempt=$((attempt + 1))
+  done
+}
+
+check_ssh_connectivity() {
+  local err=""
+  if ! err="$(remote "echo ssh_ok:\$(whoami)@\$(hostname)" 2>&1 >/dev/null)"; then
+    echo "ssh_unreachable:$VPS_HOST"
+    echo "hint: verify sshd is running, port 22 is open, and key auth works."
+    if [[ -n "$err" ]]; then
+      echo "ssh_error:$err"
+    fi
+    exit 50
+  fi
+}
+
+require_noninteractive_sudo() {
+  if [[ "$VPS_REQUIRE_NONINTERACTIVE_SUDO" != "1" ]]; then
+    return
+  fi
+
+  if [[ -z "$VPS_SERVICE" ]]; then
+    return
+  fi
+
+  local err=""
+  if ! err="$(remote "sudo -n systemctl show --property=Id '$VPS_SERVICE' >/dev/null 2>&1" 2>&1 >/dev/null)"; then
+    if [[ "$err" == *"Connection refused"* || "$err" == *"timed out"* || "$err" == *"No route to host"* ]]; then
+      echo "ssh_unreachable:$VPS_HOST"
+      echo "hint: transport failure occurred while checking non-interactive sudo."
+      echo "ssh_error:$err"
+      exit 50
+    fi
+
+    cat <<'EOF'
+sudo_noninteractive_required: cannot run sudo -n on VPS.
+This deploy flow is zero-interactive and will not wait for password prompts.
+Fix options:
+  1) Configure NOPASSWD sudo for service restart/status/log commands.
+  2) Set VPS_REQUIRE_NONINTERACTIVE_SUDO=0 (not recommended).
+See docs/vps-recovery-runbook.md.
+EOF
+    if [[ -n "$err" ]]; then
+      echo "sudo_probe_error:$err"
+    fi
+    exit 51
+  fi
 }
 
 install_and_build_block() {
@@ -98,6 +231,34 @@ fi
 if node -e "const p=require(\"./package.json\"); process.exit(p?.scripts?.build ? 0 : 1)"; then
   npm run build
 fi
+EOF
+}
+
+restart_block() {
+  if [[ -n "$VPS_SERVICE" ]]; then
+    cat <<EOF
+if [ "\${VPS_REQUIRE_NONINTERACTIVE_SUDO:-1}" = "1" ]; then
+  sudo -n systemctl show --property=Id '$VPS_SERVICE' >/dev/null 2>&1
+fi
+sudo -n systemctl restart '$VPS_SERVICE'
+sudo -n systemctl is-active '$VPS_SERVICE' >/dev/null
+echo service_active:'$VPS_SERVICE'
+sudo -n systemctl status '$VPS_SERVICE' --no-pager -n 30
+EOF
+    return
+  fi
+
+  if [[ -n "$VPS_PM2_APP" ]]; then
+    cat <<EOF
+pm2 restart '$VPS_PM2_APP'
+pm2 status '$VPS_PM2_APP'
+EOF
+    return
+  fi
+
+  cat <<'EOF'
+echo "No restart target configured. Set VPS_SERVICE or VPS_PM2_APP in .vps.env."
+exit 1
 EOF
 }
 
@@ -182,7 +343,8 @@ EOF
 
 restart_target() {
   if [[ -n "$VPS_SERVICE" ]]; then
-    remote_tty "sudo systemctl restart '$VPS_SERVICE' && sudo systemctl status '$VPS_SERVICE' --no-pager -n 30"
+    require_noninteractive_sudo
+    remote "set -eu; sudo -n systemctl restart '$VPS_SERVICE'; sudo -n systemctl is-active '$VPS_SERVICE' >/dev/null; echo service_active:'$VPS_SERVICE'; sudo -n systemctl status '$VPS_SERVICE' --no-pager -n 30"
     return
   fi
 
@@ -198,23 +360,93 @@ restart_target() {
 cmd="${1:-}"
 arg="${2:-}"
 
+validate_runtime_config
+
 case "$cmd" in
   check)
     require_app_dir
-    remote "set -e; echo connected:\$(whoami)@\$(hostname); if [ ! -d '$VPS_APP_DIR' ]; then echo app_dir_missing:'$VPS_APP_DIR'; exit 1; fi; echo app_dir_ok:'$VPS_APP_DIR'; cd '$VPS_APP_DIR'; echo branch:\$(git rev-parse --abbrev-ref HEAD); echo commit:\$(git rev-parse --short HEAD)"
-    if [[ -n "$VPS_SERVICE" ]]; then
-      remote "systemctl is-active '$VPS_SERVICE' >/dev/null 2>&1 && echo service_active:'$VPS_SERVICE' || echo service_inactive:'$VPS_SERVICE'"
-    fi
-    if [[ -n "$VPS_PM2_APP" ]]; then
-      remote "pm2 describe '$VPS_PM2_APP' >/dev/null 2>&1 && echo pm2_ok:'$VPS_PM2_APP' || echo pm2_missing:'$VPS_PM2_APP'"
-    fi
+    remote "set -e
+      echo connected:\$(whoami)@\$(hostname)
+      if [ ! -d '$VPS_APP_DIR' ]; then
+        echo app_dir_missing:'$VPS_APP_DIR'
+        exit 1
+      fi
+      echo app_dir_ok:'$VPS_APP_DIR'
+      cd '$VPS_APP_DIR'
+      echo branch:\$(git rev-parse --abbrev-ref HEAD)
+      echo commit:\$(git rev-parse --short HEAD)
+
+      if [ -n '$VPS_SERVICE' ]; then
+        if systemctl is-active '$VPS_SERVICE' >/dev/null 2>&1; then
+          echo service_active:'$VPS_SERVICE'
+        else
+          echo service_inactive:'$VPS_SERVICE'
+        fi
+      fi
+
+      if [ -n '$VPS_PM2_APP' ]; then
+        if pm2 describe '$VPS_PM2_APP' >/dev/null 2>&1; then
+          echo pm2_ok:'$VPS_PM2_APP'
+        else
+          echo pm2_missing:'$VPS_PM2_APP'
+        fi
+      fi"
+    ;;
+
+  doctor)
+    require_app_dir
+    remote "set -eu
+      doctor_ok=1
+
+      echo doctor_connected:\$(whoami)@\$(hostname)
+      if [ ! -d '$VPS_APP_DIR' ]; then
+        echo doctor_app_dir_missing:'$VPS_APP_DIR'
+        exit 1
+      fi
+      if [ ! -d '$VPS_APP_DIR/.git' ]; then
+        echo doctor_app_not_git:'$VPS_APP_DIR'
+        exit 1
+      fi
+      echo doctor_app_dir_ok:'$VPS_APP_DIR'
+
+      if [ -n '$VPS_SERVICE' ]; then
+        if sudo -n systemctl show --property=Id '$VPS_SERVICE' >/dev/null 2>&1; then
+          echo doctor_sudo_noninteractive:ok
+        else
+          echo doctor_sudo_noninteractive:missing
+          if [ '$VPS_REQUIRE_NONINTERACTIVE_SUDO' = '1' ]; then
+            doctor_ok=0
+          fi
+        fi
+
+        if systemctl cat '$VPS_SERVICE' >/dev/null 2>&1; then
+          echo doctor_service_unit_found:'$VPS_SERVICE'
+        else
+          echo doctor_service_unit_missing:'$VPS_SERVICE'
+        fi
+      fi
+
+      if [ -n '$VPS_PM2_APP' ]; then
+        if pm2 describe '$VPS_PM2_APP' >/dev/null 2>&1; then
+          echo doctor_pm2_ok:'$VPS_PM2_APP'
+        else
+          echo doctor_pm2_missing:'$VPS_PM2_APP'
+        fi
+      fi
+
+      if [ \"\$doctor_ok\" -ne 1 ]; then
+        echo doctor_fail:non-interactive sudo is required but unavailable
+        exit 51
+      fi
+
+      echo doctor_pass"
     ;;
 
   deploy)
     require_app_dir
     require_local_deploy_safety
-    remote_tty "VPS_GIT_REF=\"$VPS_GIT_REF\" VPS_DEPLOY_STRATEGY=\"$VPS_DEPLOY_STRATEGY\" bash -c 'set -euo pipefail; cd \"$VPS_APP_DIR\"; echo branch:\$(git rev-parse --abbrev-ref HEAD); $(git_sync_block); $(install_and_build_block)'"
-    restart_target
+    check_ssh_connectivity
+    remote "VPS_GIT_REF=\"$VPS_GIT_REF\" VPS_DEPLOY_STRATEGY=\"$VPS_DEPLOY_STRATEGY\" VPS_REQUIRE_NONINTERACTIVE_SUDO=\"$VPS_REQUIRE_NONINTERACTIVE_SUDO\" bash -c 'set -euo pipefail; cd \"$VPS_APP_DIR\"; echo branch:\$(git rev-parse --abbrev-ref HEAD); $(git_sync_block); $(install_and_build_block); $(restart_block)'"
     ;;
 
   restart)
@@ -223,10 +455,13 @@ case "$cmd" in
 
   logs)
     if [[ -n "$VPS_SERVICE" ]]; then
-      remote_tty "sudo journalctl -u '$VPS_SERVICE' -n '$VPS_LOG_LINES' -f --no-pager"
+      check_ssh_connectivity
+      require_noninteractive_sudo
+      remote_tty "sudo -n journalctl -u '$VPS_SERVICE' -n '$VPS_LOG_LINES' -f --no-pager"
       exit 0
     fi
     if [[ -n "$VPS_PM2_APP" ]]; then
+      check_ssh_connectivity
       remote_tty "pm2 logs '$VPS_PM2_APP' --lines '$VPS_LOG_LINES'"
       exit 0
     fi
@@ -237,7 +472,9 @@ case "$cmd" in
   rollback)
     require_app_dir
     target="${arg:-HEAD~1}"
-    remote_tty "bash -c 'set -euo pipefail; cd \"$VPS_APP_DIR\"; git fetch --all --prune; git rev-parse \"$target\" >/dev/null; echo rollback_to:$target; git reset --hard \"$target\"; $(install_and_build_block)'"
+    check_ssh_connectivity
+    require_noninteractive_sudo
+    remote "bash -c 'set -euo pipefail; cd \"$VPS_APP_DIR\"; git fetch --all --prune; git rev-parse \"$target\" >/dev/null; echo rollback_to:$target; git reset --hard \"$target\"; $(install_and_build_block)'"
     restart_target
     ;;
 

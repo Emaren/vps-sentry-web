@@ -53,8 +53,8 @@ export const stripe = new Proxy(
   {},
   {
     get(_target, prop) {
-      const s = getStripe() as any;
-      return s[prop];
+      const s = getStripe();
+      return Reflect.get(s as object, prop);
     },
   }
 ) as unknown as Stripe;
