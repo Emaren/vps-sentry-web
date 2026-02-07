@@ -136,7 +136,10 @@ export default async function HostsPage() {
                       display: "flex",
                       flexWrap: "wrap",
                       gap: 8,
-                      alignItems: "stretch",
+                      rowGap: 8,
+                      justifyContent: "flex-end",
+                      alignItems: "center",
+                      minHeight: 40,
                     }}
                   >
                     <Badge tone={h.enabled ? "ok" : "warn"} text={h.enabled ? "Enabled" : "Disabled"} />
@@ -202,7 +205,7 @@ function Badge(props: { tone: "ok" | "warn" | "bad"; text: string }) {
   return (
     <span
       style={{
-        display: "inline-flex",
+        display: "flex",
         alignItems: "center",
         justifyContent: "center",
         height: 40,

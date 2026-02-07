@@ -83,3 +83,22 @@ API:
 - `GET /api/hosts/:hostId/timeline?limit=40`
   - Auth required (session)
   - Returns `timeline` and `summary` for UI/automation consumers.
+
+## Safe Response Playbook (v1.5)
+
+New in web `v1.5`:
+
+- Host detail page includes a **Response Playbook (Safe)** section.
+- Suggested actions are generated from recent incident signals (no auto-execution).
+- Each action includes:
+  - priority (`P0/P1/P2`)
+  - risk level
+  - copy-ready command block
+  - rollback notes where applicable
+
+API:
+
+- `POST /api/remediate`
+  - Auth required (session)
+  - Body: `{ "hostId": "<host-id>", "limit": 40 }`
+  - Returns safe action recommendations derived from recent host snapshots.

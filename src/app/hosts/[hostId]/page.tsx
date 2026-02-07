@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { fmt } from "@/lib/status";
 import { classifyHeartbeat, heartbeatLabel, readHeartbeatConfig } from "@/lib/host-heartbeat";
 import { buildIncidentTimeline } from "@/lib/incident-signals";
+import { buildRemediationActions } from "@/lib/remediate/actions";
+import CopyCodeBlock from "@/app/get-vps-sentry/CopyCodeBlock";
 
 export const dynamic = "force-dynamic";
 
@@ -98,7 +100,9 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       }
     })
     .filter((x): x is { id: string; ts: Date; status: Record<string, unknown> } => Boolean(x));
-  const timeline = buildIncidentTimeline(timelineInput).timeline.slice(0, 20);
+  const timelineResult = buildIncidentTimeline(timelineInput);
+  const timeline = timelineResult.timeline.slice(0, 20);
+  const remediations = buildRemediationActions(timelineResult.timeline).slice(0, 4);
 
   return (
     <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
@@ -262,6 +266,43 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           </div>
         )}
       </section>
+
+      <section style={sectionStyle()}>
+        <h2 style={h2Style()}>Response Playbook (Safe)</h2>
+        <div style={{ opacity: 0.72, marginTop: 6, fontSize: 12 }}>
+          Human-confirmed actions only. Commands are copy-ready and non-automatic.
+        </div>
+
+        {remediations.length === 0 ? (
+          <div style={{ marginTop: 10, opacity: 0.7 }}>No response actions suggested for recent signals.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+            {remediations.map((a) => (
+              <div key={a.id} style={breachCardStyle()}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ fontWeight: 800 }}>{a.title}</div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={pillStyle("priority")}>{a.priority}</span>
+                    <span style={pillStyle("risk")}>risk:{a.risk}</span>
+                  </div>
+                </div>
+                <div style={{ marginTop: 8, opacity: 0.9 }}>{a.why}</div>
+                <div style={{ marginTop: 8, fontSize: 12, opacity: 0.72 }}>
+                  Triggered by: {a.sourceCodes.join(", ")}
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <CopyCodeBlock text={a.commands.join("\n")} />
+                </div>
+                {a.rollbackNotes?.length ? (
+                  <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+                    Rollback notes: {a.rollbackNotes.join(" ")}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </main>
   );
 }
@@ -357,6 +398,24 @@ function severityPill(severity: "critical" | "high" | "medium" | "low" | "info")
       : severity === "low"
       ? { bg: "rgba(156,163,175,0.12)", border: "rgba(156,163,175,0.35)", color: "#e5e7eb" }
       : { bg: "rgba(34,197,94,0.12)", border: "rgba(34,197,94,0.35)", color: "#bbf7d0" };
+
+  return {
+    border: `1px solid ${tone.border}`,
+    background: tone.bg,
+    color: tone.color,
+    borderRadius: 999,
+    padding: "3px 8px",
+    fontSize: 11,
+    fontWeight: 800,
+    textTransform: "uppercase",
+  };
+}
+
+function pillStyle(kind: "priority" | "risk"): React.CSSProperties {
+  const tone =
+    kind === "priority"
+      ? { bg: "rgba(59,130,246,0.14)", border: "rgba(59,130,246,0.35)", color: "#bfdbfe" }
+      : { bg: "rgba(245,158,11,0.14)", border: "rgba(245,158,11,0.35)", color: "#fcd34d" };
 
   return {
     border: `1px solid ${tone.border}`,
