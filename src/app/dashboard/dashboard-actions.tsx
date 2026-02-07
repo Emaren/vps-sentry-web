@@ -62,6 +62,10 @@ export default function DashboardActions() {
         Billing
       </Link>
 
+      <Link href="/hosts" style={linkStyle}>
+        Hosts
+      </Link>
+
       <button type="button" onClick={sendTestEmail} style={buttonStyle}>
         Send test email
       </button>

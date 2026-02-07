@@ -15,6 +15,9 @@ VPS_SERVICE="${VPS_SERVICE:-}"
 VPS_PM2_APP="${VPS_PM2_APP:-}"
 VPS_LOG_LINES="${VPS_LOG_LINES:-150}"
 VPS_GIT_REF="${VPS_GIT_REF:-}"
+VPS_DEPLOY_STRATEGY="${VPS_DEPLOY_STRATEGY:-abort}"
+VPS_REQUIRE_CLEAN_LOCAL="${VPS_REQUIRE_CLEAN_LOCAL:-1}"
+VPS_REQUIRE_PUSHED_REF="${VPS_REQUIRE_PUSHED_REF:-1}"
 
 usage() {
   cat <<'EOF'
@@ -29,6 +32,15 @@ Commands:
 
 Config:
   Create .vps.env from .vps.example.env.
+
+Deploy safety knobs:
+  VPS_DEPLOY_STRATEGY=abort|reset
+    - abort (default): fail deploy when remote branch has local-only commits.
+    - reset: create backup branch on VPS, then hard-reset to origin/<target>.
+  VPS_REQUIRE_CLEAN_LOCAL=1|0
+    - 1 (default): require clean local git worktree before deploy.
+  VPS_REQUIRE_PUSHED_REF=1|0
+    - 1 (default): if VPS_GIT_REF is set, require local HEAD to exist on origin/<ref>.
 EOF
 }
 
@@ -36,6 +48,26 @@ require_app_dir() {
   if [[ -z "$VPS_APP_DIR" ]]; then
     echo "VPS_APP_DIR is not set. Add it in $ENV_FILE."
     exit 1
+  fi
+}
+
+require_local_deploy_safety() {
+  if [[ "$VPS_REQUIRE_CLEAN_LOCAL" == "1" ]]; then
+    if ! git -C "$ROOT_DIR" diff --quiet || ! git -C "$ROOT_DIR" diff --cached --quiet; then
+      echo "local_worktree_dirty: commit/stash changes before deploy, or set VPS_REQUIRE_CLEAN_LOCAL=0"
+      git -C "$ROOT_DIR" status --short
+      exit 1
+    fi
+  fi
+
+  if [[ "$VPS_REQUIRE_PUSHED_REF" == "1" && -n "$VPS_GIT_REF" ]]; then
+    if git -C "$ROOT_DIR" show-ref --verify --quiet "refs/remotes/origin/$VPS_GIT_REF"; then
+      if ! git -C "$ROOT_DIR" merge-base --is-ancestor HEAD "origin/$VPS_GIT_REF"; then
+        echo "local_head_not_pushed: HEAD is not on origin/$VPS_GIT_REF"
+        echo "hint: push first or set VPS_REQUIRE_PUSHED_REF=0"
+        exit 1
+      fi
+    fi
   fi
 }
 
@@ -73,28 +105,58 @@ git_sync_block() {
   cat <<'EOF'
 git fetch --all --prune
 
+# Never deploy over a dirty remote working tree.
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "remote_worktree_dirty: commit/stash/reset remote changes before deploy"
+  git status --short
+  exit 40
+fi
+
 if [ -n "${VPS_GIT_REF:-}" ]; then
   target="$VPS_GIT_REF"
   echo sync_ref:$target
-  git checkout "$target" >/dev/null 2>&1 || git checkout -b "$target" "origin/$target"
-  git pull --ff-only origin "$target"
 else
   current="$(git rev-parse --abbrev-ref HEAD)"
-  if git rev-parse --abbrev-ref --symbolic-full-name "@{u}" >/dev/null 2>&1; then
-    echo sync_upstream:$(git rev-parse --abbrev-ref --symbolic-full-name "@{u}")
-    git pull --ff-only
-  elif git show-ref --verify --quiet "refs/remotes/origin/$current"; then
+  if git show-ref --verify --quiet "refs/remotes/origin/$current"; then
     echo sync_origin_branch:$current
-    git pull --ff-only origin "$current"
+    target="$current"
   else
     default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed "s@^origin/@@")"
     if [ -z "$default_branch" ]; then
       default_branch="main"
     fi
     echo sync_fallback_branch:$default_branch
-    git checkout "$default_branch" >/dev/null 2>&1 || git checkout -b "$default_branch" "origin/$default_branch"
-    git pull --ff-only origin "$default_branch"
+    target="$default_branch"
   fi
+fi
+
+if ! git show-ref --verify --quiet "refs/remotes/origin/$target"; then
+  echo "sync_error: origin/$target does not exist"
+  exit 41
+fi
+
+git checkout "$target" >/dev/null 2>&1 || git checkout -b "$target" "origin/$target"
+
+divergence="$(git rev-list --left-right --count HEAD...origin/$target)"
+ahead="$(echo "$divergence" | awk '{print $1}')"
+behind="$(echo "$divergence" | awk '{print $2}')"
+echo "sync_divergence:ahead=$ahead behind=$behind"
+
+if [ "$ahead" -gt 0 ]; then
+  if [ "${VPS_DEPLOY_STRATEGY:-abort}" = "reset" ]; then
+    backup_branch="backup/pre-deploy-$(date +%Y%m%d-%H%M%S)"
+    git branch "$backup_branch" HEAD >/dev/null 2>&1 || true
+    echo "sync_backup_branch:$backup_branch"
+    git reset --hard "origin/$target"
+  else
+    echo "sync_blocked: remote has local-only commits on $target"
+    echo "hint: set VPS_DEPLOY_STRATEGY=reset to auto-backup + hard reset"
+    exit 42
+  fi
+elif [ "$behind" -gt 0 ]; then
+  git pull --ff-only origin "$target"
+else
+  echo "sync_up_to_date:$target"
 fi
 EOF
 }
@@ -131,7 +193,8 @@ case "$cmd" in
 
   deploy)
     require_app_dir
-    remote_tty "VPS_GIT_REF=\"$VPS_GIT_REF\" bash -c 'set -euo pipefail; cd \"$VPS_APP_DIR\"; echo branch:\$(git rev-parse --abbrev-ref HEAD); $(git_sync_block); $(install_and_build_block)'"
+    require_local_deploy_safety
+    remote_tty "VPS_GIT_REF=\"$VPS_GIT_REF\" VPS_DEPLOY_STRATEGY=\"$VPS_DEPLOY_STRATEGY\" bash -c 'set -euo pipefail; cd \"$VPS_APP_DIR\"; echo branch:\$(git rev-parse --abbrev-ref HEAD); $(git_sync_block); $(install_and_build_block)'"
     restart_target
     ;;
 

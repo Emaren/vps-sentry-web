@@ -45,7 +45,7 @@ export default function TopArea(props: {
             headline={d.headline}
             summary={d.actionSummary}
             level={d.level}
-            alertsCount={s.alerts_count}
+            alertsCount={d.alertsCount}
             // IMPORTANT: pass actionable ports, not raw total
             publicPortsCount={actionablePublicPorts}
             // Optional context for richer messaging inside popup
@@ -71,6 +71,14 @@ export default function TopArea(props: {
                   · Allowlisted: <b>{expectedPublicPorts.join(", ")}</b>
                 </>
               ) : null}
+            </div>
+          ) : null}
+
+          {d.maintenanceActive ? (
+            <div style={{ marginTop: 8, fontSize: 12, color: "#fcd34d" }}>
+              Maintenance mode active
+              {d.maintenanceUntil ? <> until <b>{fmt(d.maintenanceUntil)}</b></> : null}
+              . Non-critical alerts are suppressed.
             </div>
           ) : null}
         </Box>
@@ -153,7 +161,11 @@ export default function TopArea(props: {
           gap: 12,
         }}
       >
-        <StatCard label="Alerts" value={s.alerts_count} />
+        <StatCard label="Alerts (Actionable)" value={d.alertsCount} />
+
+        {d.alertsSuppressedCount > 0 ? (
+          <StatCard label="Alerts (Suppressed)" value={d.alertsSuppressedCount} />
+        ) : null}
 
         {/* Label clarified: this is actionable/unexpected count */}
         <StatCard label="Public Ports (Unexpected)" value={actionablePublicPorts} />

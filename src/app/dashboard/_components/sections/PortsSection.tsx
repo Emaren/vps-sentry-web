@@ -1,17 +1,16 @@
 // /var/www/vps-sentry-web/src/app/dashboard/_components/sections/PortsSection.tsx
 import React from "react";
-import type { Status } from "@/lib/status";
 import { fmt } from "@/lib/status";
 import Box from "../Box";
-import { thStyle, tdStyle } from "../../_lib/derive";
+import { thStyle, tdStyle, type DerivedDashboard } from "../../_lib/derive";
 
-export default function PortsSection(props: { status: Status; snapshotTs: string }) {
-  const { status: s, snapshotTs } = props;
+export default function PortsSection(props: { derived: DerivedDashboard; snapshotTs: string }) {
+  const { derived: d, snapshotTs } = props;
 
-  const portRows: React.ReactNode[] = [];
-  for (let i = 0; i < (s.ports_public?.length ?? 0); i++) {
-    const p = s.ports_public[i];
-    portRows.push(
+  const rows: React.ReactNode[] = [];
+  for (let i = 0; i < (d.portsPublicForAction?.length ?? 0); i++) {
+    const p = d.portsPublicForAction[i] as any;
+    rows.push(
       <tr key={i} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
         <td style={tdStyle}>{p.proto}</td>
         <td style={tdStyle}>{p.host}</td>
@@ -22,6 +21,8 @@ export default function PortsSection(props: { status: Status; snapshotTs: string
     );
   }
 
+  const hasAllowlistedOnly = d.publicPortsTotalCount > 0 && d.publicPortsCount === 0;
+
   return (
     <section style={{ marginTop: 18 }}>
       <h2 style={{ fontSize: 18, marginBottom: 8 }}>Public Listening Ports</h2>
@@ -29,10 +30,29 @@ export default function PortsSection(props: { status: Status; snapshotTs: string
         As-of: <b>{fmt(snapshotTs)}</b>
       </div>
 
-      {s.public_ports_count === 0 ? (
-        <Box>✅ No public listeners detected.</Box>
+      {d.publicPortsCount === 0 ? (
+        <Box>
+          ✅ No unexpected public listeners detected.
+          {hasAllowlistedOnly ? (
+            <div style={{ marginTop: 8, opacity: 0.8, fontSize: 12 }}>
+              Total public ports: <b>{d.publicPortsTotalCount}</b>
+              {d.expectedPublicPorts?.length ? (
+                <>
+                  {" "}
+                  · Allowlisted: <b>{d.expectedPublicPorts.join(", ")}</b>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </Box>
       ) : (
         <Box>
+          <div style={{ marginBottom: 8 }}>
+            Unexpected public ports: <b>{d.publicPortsCount}</b>
+            {d.publicPortsTotalCount !== d.publicPortsCount ? (
+              <> · Total public ports: {d.publicPortsTotalCount}</>
+            ) : null}
+          </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 540 }}>
               <thead>
@@ -44,7 +64,7 @@ export default function PortsSection(props: { status: Status; snapshotTs: string
                   <th style={thStyle}>PID</th>
                 </tr>
               </thead>
-              <tbody>{portRows}</tbody>
+              <tbody>{rows}</tbody>
             </table>
           </div>
         </Box>

@@ -37,8 +37,8 @@ export default function DashboardView(props: {
         derived={d}
       />
 
-      <AlertsSection status={s} snapshotTs={d.snapshotTs} />
-      <PortsSection status={s} snapshotTs={d.snapshotTs} />
+      <AlertsSection derived={d} snapshotTs={d.snapshotTs} />
+      <PortsSection derived={d} snapshotTs={d.snapshotTs} />
       <ThreatSection status={s} snapshotTs={d.snapshotTs} />
 
       <BreachesSection derived={d} snapshotTs={d.snapshotTs} />

@@ -2,6 +2,12 @@
 import React from "react";
 import { minutesAgo, fmt, type Status } from "@/lib/status";
 import { buildActionSummary } from "./explain";
+import {
+  applyAlertPolicy,
+  type AlertItem as RawAlertItem,
+  type AlertSeverity,
+  type ScoredAlert,
+} from "./alert-policy";
 
 // derive the exact type from the function itself (no fragile re-exports)
 type ActionSummary = ReturnType<typeof buildActionSummary>;
@@ -26,7 +32,7 @@ function pickStringArray(v: unknown): string[] | null {
   return out.length ? out : null;
 }
 
-type AlertItem = { title?: string; detail?: string; [k: string]: any };
+type AlertItem = RawAlertItem;
 
 function isPortsNoiseAlert(alert: AlertItem, expectedPortsLower: string[]): boolean {
   const t = `${alert.title ?? ""} ${alert.detail ?? ""}`.toLowerCase();
@@ -116,7 +122,12 @@ export type DerivedDashboard = {
   // Alerts (normalized)
   alertsTotalCount: number; // raw total from status
   alertsCount: number; // actionable after noise filtering (best-effort)
-  alertsForAction: any[]; // filtered alerts array (or raw if filtering not possible)
+  alertsForAction: ScoredAlert[]; // filtered actionable alerts
+  alertsSuppressedCount: number;
+  alertsSuppressed: ScoredAlert[];
+  topAlertSeverity: AlertSeverity | "none";
+  maintenanceActive: boolean;
+  maintenanceUntil?: string;
 
   // Public ports (normalized)
   publicPortsTotalCount: number; // raw total (includes allowlisted)
@@ -208,17 +219,30 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
   const alertsRaw: AlertItem[] = Array.isArray((s as any).alerts) ? ((s as any).alerts as AlertItem[]) : [];
   const alertsTotalCount = typeof (s as any).alerts_count === "number" ? (s as any).alerts_count : alertsRaw.length;
 
-  let alertsForAction: AlertItem[] = alertsRaw;
+  let alertsForAction: ScoredAlert[] = [];
   let alertsCount = alertsTotalCount;
+  let alertsSuppressed: ScoredAlert[] = [];
+  let alertsSuppressedCount = 0;
+  let topAlertSeverity: AlertSeverity | "none" = "none";
+  let maintenanceActive = false;
+  let maintenanceUntil: string | undefined;
 
   if (alertsRaw.length) {
-    alertsForAction = filterActionableAlerts({
+    const portsFilteredAlerts = filterActionableAlerts({
       alerts: alertsRaw,
       publicPortsCountActionable: publicPortsCount,
       publicPortsTotalCount,
       expectedPublicPorts,
     });
+
+    const policy = applyAlertPolicy(portsFilteredAlerts);
+    alertsForAction = policy.actionable;
+    alertsSuppressed = policy.suppressed;
     alertsCount = alertsForAction.length;
+    alertsSuppressedCount = alertsSuppressed.length;
+    topAlertSeverity = policy.topSeverity;
+    maintenanceActive = policy.maintenanceActive;
+    maintenanceUntil = policy.maintenanceUntil;
   }
 
   // “needs action” now uses actionable alerts + actionable ports only
@@ -226,7 +250,8 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
 
   const actionSummary = buildActionSummary({
     alertsCount,
-    alerts: (alertsForAction as any[]) ?? [],
+    alerts: alertsForAction ?? [],
+    topAlertSeverity,
     publicPortsCount,
     portsPublic: portsPublicForAction,
     stale,
@@ -235,7 +260,13 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
   const headline: "ACTION NEEDED" | "OK" = needsAction ? "ACTION NEEDED" : "OK";
 
   const level: "ok" | "warn" | "bad" =
-    alertsCount > 0 ? "bad" : publicPortsCount > 0 || stale ? "warn" : "ok";
+    alertsCount > 0
+      ? topAlertSeverity === "critical" || topAlertSeverity === "high"
+        ? "bad"
+        : "warn"
+      : publicPortsCount > 0 || stale
+        ? "warn"
+        : "ok";
 
   const scanLabel =
     `${fmt(snapshotTs)}` + (typeof ageMin === "number" ? ` · Age: ${ageMin}m${stale ? " (stale)" : ""}` : "");
@@ -277,6 +308,11 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
     alertsTotalCount,
     alertsCount,
     alertsForAction,
+    alertsSuppressedCount,
+    alertsSuppressed,
+    topAlertSeverity,
+    maintenanceActive,
+    maintenanceUntil,
 
     publicPortsTotalCount,
     publicPortsCount,

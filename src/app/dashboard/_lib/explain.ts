@@ -52,7 +52,8 @@ function fmtExpected(expected?: string[] | null) {
  */
 export function buildActionSummary(input: {
   alertsCount: number;
-  alerts?: Array<{ title: string; detail?: string }>;
+  alerts?: Array<{ title: string; detail?: string; severityLevel?: string }>;
+  topAlertSeverity?: "critical" | "high" | "medium" | "low" | "info" | "none";
 
   // actionable ports (unexpected if present, else raw total)
   publicPortsCount: number;
@@ -173,9 +174,16 @@ export function buildActionSummary(input: {
       titles.push(alerts[i]?.title ?? "Alert");
     }
 
+    const alertSeverity: Severity =
+      input.topAlertSeverity === "critical"
+        ? "CRITICAL"
+        : input.topAlertSeverity === "high"
+          ? "HIGH"
+          : "MEDIUM";
+
     items.push({
       id: "alerts",
-      severity: input.publicPortsCount > 0 ? "HIGH" : "MEDIUM",
+      severity: input.publicPortsCount > 0 ? "HIGH" : alertSeverity,
       title: "Alerts reported by the agent",
       summary:
         "Alerts are the agent telling you something changed or looks risky. Start with the first alert, then verify whether it’s expected.",
