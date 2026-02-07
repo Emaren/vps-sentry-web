@@ -134,6 +134,12 @@ export default async function HostsPage() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <Link href="/dashboard" style={btnStyle(false)}>
+            Dashboard
+          </Link>
+          <Link href="/billing" style={btnStyle(false)}>
+            Billing
+          </Link>
           <Link href="/get-vps-sentry" style={btnStyle(false)}>
             Install guide
           </Link>

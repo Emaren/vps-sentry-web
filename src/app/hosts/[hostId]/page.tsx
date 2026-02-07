@@ -222,6 +222,12 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <Link href="/dashboard" style={btnStyle()}>
+            Dashboard
+          </Link>
+          <Link href="/billing" style={btnStyle()}>
+            Billing
+          </Link>
           <Link href="/get-vps-sentry" style={btnStyle()}>
             Install guide
           </Link>
