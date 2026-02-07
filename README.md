@@ -102,3 +102,23 @@ API:
   - Auth required (session)
   - Body: `{ "hostId": "<host-id>", "limit": 40 }`
   - Returns safe action recommendations derived from recent host snapshots.
+
+## Guided Containment (v1.6)
+
+New in web `v1.6`:
+
+- Response actions now render with host-aware command targets (for example, concrete unexpected ports).
+- Response flow is now explicit:
+  - `Dry run`: logs what would execute, executes nothing
+  - `Execute`: requires a typed confirmation phrase and writes a remediation run record
+- Host detail page now includes **Remediation Runs** (state, timestamps, output/error).
+- Every dry-run/execute writes audit logs (`remediate.dry_run`, `remediate.execute`).
+
+API (`POST /api/remediate`, auth required):
+
+- Plan mode (default):
+  - Body: `{ "hostId": "<host-id>", "mode": "plan" }`
+- Dry run:
+  - Body: `{ "hostId": "<host-id>", "mode": "dry-run", "actionId": "quarantine-unexpected-listener" }`
+- Execute:
+  - Body: `{ "hostId": "<host-id>", "mode": "execute", "actionId": "...", "confirmPhrase": "EXECUTE ..." }`
