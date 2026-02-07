@@ -9,6 +9,7 @@ import { classifyHeartbeat, heartbeatLabel, readHeartbeatConfig } from "@/lib/ho
 import { buildIncidentTimeline } from "@/lib/incident-signals";
 import { buildRemediationPlanFromSnapshots } from "@/lib/remediate";
 import { isWithinMinutes, readRemediationPolicy } from "@/lib/remediate/policy";
+import { buildSecurityPostureFromSnapshots, type ContainmentStage, type ThreatBand } from "@/lib/security-posture";
 import RemediationConsole from "./RemediationConsole";
 
 export const dynamic = "force-dynamic";
@@ -133,6 +134,9 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
   });
   const timeline = timelineResult.timeline.slice(0, 20);
   const remediationPlan = buildRemediationPlanFromSnapshots(timelineInput, {
+    dedupeWindowMinutes: remediationPolicy.timelineDedupeWindowMinutes,
+  });
+  const posture = buildSecurityPostureFromSnapshots(timelineInput, heartbeat.state, {
     dedupeWindowMinutes: remediationPolicy.timelineDedupeWindowMinutes,
   });
   const remediations = remediationPlan.actions.slice(0, 4);
@@ -306,6 +310,41 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       </section>
 
       <section style={sectionStyle()}>
+        <h2 style={h2Style()}>Security Command Center</h2>
+        <div style={{ opacity: 0.72, marginTop: 6, fontSize: 12 }}>
+          Ultimate-vision preview: combined risk scoring + containment stage from recent incidents and heartbeat health.
+        </div>
+        <div
+          style={{
+            marginTop: 10,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
+          <span style={threatPillStyle(posture.band)}>Threat {posture.score} · {posture.band}</span>
+          <span style={containmentPillStyle(posture.stage)}>
+            Containment stage: {containmentStageLabel(posture.stage)}
+          </span>
+          <span style={{ opacity: 0.7, fontSize: 12 }}>Signals: {posture.signalCount}</span>
+        </div>
+        <div style={{ marginTop: 10, lineHeight: 1.5 }}>
+          <strong>Next move:</strong> {posture.nextMove}
+        </div>
+        {posture.priorityCodes.length > 0 ? (
+          <div style={{ marginTop: 8, fontSize: 12, opacity: 0.78 }}>
+            Priority signal codes: {posture.priorityCodes.join(", ")}
+          </div>
+        ) : null}
+        <div style={{ marginTop: 10 }}>
+          <a href="#response-playbook" style={btnStyle()}>
+            Jump to response playbook
+          </a>
+        </div>
+      </section>
+
+      <section style={sectionStyle()}>
         <h2 style={h2Style()}>Incident Timeline</h2>
         <div style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
           Correlated from recent snapshots with duplicate-noise collapsing
@@ -335,7 +374,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         )}
       </section>
 
-      <section style={sectionStyle()}>
+      <section id="response-playbook" style={sectionStyle()}>
         <h2 style={h2Style()}>Response Playbook (Safe)</h2>
         <div style={{ opacity: 0.72, marginTop: 6, fontSize: 12 }}>
           Dry-run first, then confirm phrase to execute. Every run is logged to host history.
@@ -517,6 +556,27 @@ function severityPill(severity: "critical" | "high" | "medium" | "low" | "info")
     fontWeight: 800,
     textTransform: "uppercase",
   };
+}
+
+function threatPillStyle(band: ThreatBand): React.CSSProperties {
+  if (band === "critical") return severityPill("critical");
+  if (band === "elevated") return severityPill("high");
+  if (band === "guarded") return severityPill("medium");
+  return severityPill("info");
+}
+
+function containmentPillStyle(stage: ContainmentStage): React.CSSProperties {
+  if (stage === "lockdown") return severityPill("critical");
+  if (stage === "contain") return severityPill("high");
+  if (stage === "watch") return severityPill("medium");
+  return severityPill("info");
+}
+
+function containmentStageLabel(stage: ContainmentStage): string {
+  if (stage === "lockdown") return "Lockdown";
+  if (stage === "contain") return "Contain";
+  if (stage === "watch") return "Watch";
+  return "Observe";
 }
 
 function parseRunMode(paramsJson: string | null): string {

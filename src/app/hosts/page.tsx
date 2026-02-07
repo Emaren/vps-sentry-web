@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { fmt } from "@/lib/status";
 import { classifyHeartbeat, heartbeatLabel, readHeartbeatConfig } from "@/lib/host-heartbeat";
+import { buildSecurityPostureFromSnapshots, type ContainmentStage, type ThreatBand } from "@/lib/security-posture";
 
 export const dynamic = "force-dynamic";
 
@@ -32,13 +33,14 @@ export default async function HostsPage() {
           updatedAt: true,
           snapshots: {
             orderBy: { ts: "desc" },
-            take: 1,
+            take: 12,
             select: {
               id: true,
               ts: true,
               ok: true,
               alertsCount: true,
               publicPortsCount: true,
+              statusJson: true,
             },
           },
           _count: {
@@ -66,6 +68,35 @@ export default async function HostsPage() {
 
   const openByHost = new Map<string, number>();
   for (const row of openBreaches) openByHost.set(row.hostId, row._count._all);
+  const now = new Date();
+
+  const postureByHost = new Map<
+    string,
+    ReturnType<typeof buildSecurityPostureFromSnapshots>
+  >();
+
+  for (const h of user.hosts) {
+    const timelineInput = h.snapshots
+      .map((s) => {
+        try {
+          const status = JSON.parse(s.statusJson);
+          if (!status || typeof status !== "object") return null;
+          return { id: s.id, ts: s.ts, status: status as Record<string, unknown> };
+        } catch {
+          return null;
+        }
+      })
+      .filter((x): x is { id: string; ts: Date; status: Record<string, unknown> } => Boolean(x));
+
+    const heartbeat = classifyHeartbeat(h.lastSeenAt, now, heartbeatConfig);
+    postureByHost.set(
+      h.id,
+      buildSecurityPostureFromSnapshots(timelineInput, heartbeat.state, {
+        dedupeWindowMinutes: 30,
+        now,
+      })
+    );
+  }
 
   return (
     <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
@@ -129,7 +160,8 @@ export default async function HostsPage() {
           {user.hosts.map((h) => {
             const latest = h.snapshots[0] ?? null;
             const openCount = openByHost.get(h.id) ?? 0;
-            const heartbeat = classifyHeartbeat(h.lastSeenAt, new Date(), heartbeatConfig);
+            const heartbeat = classifyHeartbeat(h.lastSeenAt, now, heartbeatConfig);
+            const posture = postureByHost.get(h.id);
             const heartbeatTone: "ok" | "warn" | "bad" =
               heartbeat.state === "fresh"
                 ? "ok"
@@ -165,6 +197,18 @@ export default async function HostsPage() {
                       minHeight: 40,
                     }}
                   >
+                    {posture ? (
+                      <Badge
+                        tone={toneFromThreatBand(posture.band)}
+                        text={`Threat ${posture.score} (${posture.band})`}
+                      />
+                    ) : null}
+                    {posture ? (
+                      <Badge
+                        tone={toneFromContainmentStage(posture.stage)}
+                        text={`Containment: ${containmentStageLabel(posture.stage)}`}
+                      />
+                    ) : null}
                     <Badge tone={h.enabled ? "ok" : "warn"} text={h.enabled ? "Enabled" : "Disabled"} />
                     <Badge tone={heartbeatTone} text={heartbeatLabel(heartbeat)} />
                     <Badge tone={openCount > 0 ? "bad" : "ok"} text={`Open breaches: ${openCount}`} />
@@ -182,6 +226,11 @@ export default async function HostsPage() {
                   <Stat label="Latest Snapshot" value={latest ? fmt(String(latest.ts)) : "—"} />
                   <Stat label="Alerts (latest)" value={latest ? String(latest.alertsCount) : "—"} />
                   <Stat label="Unexpected Ports" value={latest ? String(latest.publicPortsCount) : "—"} />
+                  <Stat
+                    label="Threat score"
+                    value={posture ? `${posture.score} (${posture.band})` : "—"}
+                  />
+                  <Stat label="Priority signal" value={posture?.priorityCodes[0] ?? "—"} />
                   <Stat label="Agent version" value={h.agentVersion ?? "—"} />
                   <Stat label="Snapshots total" value={String(h._count.snapshots)} />
                   <Stat label="API keys total" value={String(h._count.apiKeys)} />
@@ -246,6 +295,25 @@ function Badge(props: { tone: "ok" | "warn" | "bad"; text: string }) {
       {props.text}
     </span>
   );
+}
+
+function toneFromThreatBand(band: ThreatBand): "ok" | "warn" | "bad" {
+  if (band === "critical" || band === "elevated") return "bad";
+  if (band === "guarded") return "warn";
+  return "ok";
+}
+
+function toneFromContainmentStage(stage: ContainmentStage): "ok" | "warn" | "bad" {
+  if (stage === "lockdown" || stage === "contain") return "bad";
+  if (stage === "watch") return "warn";
+  return "ok";
+}
+
+function containmentStageLabel(stage: ContainmentStage): string {
+  if (stage === "lockdown") return "Lockdown";
+  if (stage === "contain") return "Contain";
+  if (stage === "watch") return "Watch";
+  return "Observe";
 }
 
 function btnStyle(disabled: boolean): React.CSSProperties {
