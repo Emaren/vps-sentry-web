@@ -234,13 +234,23 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         </div>
       </div>
 
-      <section style={sectionStyle()}>
+      <section style={topHostCardStyle()}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 800 }}>{host.name}</div>
             <div style={{ marginTop: 4, opacity: 0.72, fontSize: 12 }}>{host.slug ? `/${host.slug}` : host.id}</div>
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              rowGap: 8,
+              justifyContent: "flex-end",
+              alignItems: "center",
+              minHeight: 40,
+            }}
+          >
             <span style={statusBadgeStyle(threatTone)}>Threat {posture.score} ({posture.band})</span>
             <span style={statusBadgeStyle(containmentTone)}>
               Containment: {containmentStageLabel(posture.stage)}
@@ -583,7 +593,7 @@ function h2Style(): React.CSSProperties {
 function gridStyle(): React.CSSProperties {
   return {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
     gap: 10,
     marginTop: 10,
   };
@@ -613,6 +623,16 @@ function breachCardStyle(): React.CSSProperties {
     border: "1px solid rgba(255,255,255,0.10)",
     borderRadius: 10,
     padding: "10px 12px",
+    background: "rgba(255,255,255,0.02)",
+  };
+}
+
+function topHostCardStyle(): React.CSSProperties {
+  return {
+    marginTop: 16,
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 12,
+    padding: 12,
     background: "rgba(255,255,255,0.02)",
   };
 }
