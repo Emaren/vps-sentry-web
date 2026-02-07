@@ -202,10 +202,6 @@ a:hover {
 
 /* Global theme picker (shared on every page) */
 .site-theme-dock {
-  position: fixed;
-  right: 14px;
-  top: calc(env(safe-area-inset-top, 0px) + 14px);
-  z-index: 70;
   display: inline-flex;
   gap: 8px;
   align-items: center;
@@ -215,6 +211,18 @@ a:hover {
   background: color-mix(in srgb, var(--site-card-bg) 88%, transparent 12%);
   box-shadow: var(--site-card-shadow);
   backdrop-filter: blur(8px);
+}
+
+.site-theme-dock-fixed {
+  position: fixed;
+  right: 14px;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  z-index: 70;
+}
+
+.site-theme-dock-inline {
+  position: static;
+  z-index: auto;
 }
 
 .site-theme-dot {
@@ -245,9 +253,12 @@ a:hover {
 }
 
 @media (max-width: 700px) {
-  .site-theme-dock {
+  .site-theme-dock-fixed {
     right: 10px;
     top: calc(env(safe-area-inset-top, 0px) + 10px);
+  }
+
+  .site-theme-dock {
     padding: 5px 7px;
     gap: 7px;
   }
@@ -256,6 +267,10 @@ a:hover {
     width: 14px;
     height: 14px;
   }
+}
+
+body:has(.dashboard-main) .site-theme-dock-fixed {
+  display: none;
 }
 
 /* Shared responsive app header (logo + title + action buttons) */
@@ -379,6 +394,10 @@ a:hover {
   margin: 0 auto;
 }
 
+body:has(.dashboard-main) {
+  background: #06090f;
+}
+
 .dashboard-shell {
   --dash-style-rev: 3;
   --dash-bg: var(--site-bg);
@@ -472,6 +491,12 @@ html[data-site-theme="sepia"] .dashboard-shell {
   background: var(--dash-btn-bg-hover);
 }
 
+.dashboard-theme-row {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .dashboard-top-stack {
   display: grid;
   gap: 12px;
@@ -509,6 +534,10 @@ html[data-site-theme="sepia"] .dashboard-shell {
 @media (max-width: 700px) {
   .dashboard-main {
     padding: 14px;
+  }
+
+  .dashboard-theme-row {
+    justify-content: flex-start;
   }
 
   .dashboard-kpi-grid {

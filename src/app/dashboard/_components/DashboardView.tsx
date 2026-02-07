@@ -2,6 +2,7 @@
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
+import SiteThemeControls from "@/app/_components/SiteThemeControls";
 
 import type { DashboardBilling, DashboardEnv } from "../_lib/types";
 
@@ -62,6 +63,10 @@ export default function DashboardView(props: {
           </Link>
           <DashboardLogoutButton />
         </div>
+      </div>
+
+      <div className="dashboard-theme-row">
+        <SiteThemeControls variant="inline" />
       </div>
 
       <div style={{ marginTop: 10 }}>

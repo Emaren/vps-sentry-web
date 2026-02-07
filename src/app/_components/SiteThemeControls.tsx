@@ -10,7 +10,19 @@ function applyTheme(theme: SiteTheme) {
   document.documentElement.setAttribute("data-site-theme", theme);
 }
 
-export default function SiteThemeControls() {
+export default function SiteThemeControls(props: {
+  variant?: "fixed" | "inline";
+  className?: string;
+}) {
+  const variant = props.variant ?? "fixed";
+  const cls = [
+    "site-theme-dock",
+    variant === "fixed" ? "site-theme-dock-fixed" : "site-theme-dock-inline",
+    props.className ?? "",
+  ]
+    .join(" ")
+    .trim();
+
   const [theme, setTheme] = React.useState<SiteTheme>("dark");
 
   React.useEffect(() => {
@@ -30,7 +42,7 @@ export default function SiteThemeControls() {
   }
 
   return (
-    <div className="site-theme-dock" role="group" aria-label="Color theme">
+    <div className={cls} role="group" aria-label="Color theme">
       <ThemeDot
         label="Use black theme"
         title="Black"
