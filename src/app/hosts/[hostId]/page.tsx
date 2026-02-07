@@ -404,14 +404,20 @@ function Stat(props: { label: string; value: string }) {
 
 function btnStyle(): React.CSSProperties {
   return {
-    padding: "10px 12px",
+    padding: "10px 14px",
+    minHeight: 44,
     borderRadius: 10,
     border: "1px solid rgba(255,255,255,0.15)",
     background: "rgba(255,255,255,0.05)",
     color: "inherit",
     fontWeight: 700,
     textDecoration: "none",
-    display: "inline-block",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    lineHeight: 1.2,
+    whiteSpace: "nowrap",
+    boxSizing: "border-box",
   };
 }
 
