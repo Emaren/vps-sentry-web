@@ -116,9 +116,9 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
       only_generated=0
       break
     fi
-  done <<EOF
+  done <<__DIRTY_STATUS__
 $dirty_status
-EOF
+__DIRTY_STATUS__
 
   if [ "$only_generated" -eq 1 ]; then
     echo "remote_worktree_autoclean: next-env.d.ts"
