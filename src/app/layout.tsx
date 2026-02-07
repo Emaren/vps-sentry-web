@@ -2,6 +2,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
+import SiteThemeControls from "./_components/SiteThemeControls";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -59,14 +60,18 @@ export default function RootLayout({
   const plausibleSrc = process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ?? "https://plausible.io/js/script.js";
 
   return (
-    <html lang="en">
+    <html lang="en" data-site-theme="dark">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <Script id="site-theme-init" strategy="beforeInteractive">
+          {`try{var t=localStorage.getItem("vps_sentry_site_theme");if(t==="light"||t==="sepia"||t==="dark"){document.documentElement.setAttribute("data-site-theme",t);}else{document.documentElement.setAttribute("data-site-theme","dark");}}catch(e){document.documentElement.setAttribute("data-site-theme","dark");}`}
+        </Script>
         <Script
           defer
           data-domain={plausibleDomain}
           src={plausibleSrc}
           strategy="afterInteractive"
         />
+        <SiteThemeControls />
         {children}
       </body>
     </html>

@@ -18,7 +18,6 @@ import {
   ThreatSection,
   TopArea,
 } from "./sections";
-import DashboardThemeControls from "./DashboardThemeControls";
 import DashboardLogoutButton from "./DashboardLogoutButton";
 
 export default function DashboardView(props: {
@@ -32,7 +31,7 @@ export default function DashboardView(props: {
   const d: DerivedDashboard = deriveDashboard(env);
 
   return (
-    <main id="dashboard-page" className="dashboard-shell dashboard-main" data-dashboard-theme="dark">
+    <main className="dashboard-shell dashboard-main">
       <div className="app-header">
         <div className="app-header-brand">
           <Link href="/" aria-label="VPS Sentry home" className="app-header-logo-link">
@@ -63,10 +62,6 @@ export default function DashboardView(props: {
           </Link>
           <DashboardLogoutButton />
         </div>
-      </div>
-
-      <div className="dashboard-theme-row">
-        <DashboardThemeControls rootId="dashboard-page" />
       </div>
 
       <div style={{ marginTop: 10 }}>
