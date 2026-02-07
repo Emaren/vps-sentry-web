@@ -1,10 +1,29 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export const dynamic = "force-dynamic";
 
 export default function GetVpsSentryPage() {
   return (
     <main style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+        <Link href="/" aria-label="VPS Sentry home">
+          <Image
+            src="/vps-sentry-logo.png"
+            alt="VPS Sentry logo"
+            width={560}
+            height={430}
+            priority
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              height: "auto",
+              borderRadius: 12,
+            }}
+          />
+        </Link>
+      </div>
+
       <h1 style={{ fontSize: 34, marginBottom: 10 }}>Get VPS Sentry</h1>
       <p style={{ opacity: 0.85, lineHeight: 1.5, marginBottom: 18 }}>
         Install the VPS agent on your server in a few minutes. Copy/paste the commands below.
