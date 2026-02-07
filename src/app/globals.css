@@ -372,10 +372,6 @@ a:hover {
     padding: 9px 11px;
     font-size: 13px;
   }
-
-  .dashboard-theme-row-inner {
-    margin-left: 56px;
-  }
 }
 
 /* Dashboard theme system + layout */
@@ -482,12 +478,20 @@ html[data-site-theme="sepia"] .dashboard-shell {
   background: var(--dash-btn-bg-hover);
 }
 
-.dashboard-theme-row {
-  margin-top: 8px;
+.dashboard-actions-with-theme {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  overflow: visible;
 }
 
-.dashboard-theme-row-inner {
-  margin-left: 64px;
+.dashboard-actions-with-theme .app-header-actions-theme {
+  flex: 1 0 100%;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dashboard-actions-with-theme .site-theme-dock-inline {
+  margin-left: 0;
 }
 
 .dashboard-top-stack {
@@ -527,10 +531,6 @@ html[data-site-theme="sepia"] .dashboard-shell {
 @media (max-width: 700px) {
   .dashboard-main {
     padding: 14px;
-  }
-
-  .dashboard-theme-row-inner {
-    margin-left: 0;
   }
 
   .dashboard-kpi-grid {
