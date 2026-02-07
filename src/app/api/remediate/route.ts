@@ -6,6 +6,7 @@ import { buildRemediationPlanFromSnapshots } from "@/lib/remediate";
 import { executeRemediationCommands, formatExecutionForLog } from "@/lib/remediate/runner";
 import type { RemediationAction } from "@/lib/remediate/actions";
 import { isWithinMinutes, readRemediationPolicy } from "@/lib/remediate/policy";
+import { validateRemediationCommands } from "@/lib/remediate/guard";
 
 export const dynamic = "force-dynamic";
 type RemediationMode = "plan" | "dry-run" | "execute";
@@ -111,7 +112,9 @@ export async function POST(req: Request) {
     .map((s) => ({ id: s.id, ts: s.ts, status: safeParse(s.statusJson) }))
     .filter((s): s is { id: string; ts: Date; status: Record<string, unknown> } => Boolean(s.status && typeof s.status === "object"));
 
-  const plan = buildRemediationPlanFromSnapshots(parsed);
+  const plan = buildRemediationPlanFromSnapshots(parsed, {
+    dedupeWindowMinutes: policy.timelineDedupeWindowMinutes,
+  });
   const recentRuns = await getRemediationRuns(host.id);
 
   if (mode === "plan") {
@@ -147,6 +150,18 @@ export async function POST(req: Request) {
     );
   }
 
+  const validationIssues = validateRemediationCommands(action.commands);
+  if (validationIssues.length > 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Action blocked by remediation command policy.",
+        issues: validationIssues.map((i) => ({ index: i.index, reason: i.reason })),
+      },
+      { status: 400 }
+    );
+  }
+
   const actionRow = await prisma.remediationAction.upsert({
     where: { key: action.id },
     create: {
@@ -172,6 +187,71 @@ export async function POST(req: Request) {
   });
 
   if (mode === "execute") {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+    const [runningExecuteRun, recentExecuteCount, latestExecuteRun] = await Promise.all([
+      prisma.remediationRun.findFirst({
+        where: {
+          hostId: host.id,
+          actionId: actionRow.id,
+          state: "running",
+          paramsJson: { contains: "\"mode\":\"execute\"" },
+        },
+        select: { id: true, requestedAt: true },
+      }),
+      prisma.remediationRun.count({
+        where: {
+          hostId: host.id,
+          requestedAt: { gte: oneHourAgo },
+          paramsJson: { contains: "\"mode\":\"execute\"" },
+        },
+      }),
+      prisma.remediationRun.findFirst({
+        where: {
+          hostId: host.id,
+          actionId: actionRow.id,
+          paramsJson: { contains: "\"mode\":\"execute\"" },
+        },
+        orderBy: { requestedAt: "desc" },
+        select: { id: true, requestedAt: true },
+      }),
+    ]);
+
+    if (runningExecuteRun) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "An execute run is already in progress for this action.",
+          runningRunId: runningExecuteRun.id,
+        },
+        { status: 409 }
+      );
+    }
+
+    if (recentExecuteCount >= policy.maxExecutePerHour) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Execute rate limit reached (${policy.maxExecutePerHour}/hour).`,
+        },
+        { status: 429 }
+      );
+    }
+
+    if (
+      latestExecuteRun &&
+      policy.executeCooldownMinutes > 0 &&
+      isWithinMinutes(latestExecuteRun.requestedAt, policy.executeCooldownMinutes)
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Execute cooldown active (${policy.executeCooldownMinutes}m).`,
+        },
+        { status: 429 }
+      );
+    }
+
     const latestDryRun = await prisma.remediationRun.findFirst({
       where: {
         hostId: host.id,

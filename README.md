@@ -124,3 +124,35 @@ API (`POST /api/remediate`, auth required):
   - Body: `{ "hostId": "<host-id>", "mode": "dry-run", "actionId": "quarantine-unexpected-listener" }`
 - Execute:
   - Body: `{ "hostId": "<host-id>", "mode": "execute", "actionId": "...", "confirmPhrase": "EXECUTE ..." }`
+
+## v2.0 M6 Hardening + Release Gate
+
+Hardening controls:
+
+- Action command guard (allowlist + blocklist) enforced before dry-run/execute.
+- Execute safety limits:
+  - fresh dry-run window required
+  - per-action execute cooldown
+  - per-host execute hourly cap
+  - block concurrent execute for the same host/action
+- Runner output redaction masks likely secrets (`Authorization Bearer`, `token=`, `password=`).
+
+Tuning env knobs:
+
+- `VPS_SIGNAL_DEDUPE_WINDOW_MINUTES` (default `30`)
+- `VPS_REMEDIATE_DRY_RUN_MAX_AGE_MINUTES` (default `30`)
+- `VPS_REMEDIATE_EXECUTE_COOLDOWN_MINUTES` (default `5`)
+- `VPS_REMEDIATE_MAX_EXECUTE_PER_HOUR` (default `6`)
+- `VPS_REMEDIATE_ENFORCE_ALLOWLIST` (default `1`)
+- `VPS_REMEDIATE_MAX_COMMANDS_PER_ACTION` (default `20`)
+- `VPS_REMEDIATE_MAX_COMMAND_LENGTH` (default `800`)
+- Optional regex extensions:
+  - `VPS_REMEDIATE_ALLOWLIST_REGEX`
+  - `VPS_REMEDIATE_BLOCKLIST_REGEX`
+
+Release gate commands:
+
+```bash
+make release-gate   # test + typecheck + vps-check + smoke
+make release        # release-gate + deploy + smoke
+```

@@ -28,4 +28,16 @@ describe("remediation runner", () => {
     expect(rendered).toContain("ok=false");
     expect(rendered).toContain("exit=4");
   });
+
+  it("redacts sensitive output tokens", async () => {
+    const result = await executeRemediationCommands([
+      "echo 'authorization: Bearer abc123 token=xyz password=secret'",
+    ]);
+
+    expect(result.ok).toBe(true);
+    const out = result.results[0]?.stdout ?? "";
+    expect(out).toContain("authorization: Bearer [REDACTED]");
+    expect(out).toContain("token=[REDACTED]");
+    expect(out).toContain("password=[REDACTED]");
+  });
 });

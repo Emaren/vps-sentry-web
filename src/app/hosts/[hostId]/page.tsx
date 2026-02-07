@@ -126,10 +126,14 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       }
     })
     .filter((x): x is { id: string; ts: Date; status: Record<string, unknown> } => Boolean(x));
-  const timelineResult = buildIncidentTimeline(timelineInput);
-  const timeline = timelineResult.timeline.slice(0, 20);
   const remediationPolicy = readRemediationPolicy();
-  const remediationPlan = buildRemediationPlanFromSnapshots(timelineInput);
+  const timelineResult = buildIncidentTimeline(timelineInput, {
+    dedupeWindowMinutes: remediationPolicy.timelineDedupeWindowMinutes,
+  });
+  const timeline = timelineResult.timeline.slice(0, 20);
+  const remediationPlan = buildRemediationPlanFromSnapshots(timelineInput, {
+    dedupeWindowMinutes: remediationPolicy.timelineDedupeWindowMinutes,
+  });
   const remediations = remediationPlan.actions.slice(0, 4);
   const dryRunReadyActionIds = Array.from(
     new Set(
@@ -281,7 +285,8 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       <section style={sectionStyle()}>
         <h2 style={h2Style()}>Incident Timeline</h2>
         <div style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
-          Correlated from recent snapshots with duplicate-noise collapsing.
+          Correlated from recent snapshots with duplicate-noise collapsing
+          (window {remediationPolicy.timelineDedupeWindowMinutes}m).
         </div>
         {timeline.length === 0 ? (
           <div style={{ marginTop: 10, opacity: 0.7 }}>No incident signals in recent snapshots.</div>

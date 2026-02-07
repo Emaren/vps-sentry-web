@@ -33,6 +33,13 @@ function truncate(text: string, max = 8000): string {
   return `${text.slice(0, max)}\n...[truncated ${text.length - max} chars]`;
 }
 
+function sanitizeOutput(text: string): string {
+  return text
+    .replace(/(authorization:\s*bearer\s+)[^\s]+/gi, "$1[REDACTED]")
+    .replace(/(token=)[^\s&]+/gi, "$1[REDACTED]")
+    .replace(/(password=)[^\s&]+/gi, "$1[REDACTED]");
+}
+
 export async function executeRemediationCommands(
   commands: string[],
   opts?: { timeoutMs?: number; maxBufferBytes?: number }
@@ -73,8 +80,8 @@ export async function executeRemediationCommands(
         normalizedCommand: normalized,
         ok: true,
         exitCode: 0,
-        stdout: truncate(out.stdout ?? ""),
-        stderr: truncate(out.stderr ?? ""),
+        stdout: sanitizeOutput(truncate(out.stdout ?? "")),
+        stderr: sanitizeOutput(truncate(out.stderr ?? "")),
         durationMs: Date.now() - start,
         skipped: false,
       });
@@ -90,8 +97,8 @@ export async function executeRemediationCommands(
         normalizedCommand: normalized,
         ok: false,
         exitCode,
-        stdout: truncate(String(e.stdout ?? "")),
-        stderr: truncate(String(e.stderr ?? String(err))),
+        stdout: sanitizeOutput(truncate(String(e.stdout ?? ""))),
+        stderr: sanitizeOutput(truncate(String(e.stderr ?? String(err)))),
         durationMs: Date.now() - start,
         skipped: false,
       });
@@ -129,4 +136,3 @@ export function formatExecutionForLog(execution: RemediationExecution): string {
   });
   return lines.join("\n");
 }
-

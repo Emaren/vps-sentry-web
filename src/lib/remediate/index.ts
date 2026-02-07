@@ -30,9 +30,12 @@ function newestSnapshot(snapshots: SnapshotForRemediation[]): SnapshotForRemedia
 }
 
 export function buildRemediationPlanFromSnapshots(
-  snapshots: SnapshotForRemediation[]
+  snapshots: SnapshotForRemediation[],
+  opts?: { dedupeWindowMinutes?: number }
 ): RemediationPlan {
-  const timelineResult = buildIncidentTimeline(snapshots);
+  const timelineResult = buildIncidentTimeline(snapshots, {
+    dedupeWindowMinutes: opts?.dedupeWindowMinutes,
+  });
   const latest = newestSnapshot(snapshots);
   const context = latest
     ? deriveRemediationContextFromStatus(latest.status)
