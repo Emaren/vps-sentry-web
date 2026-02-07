@@ -207,21 +207,21 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           </Link>
           <div>
             <h1 style={{ fontSize: 28, margin: 0 }}>Hosts</h1>
-            <p style={{ opacity: 0.75, marginTop: 8 }}>
-              Viewing details for <strong>{host.name}</strong> · host ID <code>{host.id}</code>
+            <p style={{ opacity: 0.78, marginTop: 10 }}>
+              Viewing details for {host.name} · host ID <code>{host.id}</code>
             </p>
             <p style={{ opacity: 0.62, marginTop: 6, fontSize: 12 }}>
               Heartbeat target every {heartbeat.expectedMinutes}m · stale at {heartbeat.staleAfterMinutes}m · missing at{" "}
               {heartbeat.missingAfterMinutes}m
             </p>
             {host.slug ? (
-              <p style={{ opacity: 0.7, marginTop: 4, fontSize: 12 }}>
+              <p style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
                 Slug: <code>{host.slug}</code>
               </p>
             ) : null}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
           <Link href="/get-vps-sentry" style={btnStyle()}>
             Install guide
           </Link>
@@ -237,8 +237,8 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       <section style={sectionStyle()}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
           <div>
-            <div style={{ fontSize: 22, fontWeight: 800 }}>{host.name}</div>
-            <div style={{ marginTop: 4, opacity: 0.72, fontSize: 13 }}>{host.slug ? `/${host.slug}` : host.id}</div>
+            <div style={{ fontSize: 18, fontWeight: 800 }}>{host.name}</div>
+            <div style={{ marginTop: 4, opacity: 0.72, fontSize: 12 }}>{host.slug ? `/${host.slug}` : host.id}</div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <span style={statusBadgeStyle(threatTone)}>Threat {posture.score} ({posture.band})</span>
@@ -555,20 +555,14 @@ function Stat(props: { label: string; value: string }) {
 
 function btnStyle(): React.CSSProperties {
   return {
-    padding: "10px 14px",
-    minHeight: 44,
+    padding: "10px 12px",
     borderRadius: 10,
     border: "1px solid rgba(255,255,255,0.15)",
-    background: "rgba(255,255,255,0.05)",
+    background: "rgba(255,255,255,0.06)",
     color: "inherit",
     fontWeight: 700,
     textDecoration: "none",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    lineHeight: 1.2,
-    whiteSpace: "nowrap",
-    boxSizing: "border-box",
+    display: "inline-block",
   };
 }
 
@@ -632,17 +626,18 @@ function statusBadgeStyle(tone: "ok" | "warn" | "bad"): React.CSSProperties {
       : { bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.35)", color: "#fecaca" };
 
   return {
-    display: "inline-flex",
+    display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 34,
-    padding: "4px 11px",
+    height: 40,
+    padding: "0 12px",
     border: `1px solid ${palette.border}`,
     borderRadius: 999,
     background: palette.bg,
     color: palette.color,
     fontSize: 12,
     fontWeight: 700,
+    lineHeight: 1,
     whiteSpace: "nowrap",
   };
 }
