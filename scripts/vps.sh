@@ -138,8 +138,8 @@ fi
 git checkout "$target" >/dev/null 2>&1 || git checkout -b "$target" "origin/$target"
 
 divergence="$(git rev-list --left-right --count HEAD...origin/$target)"
-ahead="$(echo "$divergence" | awk '{print $1}')"
-behind="$(echo "$divergence" | awk '{print $2}')"
+ahead="${divergence%% *}"
+behind="${divergence##* }"
 echo "sync_divergence:ahead=$ahead behind=$behind"
 
 if [ "$ahead" -gt 0 ]; then
