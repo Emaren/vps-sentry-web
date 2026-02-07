@@ -219,8 +219,8 @@ input:disabled {
 .dashboard-shell {
   --dash-bg: #06090f;
   --dash-fg: #ecf2ff;
-  --dash-muted: rgba(236, 242, 255, 0.8);
-  --dash-meta: rgba(236, 242, 255, 0.62);
+  --dash-muted: rgba(236, 242, 255, 0.88);
+  --dash-meta: rgba(236, 242, 255, 0.72);
   --dash-card-bg: rgba(255, 255, 255, 0.03);
   --dash-card-border: rgba(255, 255, 255, 0.12);
   --dash-soft-border: rgba(255, 255, 255, 0.08);
@@ -231,6 +231,18 @@ input:disabled {
   --dash-btn-bg-hover: rgba(255, 255, 255, 0.11);
   --dash-cursor: rgba(255, 255, 255, 0.65);
   --dash-warn-text: #fcd34d;
+  --dash-sev-critical-bg: rgba(239, 68, 68, 0.14);
+  --dash-sev-critical-border: rgba(239, 68, 68, 0.38);
+  --dash-sev-critical-text: #fecaca;
+  --dash-sev-high-bg: rgba(245, 158, 11, 0.14);
+  --dash-sev-high-border: rgba(245, 158, 11, 0.38);
+  --dash-sev-high-text: #fcd34d;
+  --dash-sev-medium-bg: rgba(59, 130, 246, 0.14);
+  --dash-sev-medium-border: rgba(59, 130, 246, 0.38);
+  --dash-sev-medium-text: #bfdbfe;
+  --dash-sev-low-bg: rgba(156, 163, 175, 0.12);
+  --dash-sev-low-border: rgba(156, 163, 175, 0.35);
+  --dash-sev-low-text: #d1d5db;
 
   color: var(--dash-fg);
   border-radius: 16px;
@@ -242,9 +254,9 @@ input:disabled {
 
 .dashboard-shell[data-dashboard-theme="light"] {
   --dash-bg: #f1f6fc;
-  --dash-fg: #172133;
-  --dash-muted: rgba(23, 33, 51, 0.76);
-  --dash-meta: rgba(23, 33, 51, 0.62);
+  --dash-fg: #0e1a2f;
+  --dash-muted: rgba(14, 26, 47, 0.9);
+  --dash-meta: rgba(14, 26, 47, 0.78);
   --dash-card-bg: #ffffff;
   --dash-card-border: #d5e0ef;
   --dash-soft-border: #dce6f3;
@@ -255,13 +267,25 @@ input:disabled {
   --dash-btn-bg-hover: #deebfb;
   --dash-cursor: rgba(23, 33, 51, 0.5);
   --dash-warn-text: #9a5800;
+  --dash-sev-critical-bg: rgba(220, 38, 38, 0.08);
+  --dash-sev-critical-border: rgba(185, 28, 28, 0.45);
+  --dash-sev-critical-text: #991b1b;
+  --dash-sev-high-bg: rgba(217, 119, 6, 0.12);
+  --dash-sev-high-border: rgba(180, 83, 9, 0.45);
+  --dash-sev-high-text: #92400e;
+  --dash-sev-medium-bg: rgba(29, 78, 216, 0.09);
+  --dash-sev-medium-border: rgba(29, 78, 216, 0.4);
+  --dash-sev-medium-text: #1d4ed8;
+  --dash-sev-low-bg: rgba(71, 85, 105, 0.09);
+  --dash-sev-low-border: rgba(71, 85, 105, 0.35);
+  --dash-sev-low-text: #334155;
 }
 
 .dashboard-shell[data-dashboard-theme="sepia"] {
   --dash-bg: #efe3cf;
-  --dash-fg: #3f2f1e;
-  --dash-muted: rgba(63, 47, 30, 0.78);
-  --dash-meta: rgba(63, 47, 30, 0.62);
+  --dash-fg: #2f2316;
+  --dash-muted: rgba(47, 35, 22, 0.9);
+  --dash-meta: rgba(47, 35, 22, 0.78);
   --dash-card-bg: #f7efe2;
   --dash-card-border: #d9c5a9;
   --dash-soft-border: #ddccb4;
@@ -272,6 +296,18 @@ input:disabled {
   --dash-btn-bg-hover: #e3cba9;
   --dash-cursor: rgba(63, 47, 30, 0.5);
   --dash-warn-text: #7f4c00;
+  --dash-sev-critical-bg: rgba(185, 28, 28, 0.09);
+  --dash-sev-critical-border: rgba(153, 27, 27, 0.42);
+  --dash-sev-critical-text: #8b1d1d;
+  --dash-sev-high-bg: rgba(180, 83, 9, 0.12);
+  --dash-sev-high-border: rgba(146, 64, 14, 0.38);
+  --dash-sev-high-text: #8b5a06;
+  --dash-sev-medium-bg: rgba(30, 64, 175, 0.08);
+  --dash-sev-medium-border: rgba(30, 64, 175, 0.3);
+  --dash-sev-medium-text: #1e3a8a;
+  --dash-sev-low-bg: rgba(87, 83, 78, 0.1);
+  --dash-sev-low-border: rgba(87, 83, 78, 0.35);
+  --dash-sev-low-text: #44403c;
 }
 
 .dashboard-shell .app-header-title,

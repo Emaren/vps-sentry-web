@@ -19,6 +19,7 @@ import {
   TopArea,
 } from "./sections";
 import DashboardThemeControls from "./DashboardThemeControls";
+import DashboardLogoutButton from "./DashboardLogoutButton";
 
 export default function DashboardView(props: {
   env: DashboardEnv;
@@ -60,6 +61,7 @@ export default function DashboardView(props: {
           <Link href="/get-vps-sentry" className="app-header-btn">
             Install guide
           </Link>
+          <DashboardLogoutButton />
         </div>
       </div>
 

@@ -2,7 +2,6 @@
 "use client";
 
 import Link from "next/link";
-import { signOut } from "next-auth/react";
 
 type JsonResponse = {
   message?: string;
@@ -68,28 +67,12 @@ export default function DashboardActions() {
         ← Back to landing
       </Link>
 
-      <Link href="/billing" style={linkStyle}>
-        Billing
-      </Link>
-
-      <Link href="/hosts" style={linkStyle}>
-        Hosts
-      </Link>
-
       <button type="button" onClick={sendTestEmail} style={buttonStyle}>
         Send test email
       </button>
 
       <button type="button" onClick={sendReportNow} style={buttonStyle}>
         Send report now
-      </button>
-
-      <button
-        type="button"
-        onClick={() => signOut({ callbackUrl: "/" })}
-        style={buttonStyle}
-      >
-        Logout
       </button>
     </div>
   );

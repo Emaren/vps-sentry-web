@@ -61,12 +61,28 @@ export default function AlertsSection(props: { derived: DerivedDashboard; snapsh
 function SeverityBadge(props: { severity: "critical" | "high" | "medium" | "low" | "info" }) {
   const tone =
     props.severity === "critical"
-      ? { bg: "rgba(239,68,68,0.14)", border: "rgba(239,68,68,0.35)", color: "#fecaca" }
+      ? {
+          bg: "var(--dash-sev-critical-bg, rgba(239,68,68,0.14))",
+          border: "var(--dash-sev-critical-border, rgba(239,68,68,0.35))",
+          color: "var(--dash-sev-critical-text, #fecaca)",
+        }
       : props.severity === "high"
-        ? { bg: "rgba(245,158,11,0.14)", border: "rgba(245,158,11,0.35)", color: "#fcd34d" }
+        ? {
+            bg: "var(--dash-sev-high-bg, rgba(245,158,11,0.14))",
+            border: "var(--dash-sev-high-border, rgba(245,158,11,0.35))",
+            color: "var(--dash-sev-high-text, #fcd34d)",
+          }
         : props.severity === "medium"
-          ? { bg: "rgba(59,130,246,0.14)", border: "rgba(59,130,246,0.35)", color: "#bfdbfe" }
-          : { bg: "rgba(156,163,175,0.12)", border: "rgba(156,163,175,0.35)", color: "#d1d5db" };
+          ? {
+              bg: "var(--dash-sev-medium-bg, rgba(59,130,246,0.14))",
+              border: "var(--dash-sev-medium-border, rgba(59,130,246,0.35))",
+              color: "var(--dash-sev-medium-text, #bfdbfe)",
+            }
+          : {
+              bg: "var(--dash-sev-low-bg, rgba(156,163,175,0.12))",
+              border: "var(--dash-sev-low-border, rgba(156,163,175,0.35))",
+              color: "var(--dash-sev-low-text, #d1d5db)",
+            };
 
   return (
     <span
