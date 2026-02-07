@@ -116,6 +116,7 @@ export default async function HostsPage() {
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
+                    alignItems: "flex-start",
                     gap: 10,
                     flexWrap: "wrap",
                   }}
@@ -126,7 +127,7 @@ export default async function HostsPage() {
                       {h.slug ? `/${h.slug}` : h.id}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     <Badge tone={h.enabled ? "ok" : "warn"} text={h.enabled ? "Enabled" : "Disabled"} />
                     <Badge
                       tone={stale ? "warn" : "ok"}
@@ -195,14 +196,19 @@ function Badge(props: { tone: "ok" | "warn" | "bad"; text: string }) {
   return (
     <span
       style={{
-        padding: "4px 8px",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: 36,
+        padding: "0 12px",
         borderRadius: 999,
         border: `1px solid ${tone.border}`,
         background: tone.bg,
         color: tone.color,
         fontSize: 12,
         fontWeight: 700,
-        lineHeight: "14px",
+        lineHeight: 1,
+        whiteSpace: "nowrap",
       }}
     >
       {props.text}
