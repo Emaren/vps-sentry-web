@@ -478,19 +478,19 @@ html[data-site-theme="sepia"] .dashboard-shell {
   background: var(--dash-btn-bg-hover);
 }
 
-.dashboard-actions-with-theme {
+.app-header-actions-with-theme {
   flex-wrap: wrap;
   row-gap: 8px;
   overflow: visible;
 }
 
-.dashboard-actions-with-theme .app-header-actions-theme {
+.app-header-actions-with-theme .app-header-actions-theme-row {
   flex: 1 0 100%;
   display: flex;
   justify-content: flex-end;
 }
 
-.dashboard-actions-with-theme .site-theme-dock-inline {
+.app-header-actions-with-theme .site-theme-dock-inline {
   margin-left: 0;
 }
 

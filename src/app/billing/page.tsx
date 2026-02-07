@@ -27,7 +27,7 @@ export default async function BillingPage() {
   if (!user) redirect("/login");
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
+    <main className="mx-auto w-full max-w-[1060px] px-4 py-6 sm:px-6 sm:py-8">
       <div className="app-header">
         <div className="app-header-brand">
           <Link href="/" aria-label="VPS Sentry home" className="app-header-logo-link">
@@ -48,7 +48,7 @@ export default async function BillingPage() {
             <p className="app-header-meta">Manage plan, limits, and Stripe subscription settings.</p>
           </div>
         </div>
-        <div className="app-header-actions">
+        <div className="app-header-actions app-header-actions-with-theme">
           <Link href="/dashboard" className="app-header-btn">
             Dashboard
           </Link>
@@ -58,7 +58,9 @@ export default async function BillingPage() {
           <Link href="/get-vps-sentry" className="app-header-btn">
             Install guide
           </Link>
-          <SiteThemeControls variant="inline" />
+          <div className="app-header-actions-theme-row">
+            <SiteThemeControls variant="inline" />
+          </div>
         </div>
       </div>
 

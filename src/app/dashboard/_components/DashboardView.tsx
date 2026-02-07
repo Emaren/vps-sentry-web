@@ -51,7 +51,7 @@ export default function DashboardView(props: {
             <p className="app-header-meta">Monitor actionable alerts, public port exposure, and response state.</p>
           </div>
         </div>
-        <div className="app-header-actions dashboard-actions-with-theme">
+        <div className="app-header-actions app-header-actions-with-theme">
           <Link href="/hosts" className="app-header-btn">
             Hosts
           </Link>
@@ -62,7 +62,7 @@ export default function DashboardView(props: {
             Install guide
           </Link>
           <DashboardLogoutButton />
-          <div className="app-header-actions-theme">
+          <div className="app-header-actions-theme-row">
             <SiteThemeControls variant="inline" />
           </div>
         </div>
