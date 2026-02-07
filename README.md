@@ -65,3 +65,21 @@ After changing env:
 sudo systemctl restart vps-sentry-web.service
 sudo systemctl status vps-sentry-web.service --no-pager -n 30
 ```
+
+## Incident Timeline + Signal Correlation (v1.4)
+
+New in web `v1.4`:
+
+- Host detail page now includes an **Incident Timeline** derived from recent snapshots.
+- Signals are normalized into severities (`critical/high/medium/low/info`) from:
+  - watched-file/config tamper alerts
+  - auth anomalies (`ssh_failed_password`, `ssh_invalid_user`)
+  - unexpected public ports
+  - ingest integrity warnings
+- Duplicate noise is collapsed using a short dedupe window.
+
+API:
+
+- `GET /api/hosts/:hostId/timeline?limit=40`
+  - Auth required (session)
+  - Returns `timeline` and `summary` for UI/automation consumers.

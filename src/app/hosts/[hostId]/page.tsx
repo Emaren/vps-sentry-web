@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { fmt } from "@/lib/status";
 import { classifyHeartbeat, heartbeatLabel, readHeartbeatConfig } from "@/lib/host-heartbeat";
+import { buildIncidentTimeline } from "@/lib/incident-signals";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           alertsCount: true,
           publicPortsCount: true,
           createdAt: true,
+          statusJson: true,
         },
       },
       breaches: {
@@ -85,6 +87,18 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
 
   const latest = host.snapshots[0] ?? null;
   const heartbeat = classifyHeartbeat(host.lastSeenAt, new Date(), heartbeatConfig);
+  const timelineInput = host.snapshots
+    .map((s) => {
+      try {
+        const status = JSON.parse(s.statusJson);
+        if (!status || typeof status !== "object") return null;
+        return { id: s.id, ts: s.ts, status: status as Record<string, unknown> };
+      } catch {
+        return null;
+      }
+    })
+    .filter((x): x is { id: string; ts: Date; status: Record<string, unknown> } => Boolean(x));
+  const timeline = buildIncidentTimeline(timelineInput).timeline.slice(0, 20);
 
   return (
     <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
@@ -219,6 +233,35 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           </div>
         )}
       </section>
+
+      <section style={sectionStyle()}>
+        <h2 style={h2Style()}>Incident Timeline</h2>
+        <div style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
+          Correlated from recent snapshots with duplicate-noise collapsing.
+        </div>
+        {timeline.length === 0 ? (
+          <div style={{ marginTop: 10, opacity: 0.7 }}>No incident signals in recent snapshots.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+            {timeline.map((item, idx) => (
+              <div key={`${item.snapshotId ?? "na"}-${idx}`} style={breachCardStyle()}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ fontWeight: 800 }}>{item.title}</div>
+                  <span style={severityPill(item.severity)}>
+                    {item.severity}
+                  </span>
+                </div>
+                <div style={{ marginTop: 6, opacity: 0.8, fontSize: 12 }}>
+                  {item.code} · {item.source} · {fmt(item.ts)}
+                </div>
+                {item.detail ? (
+                  <pre style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>{item.detail}</pre>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </main>
   );
 }
@@ -300,5 +343,29 @@ function breachCardStyle(): React.CSSProperties {
     borderRadius: 10,
     padding: "10px 12px",
     background: "rgba(255,255,255,0.02)",
+  };
+}
+
+function severityPill(severity: "critical" | "high" | "medium" | "low" | "info"): React.CSSProperties {
+  const tone =
+    severity === "critical"
+      ? { bg: "rgba(239,68,68,0.14)", border: "rgba(239,68,68,0.35)", color: "#fecaca" }
+      : severity === "high"
+      ? { bg: "rgba(245,158,11,0.14)", border: "rgba(245,158,11,0.35)", color: "#fcd34d" }
+      : severity === "medium"
+      ? { bg: "rgba(59,130,246,0.14)", border: "rgba(59,130,246,0.35)", color: "#bfdbfe" }
+      : severity === "low"
+      ? { bg: "rgba(156,163,175,0.12)", border: "rgba(156,163,175,0.35)", color: "#e5e7eb" }
+      : { bg: "rgba(34,197,94,0.12)", border: "rgba(34,197,94,0.35)", color: "#bbf7d0" };
+
+  return {
+    border: `1px solid ${tone.border}`,
+    background: tone.bg,
+    color: tone.color,
+    borderRadius: 999,
+    padding: "3px 8px",
+    fontSize: 11,
+    fontWeight: 800,
+    textTransform: "uppercase",
   };
 }
