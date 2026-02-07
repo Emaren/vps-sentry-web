@@ -43,3 +43,25 @@ Set these in your web app environment (`/etc/vps-sentry-web.auth.env` for system
 - `VPS_SUPPRESS_PACKAGES_CHANGED=1`: suppress "Packages changed" alerts in dashboard actioning
 - `VPS_MAINTENANCE_MODE=1`: enable maintenance mode (suppresses non-critical alerts)
 - `VPS_MAINTENANCE_UNTIL=2026-02-10T03:00:00Z`: maintenance window end timestamp
+
+## Host Heartbeat + Ingest Integrity Knobs (v1.3)
+
+Set these in your web app environment (`/etc/vps-sentry-web.auth.env`):
+
+- `VPS_HEARTBEAT_EXPECTED_MINUTES=5`
+  - target scan cadence for a healthy host
+- `VPS_HEARTBEAT_STALE_MULTIPLIER=3`
+  - host transitions to `stale` after `expected * stale_multiplier`
+- `VPS_HEARTBEAT_MISSING_MULTIPLIER=12`
+  - host transitions to `missing` after `expected * missing_multiplier`
+- `VPS_INGEST_MAX_PAYLOAD_BYTES=1000000`
+  - reject oversized ingest requests (defaults to 1 MB)
+- `VPS_INGEST_MAX_CLOCK_SKEW_MINUTES=30`
+  - flag ingest payloads whose `ts` is too far from server time
+
+After changing env:
+
+```bash
+sudo systemctl restart vps-sentry-web.service
+sudo systemctl status vps-sentry-web.service --no-pager -n 30
+```

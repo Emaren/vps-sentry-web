@@ -4,17 +4,12 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { fmt } from "@/lib/status";
+import { classifyHeartbeat, heartbeatLabel, readHeartbeatConfig } from "@/lib/host-heartbeat";
 
 export const dynamic = "force-dynamic";
 
-function minutesAgo(date?: Date | null): number | null {
-  if (!date) return null;
-  const diff = Date.now() - date.getTime();
-  if (!Number.isFinite(diff)) return null;
-  return Math.round(diff / 60000);
-}
-
 export default async function HostsPage() {
+  const heartbeatConfig = readHeartbeatConfig();
   const session = await getServerSession(authOptions);
   const email = session?.user?.email?.trim();
   if (!email) redirect("/login");
@@ -79,6 +74,10 @@ export default async function HostsPage() {
           <p style={{ opacity: 0.78, marginTop: 10 }}>
             {user.hosts.length} host(s) configured · host limit {user.hostLimit ?? 1}
           </p>
+          <p style={{ opacity: 0.62, marginTop: 6, fontSize: 12 }}>
+            Heartbeat target every {heartbeatConfig.expectedMinutes}m · stale at{" "}
+            {heartbeatConfig.staleAfterMinutes}m · missing at {heartbeatConfig.missingAfterMinutes}m
+          </p>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
           <Link href="/get-vps-sentry" style={btnStyle(false)}>
@@ -107,8 +106,13 @@ export default async function HostsPage() {
           {user.hosts.map((h) => {
             const latest = h.snapshots[0] ?? null;
             const openCount = openByHost.get(h.id) ?? 0;
-            const seenMin = minutesAgo(h.lastSeenAt);
-            const stale = typeof seenMin === "number" ? seenMin > 15 : true;
+            const heartbeat = classifyHeartbeat(h.lastSeenAt, new Date(), heartbeatConfig);
+            const heartbeatTone: "ok" | "warn" | "bad" =
+              heartbeat.state === "fresh"
+                ? "ok"
+                : heartbeat.state === "delayed"
+                ? "warn"
+                : "bad";
 
             return (
               <div key={h.id} style={cardStyle()}>
@@ -136,12 +140,7 @@ export default async function HostsPage() {
                     }}
                   >
                     <Badge tone={h.enabled ? "ok" : "warn"} text={h.enabled ? "Enabled" : "Disabled"} />
-                    <Badge
-                      tone={stale ? "warn" : "ok"}
-                      text={
-                        seenMin === null ? "Never seen" : stale ? `Stale (${seenMin}m)` : `Fresh (${seenMin}m)`
-                      }
-                    />
+                    <Badge tone={heartbeatTone} text={heartbeatLabel(heartbeat)} />
                     <Badge tone={openCount > 0 ? "bad" : "ok"} text={`Open breaches: ${openCount}`} />
                   </div>
                 </div>

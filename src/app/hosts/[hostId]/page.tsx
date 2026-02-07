@@ -4,10 +4,12 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { fmt } from "@/lib/status";
+import { classifyHeartbeat, heartbeatLabel, readHeartbeatConfig } from "@/lib/host-heartbeat";
 
 export const dynamic = "force-dynamic";
 
 export default async function HostDetailPage(props: { params: Promise<{ hostId: string }> }) {
+  const heartbeatConfig = readHeartbeatConfig();
   const session = await getServerSession(authOptions);
   const email = session?.user?.email?.trim();
   if (!email) redirect("/login");
@@ -82,6 +84,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
   }
 
   const latest = host.snapshots[0] ?? null;
+  const heartbeat = classifyHeartbeat(host.lastSeenAt, new Date(), heartbeatConfig);
 
   return (
     <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
@@ -109,8 +112,13 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
 
       <section style={sectionStyle()}>
         <h2 style={h2Style()}>Summary</h2>
+        <div style={{ marginTop: 8, marginBottom: 4, opacity: 0.75, fontSize: 12 }}>
+          Heartbeat target every {heartbeat.expectedMinutes}m · stale at {heartbeat.staleAfterMinutes}m · missing at{" "}
+          {heartbeat.missingAfterMinutes}m
+        </div>
         <div style={gridStyle()}>
           <Stat label="Enabled" value={host.enabled ? "true" : "false"} />
+          <Stat label="Heartbeat" value={heartbeatLabel(heartbeat)} />
           <Stat label="Last seen" value={fmt(host.lastSeenAt ? host.lastSeenAt.toISOString() : undefined)} />
           <Stat label="Agent version" value={host.agentVersion ?? "—"} />
           <Stat label="Created" value={fmt(host.createdAt.toISOString())} />

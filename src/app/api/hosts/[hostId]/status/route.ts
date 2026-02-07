@@ -1,7 +1,8 @@
-// /var/www/vps-sentry-web/src/app/api/hosts/[hostId]/status/route.ts
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { parseIngestPayload, extractIngestMeta } from "@/lib/host-ingest";
+import { classifyHeartbeat, readHeartbeatConfig } from "@/lib/host-heartbeat";
 
 export const dynamic = "force-dynamic";
 
@@ -16,24 +17,12 @@ function bearerToken(req: Request): string | null {
   return m ? m[1].trim() : null;
 }
 
-function asIsoDate(v: any): Date {
-  if (typeof v === "string" && v.length) {
-    const d = new Date(v);
-    if (!Number.isNaN(d.getTime())) return d;
-  }
-  return new Date();
-}
-
 function safeParse(s: string) {
   try {
     return JSON.parse(s);
   } catch {
     return s;
   }
-}
-
-function isPlainObject(v: any): v is Record<string, any> {
-  return v && typeof v === "object" && !Array.isArray(v);
 }
 
 function derivePublicPortsTotalCount(base: any): number {
@@ -54,7 +43,8 @@ function deriveUnexpectedPublicPortsCount(base: any): number | null {
 
 function deriveExpectedPublicPorts(base: any): string[] | null {
   if (Array.isArray(base?.expected_public_ports)) {
-    return base.expected_public_ports.filter((x: any) => typeof x === "string");
+    const out = base.expected_public_ports.filter((x: any) => typeof x === "string");
+    return out.length ? out : null;
   }
   return null;
 }
@@ -71,6 +61,12 @@ export async function POST(
       { ok: false, error: "Missing Authorization: Bearer <token>" },
       { status: 401 }
     );
+  }
+
+  const rawBody = await req.text();
+  const parsed = parseIngestPayload(rawBody);
+  if (!parsed.ok) {
+    return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   }
 
   const tokenHash = sha256(token);
@@ -96,48 +92,87 @@ export async function POST(
     return NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 });
   }
 
-  const payload = await req.json().catch(() => null);
-  if (!payload || typeof payload !== "object") {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  const warnings = [...parsed.warnings];
+  const payloadHost = typeof parsed.status.host === "string" ? parsed.status.host.trim() : "";
+  if (
+    payloadHost &&
+    payloadHost !== host.id &&
+    payloadHost !== host.name &&
+    payloadHost !== (host.slug ?? "")
+  ) {
+    warnings.push(`ingest_host_mismatch:${payloadHost}`);
+  }
+  if (!host.enabled) warnings.push("ingest_host_disabled");
+
+  const statusForStore: Record<string, unknown> = {
+    ...parsed.status,
+    _web_ingest: {
+      payloadHash: parsed.payloadHash,
+      payloadBytes: parsed.payloadBytes,
+      receivedTs: new Date().toISOString(),
+      warnings,
+    },
+  };
+
+  const latest = await prisma.hostSnapshot.findFirst({
+    where: { hostId },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      ts: true,
+      statusJson: true,
+    },
+  });
+
+  let duplicateSnapshotId: string | null = null;
+  if (latest) {
+    const latestMeta = extractIngestMeta(safeParse(latest.statusJson));
+    if (latestMeta?.payloadHash === parsed.payloadHash && latest.ts.getTime() === parsed.ts.getTime()) {
+      duplicateSnapshotId = latest.id;
+    }
   }
 
-  // Supports BOTH:
-  // 1) Envelope: { ok, status, last, diff, ts, paths }
-  // 2) Raw agent status.json: { alerts_count, public_ports_count, ... }
-  const statusObj = (payload as any).status ?? null;
-  const lastObj = (payload as any).last ?? null;
-  const diffObj = (payload as any).diff ?? null;
-
-  const ok = typeof (payload as any).ok === "boolean" ? (payload as any).ok : true;
-
-  // Base object used for counts/version + stored statusJson
-  const base =
-    isPlainObject(statusObj) ? statusObj : (payload as any);
-
-  // Prefer base.ts; fallback payload.ts; fallback now
-  const ts = asIsoDate((base as any)?.ts ?? (payload as any).ts);
-
-  const alertsCount =
-    typeof (base as any)?.alerts_count === "number"
-      ? (base as any).alerts_count
-      : Array.isArray((base as any)?.alerts)
-        ? (base as any).alerts.length
-        : 0;
-
-  // TOTAL public ports (raw)
-  const publicPortsTotalCount = derivePublicPortsTotalCount(base);
-
-  // ACTIONABLE ports = "unexpected" if the normalizer/allowlist is active
-  const unexpectedMaybe = deriveUnexpectedPublicPortsCount(base);
-  const publicPortsCount = (unexpectedMaybe ?? publicPortsTotalCount);
-
-  const unexpectedPublicPortsCount = publicPortsCount; // always numeric for clients
-  const expectedPublicPorts = deriveExpectedPublicPorts(base);
-
   const agentVersion =
-    typeof (base as any)?.version === "string" && (base as any).version
-      ? (base as any).version
-      : null;
+    typeof parsed.status.version === "string" && parsed.status.version
+      ? parsed.status.version
+      : host.agentVersion;
+
+  if (duplicateSnapshotId) {
+    await prisma.$transaction([
+      prisma.hostApiKey.update({
+        where: { id: key.id },
+        data: { lastUsedAt: new Date() },
+      }),
+      prisma.host.update({
+        where: { id: hostId },
+        data: {
+          lastSeenAt: new Date(),
+          agentVersion: agentVersion ?? undefined,
+        },
+      }),
+      prisma.auditLog.create({
+        data: {
+          hostId,
+          action: "host.ingest.duplicate",
+          detail: `Duplicate snapshot ignored (snapshotId=${duplicateSnapshotId})`,
+        },
+      }),
+    ]);
+
+    return NextResponse.json({
+      ok: true,
+      hostId,
+      deduped: true,
+      duplicateSnapshotId,
+      ts: parsed.ts.toISOString(),
+      warnings,
+      alertsCount: parsed.alertsCount,
+      publicPortsCount: parsed.publicPortsCount,
+      publicPortsTotalCount: parsed.publicPortsTotalCount,
+      unexpectedPublicPortsCount: parsed.unexpectedPublicPortsCount,
+      expectedPublicPorts: parsed.expectedPublicPorts,
+    });
+  }
 
   await prisma.$transaction([
     prisma.hostApiKey.update({
@@ -148,27 +183,26 @@ export async function POST(
       where: { id: hostId },
       data: {
         lastSeenAt: new Date(),
-        agentVersion: agentVersion ?? host.agentVersion,
+        agentVersion: agentVersion ?? undefined,
       },
     }),
     prisma.hostSnapshot.create({
       data: {
         hostId,
-        ts,
-        statusJson: JSON.stringify(base),
-        lastJson: lastObj ? JSON.stringify(lastObj) : null,
-        diffJson: diffObj ? JSON.stringify(diffObj) : null,
-        ok,
-        alertsCount,
-        // NOTE: store actionable count in the snapshot column
-        publicPortsCount,
+        ts: parsed.ts,
+        statusJson: JSON.stringify(statusForStore),
+        lastJson: parsed.last ? JSON.stringify(parsed.last) : null,
+        diffJson: parsed.diff ? JSON.stringify(parsed.diff) : null,
+        ok: parsed.okFlag,
+        alertsCount: parsed.alertsCount,
+        publicPortsCount: parsed.publicPortsCount,
       },
     }),
     prisma.auditLog.create({
       data: {
         hostId,
         action: "host.ingest",
-        detail: `Ingest snapshot: ok=${ok} alerts=${alertsCount} unexpectedPublicPorts=${publicPortsCount} totalPublicPorts=${publicPortsTotalCount}`,
+        detail: `Ingest snapshot: ok=${parsed.okFlag} alerts=${parsed.alertsCount} unexpectedPublicPorts=${parsed.publicPortsCount} totalPublicPorts=${parsed.publicPortsTotalCount} warnings=${warnings.length}`,
       },
     }),
   ]);
@@ -178,18 +212,14 @@ export async function POST(
     hostId,
     received: true,
     persisted: true,
-    ts: ts.toISOString(),
-    alertsCount,
-
-    // Backward-compat: publicPortsCount is now ACTIONABLE count
-    publicPortsCount,
-
-    // New: raw total + actionable (unexpected) count
-    publicPortsTotalCount,
-    unexpectedPublicPortsCount,
-
-    // Nice-to-have context for UI/debug panels
-    expectedPublicPorts,
+    deduped: false,
+    ts: parsed.ts.toISOString(),
+    warnings,
+    alertsCount: parsed.alertsCount,
+    publicPortsCount: parsed.publicPortsCount,
+    publicPortsTotalCount: parsed.publicPortsTotalCount,
+    unexpectedPublicPortsCount: parsed.unexpectedPublicPortsCount,
+    expectedPublicPorts: parsed.expectedPublicPorts,
   });
 }
 
@@ -230,33 +260,40 @@ export async function GET(
     orderBy: { ts: "desc" },
   });
 
-  if (!snap) return NextResponse.json({ ok: true, hostId, snapshot: null });
+  const heartbeat = classifyHeartbeat(host.lastSeenAt, new Date(), readHeartbeatConfig());
+
+  if (!snap) {
+    return NextResponse.json({
+      ok: true,
+      hostId,
+      snapshot: null,
+      heartbeat,
+    });
+  }
 
   const statusParsed: any = safeParse(snap.statusJson);
-  const base = isPlainObject(statusParsed) ? statusParsed : {};
+  const base = statusParsed && typeof statusParsed === "object" ? statusParsed : {};
 
   const publicPortsTotalCount = derivePublicPortsTotalCount(base);
   const unexpectedMaybe = deriveUnexpectedPublicPortsCount(base);
-  const actionable = (unexpectedMaybe ?? publicPortsTotalCount);
+  const actionable = unexpectedMaybe ?? publicPortsTotalCount;
   const expectedPublicPorts = deriveExpectedPublicPorts(base);
+  const ingestIntegrity = extractIngestMeta(base);
 
   return NextResponse.json({
     ok: true,
     hostId,
+    heartbeat,
     snapshot: {
       id: snap.id,
       ts: snap.ts,
       ok: snap.ok,
       alertsCount: snap.alertsCount,
-
-      // Stored column is actionable count (by POST logic)
       publicPortsCount: snap.publicPortsCount,
-
-      // Derived from statusJson for UI/debug
       publicPortsTotalCount,
       unexpectedPublicPortsCount: actionable,
       expectedPublicPorts,
-
+      ingestIntegrity,
       status: statusParsed,
       last: snap.lastJson ? safeParse(snap.lastJson) : null,
       diff: snap.diffJson ? safeParse(snap.diffJson) : null,

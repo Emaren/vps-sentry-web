@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getBaseUrlFromHeaders } from "@/lib/server-base-url";
+import { classifyHeartbeat, readHeartbeatConfig } from "@/lib/host-heartbeat";
 import {
   buildIngestEndpoint,
   buildShipHookInstallScript,
@@ -61,6 +62,7 @@ async function findUniqueSlug(userId: string, preferredBase: string): Promise<st
 export async function GET() {
   const user = await requireUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const heartbeatConfig = readHeartbeatConfig();
 
   const hosts = await prisma.host.findMany({
     where: { userId: user.id },
@@ -126,6 +128,7 @@ export async function GET() {
   const items = hosts.map((h) => {
     const latest = h.snapshots[0] ?? null;
     const latestKey = h.apiKeys[0] ?? null;
+    const heartbeat = classifyHeartbeat(h.lastSeenAt, new Date(), heartbeatConfig);
 
     return {
       id: h.id,
@@ -137,6 +140,7 @@ export async function GET() {
       createdAt: h.createdAt,
       updatedAt: h.updatedAt,
       latestSnapshot: latest,
+      heartbeat,
       activeKey: latestKey
         ? {
             id: latestKey.id,
