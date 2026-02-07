@@ -24,7 +24,15 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
 
   const user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true },
+    select: {
+      id: true,
+      hostLimit: true,
+      _count: {
+        select: {
+          hosts: true,
+        },
+      },
+    },
   });
   if (!user) redirect("/login");
 
@@ -202,20 +210,12 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           <div className="app-header-copy">
             <h1 className="app-header-title">Hosts</h1>
             <p className="app-header-subtitle">
-              Viewing details for {host.name}
-            </p>
-            <p style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
-              Host ID: <code>{host.id}</code>
+              {user._count.hosts} host(s) configured · host limit {user.hostLimit ?? 1}
             </p>
             <p className="app-header-meta">
               Heartbeat target every {heartbeat.expectedMinutes}m · stale at {heartbeat.staleAfterMinutes}m · missing at{" "}
               {heartbeat.missingAfterMinutes}m
             </p>
-            {host.slug ? (
-              <p style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
-                Slug: <code>{host.slug}</code>
-              </p>
-            ) : null}
           </div>
         </div>
         <div className="app-header-actions">

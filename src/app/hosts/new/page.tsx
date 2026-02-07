@@ -1,5 +1,7 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import Image from "next/image";
+import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import NewHostClient from "./NewHostClient";
@@ -28,12 +30,43 @@ export default async function NewHostPage() {
   const hostLimit = user.hostLimit ?? 1;
 
   return (
-    <main style={{ padding: 16, maxWidth: 980, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 28, margin: 0 }}>Add Host</h1>
-      <p style={{ opacity: 0.8, marginTop: 10, lineHeight: 1.5 }}>
-        Create a host, get a one-time API token, and install the auto-push hook so your VPS snapshots
-        flow into this dashboard.
-      </p>
+    <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
+      <div className="app-header">
+        <div className="app-header-brand">
+          <Link href="/" aria-label="VPS Sentry home" className="app-header-logo-link">
+            <Image
+              src="/vps-sentry-logo.png"
+              alt="VPS Sentry logo"
+              width={56}
+              height={56}
+              priority
+              className="app-header-logo"
+            />
+          </Link>
+          <div className="app-header-copy">
+            <h1 className="app-header-title">Add Host</h1>
+            <p className="app-header-subtitle">
+              Create a host, get a one-time API token, and install the auto-push hook.
+            </p>
+            <p className="app-header-meta">Connect a new VPS and start streaming snapshots into your dashboard.</p>
+          </div>
+        </div>
+
+        <div className="app-header-actions">
+          <Link href="/dashboard" className="app-header-btn">
+            Dashboard
+          </Link>
+          <Link href="/billing" className="app-header-btn">
+            Billing
+          </Link>
+          <Link href="/get-vps-sentry" className="app-header-btn">
+            Install guide
+          </Link>
+          <Link href="/hosts" className="app-header-btn">
+            Back to hosts
+          </Link>
+        </div>
+      </div>
 
       <NewHostClient
         defaultName={`vps-${currentHosts + 1}`}
