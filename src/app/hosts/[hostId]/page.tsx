@@ -10,6 +10,8 @@ import { buildIncidentTimeline } from "@/lib/incident-signals";
 import { buildRemediationPlanFromSnapshots } from "@/lib/remediate";
 import { isWithinMinutes, readRemediationPolicy } from "@/lib/remediate/policy";
 import { buildSecurityPostureFromSnapshots, type ContainmentStage, type ThreatBand } from "@/lib/security-posture";
+import { buildContainmentKit, renderContainmentKitScript } from "@/lib/remediate/containment-kit";
+import CopyCodeBlock from "@/app/get-vps-sentry/CopyCodeBlock";
 import RemediationConsole from "./RemediationConsole";
 
 export const dynamic = "force-dynamic";
@@ -140,6 +142,14 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
     dedupeWindowMinutes: remediationPolicy.timelineDedupeWindowMinutes,
   });
   const remediations = remediationPlan.actions.slice(0, 4);
+  const containmentKit = buildContainmentKit({
+    hostName: host.name,
+    hostId: host.id,
+    posture,
+    actions: remediations,
+    context: remediationPlan.context,
+  });
+  const fullContainmentScript = renderContainmentKitScript(containmentKit);
   const dryRunReadyActionIds = Array.from(
     new Set(
       host.remediationRuns
@@ -341,6 +351,38 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           <a href="#response-playbook" style={btnStyle()}>
             Jump to response playbook
           </a>
+        </div>
+      </section>
+
+      <section style={sectionStyle()}>
+        <h2 style={h2Style()}>Emergency Containment Kit</h2>
+        <div style={{ opacity: 0.72, marginTop: 6, fontSize: 12 }}>
+          Human-confirmed runbook generated from this host risk posture and top response actions.
+        </div>
+        <div style={{ marginTop: 8, lineHeight: 1.5 }}>
+          <strong>Profile:</strong> {containmentKit.profile} · {containmentKit.headline}
+        </div>
+        <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>1) Triage</div>
+            <CopyCodeBlock text={containmentKit.triage.join("\n")} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>2) Contain</div>
+            <CopyCodeBlock text={containmentKit.contain.join("\n")} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>3) Verify</div>
+            <CopyCodeBlock text={containmentKit.verify.join("\n")} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>4) Recover</div>
+            <CopyCodeBlock text={containmentKit.recover.join("\n")} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Copy Full Script</div>
+            <CopyCodeBlock text={fullContainmentScript} />
+          </div>
         </div>
       </section>
 
