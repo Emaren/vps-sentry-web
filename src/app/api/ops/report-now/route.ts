@@ -1,9 +1,9 @@
 // /var/www/vps-sentry-web/src/app/api/ops/report-now/route.ts
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { promises as fs } from "node:fs";
 import crypto from "node:crypto";
+import { requireAdminAccess } from "@/lib/rbac";
+import { writeAuditLog } from "@/lib/audit-log";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +32,29 @@ type StatusJson = {
   ports_public?: Array<{ proto?: string; host?: string; port?: number; proc?: string; pid?: number }>;
 };
 
+type SendEmailResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error: string;
+      detail?: string;
+      code?: string;
+    };
+
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function readJsonSafe<T = any>(path: string): Promise<T | null> {
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function errorCode(err: unknown): string | undefined {
+  const candidate = err as { code?: unknown };
+  return typeof candidate.code === "string" ? candidate.code : undefined;
+}
+
+async function readJsonSafe<T = unknown>(path: string): Promise<T | null> {
   try {
     const txt = await fs.readFile(path, "utf8");
     return JSON.parse(txt) as T;
@@ -156,19 +174,19 @@ function getSmtpConfig(): SmtpConfig {
 async function sendEmail(opts: { to: string; subject: string; text: string; html?: string }) {
   const cfgRes = getSmtpConfig();
   if (cfgRes.kind === "missing") {
-    return { ok: false as const, error: cfgRes.error };
+    return { ok: false, error: cfgRes.error } as SendEmailResult;
   }
   const cfg = cfgRes.cfg;
 
-  let nodemailer: any;
+  let nodemailer: typeof import("nodemailer");
   try {
     nodemailer = await import("nodemailer");
-  } catch (e: any) {
+  } catch (e: unknown) {
     return {
-      ok: false as const,
+      ok: false,
       error: "nodemailer is not available. Install it with: pnpm add nodemailer",
-      detail: String(e?.message ?? e ?? ""),
-    };
+      detail: errorMessage(e),
+    } as SendEmailResult;
   }
 
   const transport = nodemailer.createTransport({
@@ -183,8 +201,10 @@ async function sendEmail(opts: { to: string; subject: string; text: string; html
   });
 
   const timeoutPromise = new Promise((_, reject) => {
-    const t: any = setTimeout(() => reject(new Error("SMTP send timeout")), SMTP_TIMEOUT_MS);
-    t?.unref?.();
+    const t = setTimeout(() => reject(new Error("SMTP send timeout")), SMTP_TIMEOUT_MS);
+    if (typeof (t as NodeJS.Timeout).unref === "function") {
+      (t as NodeJS.Timeout).unref();
+    }
   });
 
   try {
@@ -198,10 +218,10 @@ async function sendEmail(opts: { to: string; subject: string; text: string; html
       }),
       timeoutPromise,
     ]);
-    return { ok: true as const };
-  } catch (e: any) {
-    const msg = String(e?.message ?? e ?? "Unknown email error");
-    const code = e?.code ? String(e.code) : undefined;
+    return { ok: true } as SendEmailResult;
+  } catch (e: unknown) {
+    const msg = errorMessage(e) || "Unknown email error";
+    const code = errorCode(e);
 
     // normalize the UX-friendly label but keep detail for logs/JSON
     const label =
@@ -210,11 +230,11 @@ async function sendEmail(opts: { to: string; subject: string; text: string; html
         : "Email send failed";
 
     return {
-      ok: false as const,
+      ok: false,
       error: label,
       detail: msg,
       code,
-    };
+    } as SendEmailResult;
   } finally {
     try {
       transport.close?.();
@@ -285,87 +305,178 @@ function buildEmailText(params: { requestedBy: string; baseUrl: string | null; s
 export async function POST(req: Request) {
   const rid = crypto.randomUUID().slice(0, 8);
 
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await requireAdminAccess();
+  if (!access.ok) {
+    await writeAuditLog({
+      req,
+      action: "ops.report_now.denied",
+      detail: `status=${access.status} email=${access.email ?? "unknown"}`,
+      meta: {
+        rid,
+        route: "/api/ops/report-now",
+        status: access.status,
+        email: access.email ?? null,
+      },
+    });
+    return NextResponse.json({ error: access.error }, { status: access.status });
+  }
 
-  const requestedBy = session.user?.email ?? session.user?.name ?? "user";
-  const to = session.user?.email;
+  const requestedBy = access.identity.email;
+  const to = access.identity.email;
+
+  await writeAuditLog({
+    req,
+    userId: access.identity.userId,
+    action: "ops.report_now.request",
+    detail: `Manual report requested by ${requestedBy}`,
+    meta: {
+      rid,
+      route: "/api/ops/report-now",
+    },
+  });
 
   console.log(`[report-now:${rid}] start requestedBy=${requestedBy} to=${to ?? "—"}`);
 
-  // Read status BEFORE (so we can detect that it changed)
-  const before = await readJsonSafe<StatusJson>(STATUS_PATH);
-  const beforeTs = before?.ts ?? null;
+  try {
+    // Read status BEFORE (so we can detect that it changed)
+    const before = await readJsonSafe<StatusJson>(STATUS_PATH);
+    const beforeTs = before?.ts ?? null;
 
-  // Trigger: systemd path unit watches this
-  await fs.writeFile(
-    TRIGGER_PATH,
-    JSON.stringify({ ts: new Date().toISOString(), requestedBy, reason: "manual-report" }, null, 2),
-    "utf8"
-  );
+    // Trigger: systemd path unit watches this
+    await fs.writeFile(
+      TRIGGER_PATH,
+      JSON.stringify({ ts: new Date().toISOString(), requestedBy, reason: "manual-report" }, null, 2),
+      "utf8"
+    );
 
-  // Poll briefly for a newer status timestamp
-  let after: StatusJson | null = null;
-  const start = Date.now();
-  while (Date.now() - start < POLL_MAX_MS) {
-    await sleep(POLL_STEP_MS);
-    after = await readJsonSafe<StatusJson>(STATUS_PATH);
-    if (after?.ts && after.ts !== beforeTs) break;
-  }
+    await writeAuditLog({
+      req,
+      userId: access.identity.userId,
+      action: "ops.report_now.trigger_written",
+      detail: `Trigger file updated: ${TRIGGER_PATH}`,
+      meta: {
+        rid,
+        triggerPath: TRIGGER_PATH,
+      },
+    });
 
-  const s = after?.ts && after.ts !== beforeTs ? after : after || before;
+    // Poll briefly for a newer status timestamp
+    let after: StatusJson | null = null;
+    const start = Date.now();
+    while (Date.now() - start < POLL_MAX_MS) {
+      await sleep(POLL_STEP_MS);
+      after = await readJsonSafe<StatusJson>(STATUS_PATH);
+      if (after?.ts && after.ts !== beforeTs) break;
+    }
 
-  console.log(`[report-now:${rid}] status ts=${s?.ts ?? "—"} (before=${beforeTs ?? "—"})`);
+    const s = after?.ts && after.ts !== beforeTs ? after : after || before;
 
-  if (!to) {
+    console.log(`[report-now:${rid}] status ts=${s?.ts ?? "—"} (before=${beforeTs ?? "—"})`);
+
+    if (!to) {
+      await writeAuditLog({
+        req,
+        userId: access.identity.userId,
+        action: "ops.report_now.no_email",
+        detail: "Admin has no email in session; skipping mail delivery",
+        meta: {
+          rid,
+          statusTs: s?.ts ?? null,
+        },
+      });
+      return NextResponse.json({
+        ok: true,
+        triggered: true,
+        emailed: false,
+        warning: "No session email found; cannot send report email.",
+        statusTs: s?.ts ?? null,
+      });
+    }
+
+    const host = s?.host ?? "VPS";
+    const alerts = typeof s?.alerts_count === "number" ? s.alerts_count : 0;
+    const ports = typeof s?.public_ports_count === "number" ? s.public_ports_count : 0;
+
+    const headline = alerts > 0 ? "ACTION NEEDED" : ports > 0 ? "REVIEW" : "OK";
+    const subject = `[VPS Sentry] ${headline} — ${host} (${alerts} alerts, ${ports} ports)`;
+
+    const baseUrl = getBaseUrl(req);
+    const text = buildEmailText({ requestedBy, baseUrl, s });
+
+    const mail = await sendEmail({ to, subject, text });
+
+    if (!mail.ok) {
+      console.log(
+        `[report-now:${rid}] ERROR ${mail.error}${mail.detail ? ` — ${mail.detail}` : ""}`
+      );
+      await writeAuditLog({
+        req,
+        userId: access.identity.userId,
+        action: "ops.report_now.mail_failed",
+        detail: `Mail delivery failed: ${mail.error}`,
+        meta: {
+          rid,
+          error: mail.error,
+          detail: mail.detail ?? null,
+          code: mail.code ?? null,
+          statusTs: s?.ts ?? null,
+        },
+      });
+
+      return NextResponse.json(
+        {
+          ok: false,
+          triggered: true,
+          emailed: false,
+          error: mail.error,
+          detail: mail.detail,
+          code: mail.code,
+          statusTs: s?.ts ?? null,
+        },
+        { status: 502 }
+      );
+    }
+
+    console.log(`[report-now:${rid}] emailed ok to=${to}`);
+    await writeAuditLog({
+      req,
+      userId: access.identity.userId,
+      action: "ops.report_now.mail_sent",
+      detail: `Manual report emailed to ${to}`,
+      meta: {
+        rid,
+        to,
+        subject,
+        statusTs: s?.ts ?? null,
+      },
+    });
+
     return NextResponse.json({
       ok: true,
       triggered: true,
-      emailed: false,
-      warning: "No session email found; cannot send report email.",
+      emailed: true,
+      to,
+      subject,
       statusTs: s?.ts ?? null,
     });
-  }
-
-  const host = s?.host ?? "VPS";
-  const alerts = typeof s?.alerts_count === "number" ? s.alerts_count : 0;
-  const ports = typeof s?.public_ports_count === "number" ? s.public_ports_count : 0;
-
-  const headline = alerts > 0 ? "ACTION NEEDED" : ports > 0 ? "REVIEW" : "OK";
-  const subject = `[VPS Sentry] ${headline} — ${host} (${alerts} alerts, ${ports} ports)`;
-
-  const baseUrl = getBaseUrl(req);
-  const text = buildEmailText({ requestedBy, baseUrl, s });
-
-  const mail = await sendEmail({ to, subject, text });
-
-  if (!mail.ok) {
-    console.log(
-      `[report-now:${rid}] ERROR ${mail.error}${(mail as any).detail ? ` — ${(mail as any).detail}` : ""}`
-    );
-
+  } catch (err: unknown) {
+    const message = errorMessage(err);
+    await writeAuditLog({
+      req,
+      userId: access.identity.userId,
+      action: "ops.report_now.failed",
+      detail: message,
+      meta: {
+        rid,
+      },
+    });
     return NextResponse.json(
       {
         ok: false,
-        triggered: true,
-        emailed: false,
-        error: mail.error,
-        detail: (mail as any).detail,
-        code: (mail as any).code,
-        statusTs: s?.ts ?? null,
+        error: "Report trigger failed",
+        detail: message,
       },
-      { status: 502 }
+      { status: 500 }
     );
   }
-
-  console.log(`[report-now:${rid}] emailed ok to=${to}`);
-
-  return NextResponse.json({
-    ok: true,
-    triggered: true,
-    emailed: true,
-    to,
-    subject,
-    statusTs: s?.ts ?? null,
-  });
 }

@@ -1,14 +1,8 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-// ---------- Admin gate ----------
-function isAdminEmail(email?: string | null) {
-  // Keep this dumb + explicit for MVP. Later: move to DB role, allowlist, etc.
-  return (email ?? "").toLowerCase() === "tonyblumdev@gmail.com";
-}
+import { requireAdminAccess } from "@/lib/rbac";
+import { writeAuditLog } from "@/lib/audit-log";
 
 function fmtDate(d?: Date | null) {
   if (!d) return "-";
@@ -88,7 +82,7 @@ function badge(text: string, tone: "ok" | "warn" | "bad" | "neutral" = "neutral"
  * - a suspicious bool that highlights mismatch states (webhook sync issues, partial Stripe link, etc.)
  */
 function classifyUser(u: {
-  plan: any;
+  plan: unknown;
   subscriptionStatus: string | null;
   stripeCustomerId: string | null;
   subscriptionId: string | null;
@@ -158,14 +152,29 @@ function classifyUser(u: {
 
 export default async function AdminPage() {
   // ---------- 1) Auth ----------
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email;
-
-  // If not logged in OR not allowlisted admin => bounce to /login
-  // (You can change this to redirect("/") if your /login is not the entry point.)
-  if (!session?.user || !isAdminEmail(email)) {
+  const access = await requireAdminAccess();
+  if (!access.ok) {
+    await writeAuditLog({
+      action: "admin.page.denied",
+      detail: `status=${access.status} email=${access.email ?? "unknown"}`,
+      meta: {
+        route: "/admin",
+        status: access.status,
+        email: access.email ?? null,
+      },
+    });
     redirect("/login");
   }
+  const email = access.identity.email;
+
+  await writeAuditLog({
+    action: "admin.page.view",
+    userId: access.identity.userId,
+    detail: `Admin page viewed by ${email}`,
+    meta: {
+      route: "/admin",
+    },
+  });
 
   // ---------- 2) Data pull ----------
   // Your Prisma schema apparently doesn't have createdAt on User, so ordering by id is a pragmatic MVP choice.

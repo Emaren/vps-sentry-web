@@ -1,8 +1,8 @@
 // /var/www/vps-sentry-web/src/app/api/ops/test-email/route.ts
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import nodemailer from "nodemailer";
+import { requireAdminAccess } from "@/lib/rbac";
+import { writeAuditLog } from "@/lib/audit-log";
 
 function envTrim(key: string): string | null {
   const v = process.env[key]?.trim();
@@ -15,11 +15,39 @@ function requireEnv(key: string): string {
   return v;
 }
 
-export async function POST() {
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+export async function POST(req: Request) {
+  const access = await requireAdminAccess();
+  if (!access.ok) {
+    await writeAuditLog({
+      req,
+      action: "ops.test_email.denied",
+      detail: `status=${access.status} email=${access.email ?? "unknown"}`,
+      meta: {
+        route: "/api/ops/test-email",
+        status: access.status,
+        email: access.email ?? null,
+      },
+    });
+    return NextResponse.json({ error: access.error }, { status: access.status });
+  }
+
   try {
-    const session = await getServerSession(authOptions);
-    const to = session?.user?.email?.trim();
+    const to = access.identity.email?.trim();
     if (!to) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    await writeAuditLog({
+      req,
+      userId: access.identity.userId,
+      action: "ops.test_email.request",
+      detail: `Test email requested by ${to}`,
+      meta: {
+        route: "/api/ops/test-email",
+      },
+    });
 
     const host = requireEnv("EMAIL_SERVER_HOST");
     const port = Number(requireEnv("EMAIL_SERVER_PORT"));
@@ -44,8 +72,28 @@ export async function POST() {
         `Host: ${envTrim("HOSTNAME") ?? "unknown"}\n`,
     });
 
+    await writeAuditLog({
+      req,
+      userId: access.identity.userId,
+      action: "ops.test_email.sent",
+      detail: `Test email sent to ${to}`,
+      meta: {
+        to,
+      },
+    });
+
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+  } catch (e: unknown) {
+    const message = errorMessage(e);
+    await writeAuditLog({
+      req,
+      userId: access.identity.userId,
+      action: "ops.test_email.failed",
+      detail: message,
+      meta: {
+        route: "/api/ops/test-email",
+      },
+    });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
