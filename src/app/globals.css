@@ -213,16 +213,12 @@ a:hover {
   backdrop-filter: blur(8px);
 }
 
-.site-theme-dock-fixed {
-  position: fixed;
-  right: 14px;
-  top: calc(env(safe-area-inset-top, 0px) + 14px);
-  z-index: 70;
-}
-
 .site-theme-dock-inline {
   position: static;
   z-index: auto;
+  flex: 0 0 auto;
+  align-self: center;
+  margin-left: 2px;
 }
 
 .site-theme-dot {
@@ -253,11 +249,6 @@ a:hover {
 }
 
 @media (max-width: 700px) {
-  .site-theme-dock-fixed {
-    right: 10px;
-    top: calc(env(safe-area-inset-top, 0px) + 10px);
-  }
-
   .site-theme-dock {
     padding: 5px 7px;
     gap: 7px;
@@ -267,10 +258,6 @@ a:hover {
     width: 14px;
     height: 14px;
   }
-}
-
-body:has(.dashboard-main) .site-theme-dock-fixed {
-  display: none;
 }
 
 /* Shared responsive app header (logo + title + action buttons) */
@@ -328,7 +315,7 @@ body:has(.dashboard-main) .site-theme-dock-fixed {
 .app-header-actions {
   display: flex;
   gap: 10px;
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: nowrap;
   justify-content: flex-end;
   max-width: 100%;
@@ -491,12 +478,6 @@ html[data-site-theme="sepia"] .dashboard-shell {
   background: var(--dash-btn-bg-hover);
 }
 
-.dashboard-theme-row {
-  margin-top: 8px;
-  display: flex;
-  justify-content: flex-end;
-}
-
 .dashboard-top-stack {
   display: grid;
   gap: 12px;
@@ -534,10 +515,6 @@ html[data-site-theme="sepia"] .dashboard-shell {
 @media (max-width: 700px) {
   .dashboard-main {
     padding: 14px;
-  }
-
-  .dashboard-theme-row {
-    justify-content: flex-start;
   }
 
   .dashboard-kpi-grid {

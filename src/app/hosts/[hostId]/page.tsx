@@ -12,6 +12,7 @@ import { isWithinMinutes, readRemediationPolicy } from "@/lib/remediate/policy";
 import { buildSecurityPostureFromSnapshots, type ContainmentStage, type ThreatBand } from "@/lib/security-posture";
 import { buildContainmentKit, renderContainmentKitScript } from "@/lib/remediate/containment-kit";
 import CopyCodeBlock from "@/app/get-vps-sentry/CopyCodeBlock";
+import SiteThemeControls from "@/app/_components/SiteThemeControls";
 import RemediationConsole from "./RemediationConsole";
 
 export const dynamic = "force-dynamic";
@@ -234,6 +235,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           <Link href="/hosts" className="app-header-btn">
             Back to hosts
           </Link>
+          <SiteThemeControls variant="inline" />
         </div>
       </div>
 

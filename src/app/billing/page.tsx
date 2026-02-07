@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import SiteThemeControls from "@/app/_components/SiteThemeControls";
 import BillingActions from "./ui/BillingActions";
 
 export default async function BillingPage() {
@@ -57,6 +58,7 @@ export default async function BillingPage() {
           <Link href="/get-vps-sentry" className="app-header-btn">
             Install guide
           </Link>
+          <SiteThemeControls variant="inline" />
         </div>
       </div>
 

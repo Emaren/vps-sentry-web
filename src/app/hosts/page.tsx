@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { fmt } from "@/lib/status";
 import { classifyHeartbeat, heartbeatLabel, readHeartbeatConfig } from "@/lib/host-heartbeat";
 import { buildSecurityPostureFromSnapshots, type ContainmentStage, type ThreatBand } from "@/lib/security-posture";
+import SiteThemeControls from "@/app/_components/SiteThemeControls";
 
 export const dynamic = "force-dynamic";
 
@@ -140,6 +141,7 @@ export default async function HostsPage() {
           <Link href="/hosts/new" className="app-header-btn">
             Add host
           </Link>
+          <SiteThemeControls variant="inline" />
         </div>
       </div>
 

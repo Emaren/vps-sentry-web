@@ -62,11 +62,8 @@ export default function DashboardView(props: {
             Install guide
           </Link>
           <DashboardLogoutButton />
+          <SiteThemeControls variant="inline" />
         </div>
-      </div>
-
-      <div className="dashboard-theme-row">
-        <SiteThemeControls variant="inline" />
       </div>
 
       <div style={{ marginTop: 10 }}>

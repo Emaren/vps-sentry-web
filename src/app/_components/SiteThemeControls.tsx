@@ -14,7 +14,7 @@ export default function SiteThemeControls(props: {
   variant?: "fixed" | "inline";
   className?: string;
 }) {
-  const variant = props.variant ?? "fixed";
+  const variant = props.variant ?? "inline";
   const cls = [
     "site-theme-dock",
     variant === "fixed" ? "site-theme-dock-fixed" : "site-theme-dock-inline",

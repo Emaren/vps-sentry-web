@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import SiteThemeControls from "@/app/_components/SiteThemeControls";
 import NewHostClient from "./NewHostClient";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,7 @@ export default async function NewHostPage() {
           <Link href="/hosts" className="app-header-btn">
             Back to hosts
           </Link>
+          <SiteThemeControls variant="inline" />
         </div>
       </div>
 

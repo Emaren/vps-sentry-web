@@ -2,7 +2,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
-import SiteThemeControls from "./_components/SiteThemeControls";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -71,7 +70,6 @@ export default function RootLayout({
           src={plausibleSrc}
           strategy="afterInteractive"
         />
-        <SiteThemeControls />
         {children}
       </body>
     </html>
