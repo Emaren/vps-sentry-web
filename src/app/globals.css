@@ -217,6 +217,7 @@ input:disabled {
 }
 
 .dashboard-shell {
+  --dash-style-rev: 2;
   --dash-bg: #06090f;
   --dash-fg: #ecf2ff;
   --dash-muted: rgba(236, 242, 255, 0.88);
