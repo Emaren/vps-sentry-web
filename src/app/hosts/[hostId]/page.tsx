@@ -202,7 +202,10 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           <div className="app-header-copy">
             <h1 className="app-header-title">Hosts</h1>
             <p className="app-header-subtitle">
-              Viewing details for {host.name} · host ID <code>{host.id}</code>
+              Viewing details for {host.name}
+            </p>
+            <p style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
+              Host ID: <code>{host.id}</code>
             </p>
             <p className="app-header-meta">
               Heartbeat target every {heartbeat.expectedMinutes}m · stale at {heartbeat.staleAfterMinutes}m · missing at{" "}

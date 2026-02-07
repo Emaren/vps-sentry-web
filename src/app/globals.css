@@ -108,6 +108,7 @@ input:disabled {
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  flex: 1 1 360px;
   min-width: 0;
 }
 
@@ -150,7 +151,15 @@ input:disabled {
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-header-actions > * {
+  flex: 0 0 auto;
 }
 
 .app-header-btn {
@@ -175,6 +184,9 @@ input:disabled {
 @media (max-width: 900px) {
   .app-header-actions {
     width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    overflow-x: visible;
   }
 
   .app-header-logo {

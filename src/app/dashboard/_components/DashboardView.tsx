@@ -30,7 +30,7 @@ export default function DashboardView(props: {
   const d: DerivedDashboard = deriveDashboard(env);
 
   return (
-    <main style={{ padding: 16, maxWidth: 980, margin: "0 auto" }}>
+    <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
       <div className="app-header">
         <div className="app-header-brand">
           <Link href="/" aria-label="VPS Sentry home" className="app-header-logo-link">
