@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 
 import DashboardView from "./_components/DashboardView";
 import { getStatusEnvelopeSafe, getUserBilling } from "./_lib/fetch";
+import type { DashboardBilling, DashboardEnv } from "./_lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,10 @@ export default async function DashboardPage() {
   ]);
 
   return (
-    <DashboardView env={env as any} billing={billing} signedInAs={signedInAs} />
+    <DashboardView
+      env={env as DashboardEnv}
+      billing={billing as DashboardBilling}
+      signedInAs={signedInAs}
+    />
   );
 }

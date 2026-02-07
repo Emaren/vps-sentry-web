@@ -100,12 +100,12 @@ export default async function HostsPage() {
 
   return (
     <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+      <div className="app-header">
+        <div className="app-header-brand">
           <Link
             href="/"
             aria-label="VPS Sentry home"
-            style={{ display: "inline-flex", alignItems: "center" }}
+            className="app-header-logo-link"
           >
             <Image
               src="/vps-sentry-logo.png"
@@ -113,37 +113,31 @@ export default async function HostsPage() {
               width={52}
               height={52}
               priority
-              style={{
-                width: 52,
-                height: 52,
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.15)",
-                objectFit: "cover",
-              }}
+              className="app-header-logo"
             />
           </Link>
-          <div>
-            <h1 style={{ fontSize: 28, margin: 0 }}>Hosts</h1>
-            <p style={{ opacity: 0.78, marginTop: 10 }}>
+          <div className="app-header-copy">
+            <h1 className="app-header-title">Hosts</h1>
+            <p className="app-header-subtitle">
               {user.hosts.length} host(s) configured · host limit {user.hostLimit ?? 1}
             </p>
-            <p style={{ opacity: 0.62, marginTop: 6, fontSize: 12 }}>
+            <p className="app-header-meta">
               Heartbeat target every {heartbeatConfig.expectedMinutes}m · stale at{" "}
               {heartbeatConfig.staleAfterMinutes}m · missing at {heartbeatConfig.missingAfterMinutes}m
             </p>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-          <Link href="/dashboard" style={btnStyle(false)}>
+        <div className="app-header-actions">
+          <Link href="/dashboard" className="app-header-btn">
             Dashboard
           </Link>
-          <Link href="/billing" style={btnStyle(false)}>
+          <Link href="/billing" className="app-header-btn">
             Billing
           </Link>
-          <Link href="/get-vps-sentry" style={btnStyle(false)}>
+          <Link href="/get-vps-sentry" className="app-header-btn">
             Install guide
           </Link>
-          <Link href="/hosts/new" style={btnStyle(false)}>
+          <Link href="/hosts/new" className="app-header-btn">
             Add host
           </Link>
         </div>

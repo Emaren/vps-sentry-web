@@ -95,3 +95,104 @@ button:disabled,
 input:disabled {
   cursor: not-allowed;
 }
+
+/* Shared responsive app header (logo + title + action buttons) */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.app-header-brand {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.app-header-logo-link {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.app-header-logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  object-fit: cover;
+}
+
+.app-header-copy {
+  min-width: 0;
+}
+
+.app-header-title {
+  font-size: 28px;
+  margin: 0;
+  line-height: 1.1;
+}
+
+.app-header-subtitle {
+  opacity: 0.78;
+  margin-top: 10px;
+}
+
+.app-header-meta {
+  opacity: 0.62;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.app-header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.app-header-btn {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  text-decoration: none;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.app-header-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+@media (max-width: 900px) {
+  .app-header-actions {
+    width: 100%;
+  }
+
+  .app-header-logo {
+    width: 44px;
+    height: 44px;
+  }
+
+  .app-header-title {
+    font-size: 24px;
+  }
+
+  .app-header-subtitle {
+    margin-top: 8px;
+    font-size: 14px;
+  }
+
+  .app-header-btn {
+    padding: 9px 11px;
+    font-size: 13px;
+  }
+}

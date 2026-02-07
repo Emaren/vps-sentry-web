@@ -1,8 +1,9 @@
 // /var/www/vps-sentry-web/src/app/dashboard/_components/DashboardView.tsx
 import React from "react";
+import Link from "next/link";
+import Image from "next/image";
 
-import { fmt, safeJson, type Status } from "@/lib/status";
-import Box from "../_components/Box";
+import type { DashboardBilling, DashboardEnv } from "../_lib/types";
 
 import { deriveDashboard, type DerivedDashboard } from "../_lib/derive";
 
@@ -19,8 +20,8 @@ import {
 } from "./sections";
 
 export default function DashboardView(props: {
-  env: { ok: boolean; ts?: string; diff?: unknown; raw: unknown; last: Status };
-  billing: any | null;
+  env: DashboardEnv;
+  billing: DashboardBilling;
   signedInAs: string;
 }) {
   const { env, billing, signedInAs } = props;
@@ -30,12 +31,46 @@ export default function DashboardView(props: {
 
   return (
     <main style={{ padding: 16, maxWidth: 980, margin: "0 auto" }}>
+      <div className="app-header">
+        <div className="app-header-brand">
+          <Link href="/" aria-label="VPS Sentry home" className="app-header-logo-link">
+            <Image
+              src="/vps-sentry-logo.png"
+              alt="VPS Sentry logo"
+              width={52}
+              height={52}
+              priority
+              className="app-header-logo"
+            />
+          </Link>
+          <div className="app-header-copy">
+            <h1 className="app-header-title">Dashboard</h1>
+            <p className="app-header-subtitle">Live VPS snapshot and response controls</p>
+            <p className="app-header-meta">Monitor actionable alerts, public port exposure, and response state.</p>
+          </div>
+        </div>
+        <div className="app-header-actions">
+          <Link href="/hosts" className="app-header-btn">
+            Hosts
+          </Link>
+          <Link href="/billing" className="app-header-btn">
+            Billing
+          </Link>
+          <Link href="/get-vps-sentry" className="app-header-btn">
+            Install guide
+          </Link>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
       <TopArea
         status={s}
         billing={billing}
         signedInAs={signedInAs}
         derived={d}
+        showTitle={false}
       />
+      </div>
 
       <AlertsSection derived={d} snapshotTs={d.snapshotTs} />
       <PortsSection derived={d} snapshotTs={d.snapshotTs} />

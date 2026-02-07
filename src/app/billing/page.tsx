@@ -1,3 +1,5 @@
+import Link from "next/link";
+import Image from "next/image";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
@@ -24,14 +26,42 @@ export default async function BillingPage() {
   if (!user) redirect("/login");
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-10">
-      <h1 className="text-2xl font-semibold">Billing</h1>
-      <p className="mt-2 text-sm opacity-80">
-        Signed in as <span className="font-medium">{user.email}</span>
-      </p>
+    <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
+      <div className="app-header">
+        <div className="app-header-brand">
+          <Link href="/" aria-label="VPS Sentry home" className="app-header-logo-link">
+            <Image
+              src="/vps-sentry-logo.png"
+              alt="VPS Sentry logo"
+              width={52}
+              height={52}
+              priority
+              className="app-header-logo"
+            />
+          </Link>
+          <div className="app-header-copy">
+            <h1 className="app-header-title">Billing</h1>
+            <p className="app-header-subtitle">
+              Signed in as <span className="font-medium">{user.email}</span>
+            </p>
+            <p className="app-header-meta">Manage plan, limits, and Stripe subscription settings.</p>
+          </div>
+        </div>
+        <div className="app-header-actions">
+          <Link href="/dashboard" className="app-header-btn">
+            Dashboard
+          </Link>
+          <Link href="/hosts" className="app-header-btn">
+            Hosts
+          </Link>
+          <Link href="/get-vps-sentry" className="app-header-btn">
+            Install guide
+          </Link>
+        </div>
+      </div>
 
       {/* Current plan box: INFO + Manage subscription ONLY */}
-      <div className="mt-6 rounded-lg border p-4">
+      <div className="mt-6 rounded-lg border p-4 sm:p-5">
         <div className="flex flex-col gap-1">
           <div className="text-sm">
             <span className="opacity-70">Current plan:</span>{" "}

@@ -2,6 +2,7 @@
 import React from "react";
 import type { Status } from "@/lib/status";
 import { fmt, fmtAny } from "@/lib/status";
+import type { DashboardBilling } from "../../_lib/types";
 
 import Box from "../Box";
 import StatCard from "../StatCard";
@@ -11,11 +12,12 @@ import type { DerivedDashboard } from "../../_lib/derive";
 
 export default function TopArea(props: {
   status: Status;
-  billing: any | null;
+  billing: DashboardBilling;
   signedInAs: string;
   derived: DerivedDashboard;
+  showTitle?: boolean;
 }) {
-  const { status: s, billing, signedInAs, derived: d } = props;
+  const { status: s, billing, signedInAs, derived: d, showTitle = true } = props;
 
   // actionable = unexpected if present, else total (fallback)
   const actionablePublicPorts = d.publicPortsCount;
@@ -37,9 +39,9 @@ export default function TopArea(props: {
       }}
     >
       <div>
-        <h1 style={{ fontSize: 28, margin: 0 }}>VPS Sentry</h1>
+        {showTitle ? <h1 style={{ fontSize: 28, margin: 0 }}>VPS Sentry</h1> : null}
 
-        <Box style={{ marginTop: 12 }}>
+        <Box style={{ marginTop: showTitle ? 12 : 0 }}>
           <StatusActionPopup
             needsAction={d.needsAction}
             headline={d.headline}
