@@ -20,41 +20,38 @@ export default function CopyCodeBlock(props: { text: string }) {
       style={{
         margin: 0,
         padding: 0,
+        position: "relative",
         borderRadius: 12,
         border: "1px solid rgba(255,255,255,0.15)",
         background: "rgba(255,255,255,0.04)",
       }}
     >
-      <div
+      <button
+        type="button"
+        onClick={onCopy}
         style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          padding: "8px 10px 0 10px",
+          position: "absolute",
+          top: 8,
+          right: 10,
+          zIndex: 1,
+          padding: "6px 9px",
+          borderRadius: 8,
+          border: "1px solid rgba(255,255,255,0.15)",
+          background: "rgba(255,255,255,0.06)",
+          color: "inherit",
+          fontWeight: 700,
+          fontSize: 12,
+          cursor: "pointer",
         }}
+        aria-live="polite"
       >
-        <button
-          type="button"
-          onClick={onCopy}
-          style={{
-            padding: "6px 9px",
-            borderRadius: 8,
-            border: "1px solid rgba(255,255,255,0.15)",
-            background: "rgba(255,255,255,0.06)",
-            color: "inherit",
-            fontWeight: 700,
-            fontSize: 12,
-            cursor: "pointer",
-          }}
-          aria-live="polite"
-        >
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
+        {copied ? "Copied" : "Copy"}
+      </button>
 
       <pre
         style={{
           margin: 0,
-          padding: "8px 14px 12px 14px",
+          padding: "12px 110px 12px 14px",
           whiteSpace: "pre-wrap",
           overflowX: "auto",
           lineHeight: 1.45,
