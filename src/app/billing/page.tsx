@@ -27,7 +27,7 @@ export default async function BillingPage() {
   if (!user) redirect("/login");
 
   return (
-    <main className="mx-auto w-full max-w-[1060px] px-4 py-6 sm:px-6 sm:py-8">
+    <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
       <div className="app-header">
         <div className="app-header-brand">
           <Link href="/" aria-label="VPS Sentry home" className="app-header-logo-link">

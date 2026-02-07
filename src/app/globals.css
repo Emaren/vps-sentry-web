@@ -516,6 +516,13 @@ html[data-site-theme="sepia"] .dashboard-shell {
   width: 100%;
 }
 
+.app-header-actions-with-theme .app-header-actions-row {
+  width: 100%;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
 .app-header-actions-with-theme .site-theme-dock-inline {
   margin-left: 0;
 }
@@ -529,6 +536,10 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
   .app-header-actions-with-theme .app-header-actions-theme-row {
     justify-content: flex-end;
+  }
+
+  .app-header-actions-with-theme .app-header-actions-row {
+    justify-content: flex-start;
   }
 }
 
