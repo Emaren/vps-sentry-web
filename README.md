@@ -29,7 +29,9 @@ Next.js frontend for VPS Sentry.
    ```bash
    cd /Users/tonyblum/projects/vps-sentry-web
    make vps-check
+   make vps-hygiene-check
    make deploy
+   make vps-prune-archives
    make logs
    make rollback TO=HEAD~1
    ```
@@ -153,6 +155,19 @@ Tuning env knobs:
 Release gate commands:
 
 ```bash
-make release-gate   # test + typecheck + vps-check + smoke
+make release-gate   # test + typecheck + vps-check + vps-hygiene-check + smoke
 make release        # release-gate + deploy + smoke
 ```
+
+Archive pruning:
+
+```bash
+make vps-prune-archives                       # apply default retention (30 days)
+./scripts/vps-archive-prune.sh --dry-run     # preview only
+./scripts/vps-archive-prune.sh --days 14      # apply custom retention
+```
+
+Optional env knobs in `.vps.env`:
+
+- `VPS_ARCHIVE_BASE=/home/tony/_archive/vps-sentry`
+- `VPS_ARCHIVE_KEEP_DAYS=30`

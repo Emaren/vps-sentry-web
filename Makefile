@@ -1,9 +1,15 @@
 SHELL := /bin/bash
 
-.PHONY: vps-check deploy restart logs rollback release-gate smoke release
+.PHONY: vps-check vps-hygiene-check vps-prune-archives deploy restart logs rollback release-gate smoke release
 
 vps-check:
 	./scripts/vps.sh check
+
+vps-hygiene-check:
+	./scripts/vps-hygiene-check.sh
+
+vps-prune-archives:
+	./scripts/vps-archive-prune.sh
 
 deploy:
 	./scripts/vps.sh deploy

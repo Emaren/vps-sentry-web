@@ -15,6 +15,9 @@ npx tsc --noEmit
 echo "[gate] vps-check"
 ./scripts/vps.sh check
 
+echo "[gate] vps-hygiene-check"
+./scripts/vps-hygiene-check.sh
+
 echo "[gate] smoke"
 ./scripts/release-smoke.sh
 
