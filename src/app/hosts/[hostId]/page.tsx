@@ -7,6 +7,7 @@ import { fmt } from "@/lib/status";
 import { classifyHeartbeat, heartbeatLabel, readHeartbeatConfig } from "@/lib/host-heartbeat";
 import { buildIncidentTimeline } from "@/lib/incident-signals";
 import { buildRemediationPlanFromSnapshots } from "@/lib/remediate";
+import { isWithinMinutes, readRemediationPolicy } from "@/lib/remediate/policy";
 import RemediationConsole from "./RemediationConsole";
 
 export const dynamic = "force-dynamic";
@@ -82,6 +83,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           finishedAt: true,
           output: true,
           error: true,
+          paramsJson: true,
           action: {
             select: {
               key: true,
@@ -126,7 +128,21 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
     .filter((x): x is { id: string; ts: Date; status: Record<string, unknown> } => Boolean(x));
   const timelineResult = buildIncidentTimeline(timelineInput);
   const timeline = timelineResult.timeline.slice(0, 20);
-  const remediations = buildRemediationPlanFromSnapshots(timelineInput).actions.slice(0, 4);
+  const remediationPolicy = readRemediationPolicy();
+  const remediationPlan = buildRemediationPlanFromSnapshots(timelineInput);
+  const remediations = remediationPlan.actions.slice(0, 4);
+  const dryRunReadyActionIds = Array.from(
+    new Set(
+      host.remediationRuns
+        .filter(
+          (r) =>
+            r.state === "succeeded" &&
+            r.paramsJson?.includes("\"mode\":\"dry-run\"") &&
+            isWithinMinutes(r.requestedAt, remediationPolicy.dryRunMaxAgeMinutes)
+        )
+        .map((r) => r.action.key)
+    )
+  );
 
   return (
     <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
@@ -296,7 +312,28 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         <div style={{ opacity: 0.72, marginTop: 6, fontSize: 12 }}>
           Dry-run first, then confirm phrase to execute. Every run is logged to host history.
         </div>
-        <RemediationConsole hostId={host.id} actions={remediations} />
+        <div style={{ marginTop: 8, opacity: 0.75, fontSize: 12 }}>
+          Dry-run freshness window: {remediationPolicy.dryRunMaxAgeMinutes} minute(s)
+        </div>
+        {remediationPlan.context.unexpectedPublicPorts.length > 0 ? (
+          <div style={{ marginTop: 8, fontSize: 12, opacity: 0.82 }}>
+            Detected unexpected public ports:{" "}
+            {remediationPlan.context.unexpectedPublicPorts
+              .map((p) => `${p.proto}:${p.port}${p.proc ? ` (${p.proc})` : ""}`)
+              .join(", ")}
+          </div>
+        ) : null}
+        {remediationPlan.topCodes.length > 0 ? (
+          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+            Top recent signal codes: {remediationPlan.topCodes.join(", ")}
+          </div>
+        ) : null}
+        <RemediationConsole
+          hostId={host.id}
+          actions={remediations}
+          dryRunWindowMinutes={remediationPolicy.dryRunMaxAgeMinutes}
+          initialDryRunReadyActionIds={dryRunReadyActionIds}
+        />
       </section>
 
       <section style={sectionStyle()}>
@@ -322,6 +359,9 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
                 <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12 }}>
                   Started: {fmt(run.startedAt ? run.startedAt.toISOString() : undefined)} · Finished:{" "}
                   {fmt(run.finishedAt ? run.finishedAt.toISOString() : undefined)}
+                </div>
+                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12 }}>
+                  Mode: {parseRunMode(run.paramsJson)}
                 </div>
                 {run.error ? (
                   <pre style={{ marginTop: 8, whiteSpace: "pre-wrap", color: "#fecaca" }}>{run.error}</pre>
@@ -443,4 +483,15 @@ function severityPill(severity: "critical" | "high" | "medium" | "low" | "info")
     fontWeight: 800,
     textTransform: "uppercase",
   };
+}
+
+function parseRunMode(paramsJson: string | null): string {
+  if (!paramsJson) return "unknown";
+  try {
+    const parsed = JSON.parse(paramsJson) as { mode?: unknown };
+    if (typeof parsed.mode === "string" && parsed.mode.trim()) return parsed.mode;
+  } catch {
+    // ignore malformed params
+  }
+  return "unknown";
 }

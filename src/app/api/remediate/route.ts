@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { buildRemediationPlanFromSnapshots } from "@/lib/remediate";
 import { executeRemediationCommands, formatExecutionForLog } from "@/lib/remediate/runner";
 import type { RemediationAction } from "@/lib/remediate/actions";
+import { isWithinMinutes, readRemediationPolicy } from "@/lib/remediate/policy";
 
 export const dynamic = "force-dynamic";
 type RemediationMode = "plan" | "dry-run" | "execute";
@@ -66,6 +67,7 @@ async function getRemediationRuns(hostId: string, limit = 15) {
 }
 
 export async function POST(req: Request) {
+  const policy = readRemediationPolicy();
   const session = await getServerSession(authOptions);
   const email = session?.user?.email?.trim();
   if (!email) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -168,6 +170,36 @@ export async function POST(req: Request) {
     },
     select: { id: true, key: true },
   });
+
+  if (mode === "execute") {
+    const latestDryRun = await prisma.remediationRun.findFirst({
+      where: {
+        hostId: host.id,
+        actionId: actionRow.id,
+        state: "succeeded",
+        paramsJson: { contains: "\"mode\":\"dry-run\"" },
+      },
+      orderBy: { requestedAt: "desc" },
+      select: {
+        id: true,
+        requestedAt: true,
+      },
+    });
+
+    const hasFreshDryRun =
+      latestDryRun !== null &&
+      isWithinMinutes(latestDryRun.requestedAt, policy.dryRunMaxAgeMinutes);
+
+    if (!hasFreshDryRun) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Run dry-run first (within ${policy.dryRunMaxAgeMinutes} minutes) before execute.`,
+        },
+        { status: 409 }
+      );
+    }
+  }
 
   const run = await prisma.remediationRun.create({
     data: {

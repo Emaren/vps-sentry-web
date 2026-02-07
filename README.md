@@ -111,6 +111,8 @@ New in web `v1.6`:
 - Response flow is now explicit:
   - `Dry run`: logs what would execute, executes nothing
   - `Execute`: requires a typed confirmation phrase and writes a remediation run record
+- Execute now enforces a fresh dry-run window per action/host.
+  - default: `30` minutes (override with `VPS_REMEDIATE_DRY_RUN_MAX_AGE_MINUTES`)
 - Host detail page now includes **Remediation Runs** (state, timestamps, output/error).
 - Every dry-run/execute writes audit logs (`remediate.dry_run`, `remediate.execute`).
 

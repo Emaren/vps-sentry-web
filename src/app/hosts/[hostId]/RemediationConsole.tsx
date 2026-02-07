@@ -20,6 +20,8 @@ type ApiResponse = {
 export default function RemediationConsole(props: {
   hostId: string;
   actions: RemediationAction[];
+  dryRunWindowMinutes: number;
+  initialDryRunReadyActionIds: string[];
 }) {
   const router = useRouter();
   const [busyActionId, setBusyActionId] = useState<string | null>(null);
@@ -27,6 +29,9 @@ export default function RemediationConsole(props: {
   const [confirmText, setConfirmText] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [lastOutputByAction, setLastOutputByAction] = useState<Record<string, string>>({});
+  const [dryRunReadyByAction, setDryRunReadyByAction] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(props.initialDryRunReadyActionIds.map((id) => [id, true]))
+  );
 
   const canExecute = useMemo(() => {
     if (!confirmingActionId) return false;
@@ -77,6 +82,10 @@ export default function RemediationConsole(props: {
           : `Execution ${data.run?.state ?? "completed"} (${data.run?.id ?? "run"}).`
       );
 
+      if (mode === "dry-run") {
+        setDryRunReadyByAction((prev) => ({ ...prev, [action.id]: true }));
+      }
+
       if (mode === "execute") {
         setConfirmingActionId(null);
         setConfirmText("");
@@ -99,6 +108,7 @@ export default function RemediationConsole(props: {
       {props.actions.map((a) => {
         const isBusy = busyActionId === a.id;
         const isConfirming = confirmingActionId === a.id;
+        const dryRunReady = Boolean(dryRunReadyByAction[a.id]);
 
         return (
           <div
@@ -121,6 +131,9 @@ export default function RemediationConsole(props: {
             <div style={{ marginTop: 8, opacity: 0.9 }}>{a.why}</div>
             <div style={{ marginTop: 8, fontSize: 12, opacity: 0.72 }}>
               Triggered by: {a.sourceCodes.join(", ")}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.82 }}>
+              Dry-run gate: {dryRunReady ? "ready" : "required"} (within {props.dryRunWindowMinutes}m)
             </div>
 
             <div style={{ marginTop: 10 }}>
@@ -145,6 +158,12 @@ export default function RemediationConsole(props: {
               <button
                 type="button"
                 onClick={() => {
+                  if (!dryRunReady) {
+                    setMessage(
+                      `Run dry-run first for "${a.title}" (window ${props.dryRunWindowMinutes}m) before execute.`
+                    );
+                    return;
+                  }
                   setConfirmingActionId(isConfirming ? null : a.id);
                   setConfirmText("");
                 }}
@@ -189,6 +208,20 @@ export default function RemediationConsole(props: {
                     style={buttonStyle("warn")}
                   >
                     {isBusy ? "Executing..." : "Confirm Execute"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(a.confirmPhrase);
+                        setMessage("Confirmation phrase copied.");
+                      } catch {
+                        setMessage("Could not copy confirmation phrase.");
+                      }
+                    }}
+                    style={buttonStyle()}
+                  >
+                    Copy Phrase
                   </button>
                 </div>
               </div>
