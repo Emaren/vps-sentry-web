@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
@@ -151,16 +152,38 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
   return (
     <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <h1 style={{ fontSize: 28, margin: 0 }}>{host.name}</h1>
-          <p style={{ opacity: 0.75, marginTop: 8 }}>
-            Host ID: <code>{host.id}</code>
-          </p>
-          {host.slug ? (
-            <p style={{ opacity: 0.7, marginTop: 4 }}>
-              Slug: <code>{host.slug}</code>
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <Link
+            href="/"
+            aria-label="VPS Sentry home"
+            style={{ display: "inline-flex", alignItems: "center" }}
+          >
+            <Image
+              src="/vps-sentry-logo.png"
+              alt="VPS Sentry logo"
+              width={52}
+              height={52}
+              priority
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.15)",
+                objectFit: "cover",
+              }}
+            />
+          </Link>
+          <div>
+            <h1 style={{ fontSize: 28, margin: 0 }}>{host.name}</h1>
+            <p style={{ opacity: 0.75, marginTop: 8 }}>
+              Host ID: <code>{host.id}</code>
             </p>
-          ) : null}
+            {host.slug ? (
+              <p style={{ opacity: 0.7, marginTop: 4 }}>
+                Slug: <code>{host.slug}</code>
+              </p>
+            ) : null}
+          </div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <Link href="/hosts/new" style={btnStyle()}>

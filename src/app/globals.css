@@ -78,3 +78,20 @@ button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Show pointer for interactive controls by default */
+a[href],
+button:not(:disabled),
+[role="button"],
+summary,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+label[for] {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+}
