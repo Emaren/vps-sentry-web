@@ -50,7 +50,7 @@ export function css() {
     width: 8px;
     height: 14px;
     margin-left: 2px;
-    background: rgba(255,255,255,0.65);
+    background: var(--dash-cursor, rgba(255,255,255,0.65));
     vertical-align: -2px;
     animation: vpsBlink 0.9s step-end infinite;
   }
@@ -64,16 +64,16 @@ export function css() {
 export function stepRow(status: FixStepStatus): CSSProperties {
   const base: CSSProperties = {
     borderRadius: 14,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.04)",
+    border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
+    background: "var(--dash-card-bg, rgba(255,255,255,0.04))",
     padding: "10px 12px",
   };
 
   if (status === "running") {
     return {
       ...base,
-      border: "1px solid rgba(255,255,255,0.22)",
-      background: "rgba(255,255,255,0.06)",
+      border: "1px solid var(--dash-btn-border, rgba(255,255,255,0.22))",
+      background: "var(--dash-btn-bg-strong, rgba(255,255,255,0.06))",
       boxShadow: "0 0 0 1px rgba(255,255,255,0.04), 0 0 18px rgba(255,255,255,0.06)",
     };
   }
@@ -100,8 +100,8 @@ export function stepRow(status: FixStepStatus): CSSProperties {
 export function btn(): CSSProperties {
   return {
     borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "rgba(255,255,255,0.05)",
+    border: "1px solid var(--dash-btn-border, rgba(255,255,255,0.14))",
+    background: "var(--dash-btn-bg, rgba(255,255,255,0.05))",
     padding: "10px 12px",
     fontWeight: 900,
     cursor: "pointer",
@@ -112,16 +112,16 @@ export function btn(): CSSProperties {
 export function btnStrong(): CSSProperties {
   return {
     ...btn(),
-    border: "1px solid rgba(255,255,255,0.22)",
-    background: "rgba(255,255,255,0.08)",
+    border: "1px solid var(--dash-btn-border, rgba(255,255,255,0.22))",
+    background: "var(--dash-btn-bg-strong, rgba(255,255,255,0.08))",
   };
 }
 
 export function okBtn(): CSSProperties {
   return {
     borderRadius: 14,
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "rgba(255,255,255,0.06)",
+    border: "1px solid var(--dash-btn-border, rgba(255,255,255,0.18))",
+    background: "var(--dash-btn-bg-strong, rgba(255,255,255,0.06))",
     padding: "10px 18px",
     fontWeight: 950,
     cursor: "pointer",
@@ -134,8 +134,8 @@ export function okBtn(): CSSProperties {
 export function caretBtn(): CSSProperties {
   return {
     borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(255,255,255,0.03)",
+    border: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))",
+    background: "var(--dash-card-bg, rgba(255,255,255,0.03))",
     padding: "6px 10px",
     fontWeight: 900,
     cursor: "pointer",
@@ -150,8 +150,8 @@ export function xBtn(): CSSProperties {
     top: -2,
     right: -2,
     borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.04)",
+    border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
+    background: "var(--dash-card-bg, rgba(255,255,255,0.04))",
     width: 32,
     height: 32,
     cursor: "pointer",

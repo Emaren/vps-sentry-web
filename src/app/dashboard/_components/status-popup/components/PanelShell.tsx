@@ -6,7 +6,7 @@ export default function PanelShell(props: { title: string; children: React.React
     <div
       style={{
         marginTop: 10,
-        borderTop: "1px solid rgba(255,255,255,0.08)",
+        borderTop: "1px solid var(--dash-soft-border, rgba(255,255,255,0.08))",
         paddingTop: 12,
       }}
     >

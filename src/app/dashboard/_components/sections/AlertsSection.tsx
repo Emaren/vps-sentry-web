@@ -16,7 +16,7 @@ export default function AlertsSection(props: { derived: DerivedDashboard; snapsh
 
       {d.maintenanceActive ? (
         <Box>
-          <div style={{ fontWeight: 800, color: "#fcd34d" }}>Maintenance mode active</div>
+          <div style={{ fontWeight: 800, color: "var(--dash-warn-text, #fcd34d)" }}>Maintenance mode active</div>
           <div style={{ marginTop: 8, opacity: 0.9 }}>
             Non-critical alerts are currently suppressed during maintenance.
             {d.maintenanceUntil ? ` Until ${fmt(d.maintenanceUntil)}.` : ""}

@@ -18,7 +18,7 @@ export default function DashboardFooter(props: {
       style={{
         marginTop: 18,
         paddingTop: 14,
-        borderTop: "1px solid rgba(255,255,255,0.08)",
+        borderTop: "1px solid var(--dash-soft-border, rgba(255,255,255,0.08))",
         opacity: 0.85,
         fontSize: 12,
         display: "flex",
@@ -52,7 +52,7 @@ function FooterLink(props: { href: string; children: React.ReactNode }) {
       style={{
         color: "inherit",
         textDecoration: "none",
-        borderBottom: "1px solid rgba(255,255,255,0.18)",
+        borderBottom: "1px solid var(--dash-btn-border, rgba(255,255,255,0.18))",
         paddingBottom: 2,
       }}
     >

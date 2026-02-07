@@ -30,63 +30,88 @@ export default function TopArea(props: {
     totalPublicPorts !== actionablePublicPorts;
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-        gap: 12,
-        alignItems: "start",
-      }}
-    >
-      <div>
-        {showTitle ? <h1 style={{ fontSize: 28, margin: 0 }}>VPS Sentry</h1> : null}
+    <div className="dashboard-top-stack">
+      <div className="dashboard-top-grid">
+        <div>
+          {showTitle ? <h1 style={{ fontSize: 28, margin: 0 }}>VPS Sentry</h1> : null}
 
-        <Box style={{ marginTop: showTitle ? 12 : 0 }}>
-          <StatusActionPopup
-            needsAction={d.needsAction}
-            headline={d.headline}
-            summary={d.actionSummary}
-            level={d.level}
-            alertsCount={d.alertsCount}
-            // IMPORTANT: pass actionable ports, not raw total
-            publicPortsCount={actionablePublicPorts}
-            // Optional context for richer messaging inside popup
-            publicPortsTotalCount={
-              typeof totalPublicPorts === "number" ? totalPublicPorts : undefined
-            }
-            expectedPublicPorts={expectedPublicPorts}
-            stale={d.stale}
-            host={s.host}
-            version={s.version}
-            snapshotLabel={fmt(d.snapshotTs)}
-            scanLabel={d.scanLabel}
-            baselineLabel={fmt(s.baseline_last_accepted_ts)}
-            signedInAs={signedInAs}
-          />
+          <Box style={{ marginTop: showTitle ? 12 : 0 }}>
+            <StatusActionPopup
+              needsAction={d.needsAction}
+              headline={d.headline}
+              summary={d.actionSummary}
+              level={d.level}
+              alertsCount={d.alertsCount}
+              // IMPORTANT: pass actionable ports, not raw total
+              publicPortsCount={actionablePublicPorts}
+              // Optional context for richer messaging inside popup
+              publicPortsTotalCount={
+                typeof totalPublicPorts === "number" ? totalPublicPorts : undefined
+              }
+              expectedPublicPorts={expectedPublicPorts}
+              stale={d.stale}
+              host={s.host}
+              version={s.version}
+              snapshotLabel={fmt(d.snapshotTs)}
+              scanLabel={d.scanLabel}
+              baselineLabel={fmt(s.baseline_last_accepted_ts)}
+              signedInAs={signedInAs}
+            />
 
-          {/* Optional: show allowlist context when total != actionable */}
+            {/* Optional: show allowlist context when total != actionable */}
+            {showPortsContext ? (
+              <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
+                Total public ports: <b>{totalPublicPorts}</b>{" "}
+                {expectedPublicPorts && expectedPublicPorts.length ? (
+                  <>
+                    · Allowlisted: <b>{expectedPublicPorts.join(", ")}</b>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
+            {d.maintenanceActive ? (
+              <div style={{ marginTop: 8, fontSize: 12, color: "var(--dash-warn-text, #fcd34d)" }}>
+                Maintenance mode active
+                {d.maintenanceUntil ? <> until <b>{fmt(d.maintenanceUntil)}</b></> : null}
+                . Non-critical alerts are suppressed.
+              </div>
+            ) : null}
+          </Box>
+        </div>
+
+        <div className="dashboard-kpi-grid">
+          <StatCard label="Alerts (Actionable)" value={d.alertsCount} />
+
+          {d.alertsSuppressedCount > 0 ? (
+            <StatCard label="Alerts (Suppressed)" value={d.alertsSuppressedCount} />
+          ) : null}
+
+          {/* Label clarified: this is actionable/unexpected count */}
+          <StatCard label="Public Ports (Unexpected)" value={actionablePublicPorts} />
+
           {showPortsContext ? (
-            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-              Total public ports: <b>{totalPublicPorts}</b>{" "}
-              {expectedPublicPorts && expectedPublicPorts.length ? (
-                <>
-                  · Allowlisted: <b>{expectedPublicPorts.join(", ")}</b>
-                </>
-              ) : null}
-            </div>
+            <StatCard label="Public Ports (Total)" value={totalPublicPorts as number} />
           ) : null}
 
-          {d.maintenanceActive ? (
-            <div style={{ marginTop: 8, fontSize: 12, color: "#fcd34d" }}>
-              Maintenance mode active
-              {d.maintenanceUntil ? <> until <b>{fmt(d.maintenanceUntil)}</b></> : null}
-              . Non-critical alerts are suppressed.
-            </div>
-          ) : null}
-        </Box>
+          <StatCard label="SSH Failed" value={s.auth?.ssh_failed_password ?? 0} />
+          <StatCard label="Invalid User" value={s.auth?.ssh_invalid_user ?? 0} />
 
+          <Box>
+            <div style={{ opacity: 0.8, fontSize: 12 }}>As-of timestamp</div>
+            <div style={{ fontSize: 14, fontWeight: 800, marginTop: 6 }}>
+              {fmt(d.snapshotTs)}
+            </div>
+            <div style={{ opacity: 0.65, fontSize: 12, marginTop: 6 }}>
+              These stats are a single snapshot from vps-sentry.
+            </div>
+          </Box>
+        </div>
+      </div>
+
+      <div className="dashboard-support-grid">
         {billing ? (
-          <Box style={{ marginTop: 12 }}>
+          <Box>
             <div style={{ fontWeight: 800 }}>Account</div>
             <div style={{ opacity: 0.85, marginTop: 8 }}>
               Plan: <b>{billing.plan ?? "—"}</b> · Host limit:{" "}
@@ -104,7 +129,7 @@ export default function TopArea(props: {
             </div>
           </Box>
         ) : (
-          <Box style={{ marginTop: 12 }}>
+          <Box>
             <div style={{ fontWeight: 800 }}>Account</div>
             <div style={{ marginTop: 8, opacity: 0.75 }}>
               — billing record not found for this user yet
@@ -112,8 +137,7 @@ export default function TopArea(props: {
           </Box>
         )}
 
-        {/* NEW (additive): Breach Summary placeholder */}
-        <Box style={{ marginTop: 12 }}>
+        <Box>
           <div style={{ fontWeight: 800 }}>Breach Summary</div>
           <div style={{ opacity: 0.75, marginTop: 8 }}>
             Open: <b>{d.breachesOpen !== null ? d.breachesOpen : "—"}</b> · Fixed:{" "}
@@ -126,8 +150,7 @@ export default function TopArea(props: {
           </div>
         </Box>
 
-        {/* NEW (additive): Shipping / Notifications placeholder */}
-        <Box style={{ marginTop: 12 }}>
+        <Box>
           <div style={{ fontWeight: 800 }}>Shipping / Notifications</div>
           <div style={{ opacity: 0.85, marginTop: 8 }}>
             Last ship ok:{" "}
@@ -152,43 +175,9 @@ export default function TopArea(props: {
               : "— not reported yet (will be wired)."}
           </div>
         </Box>
-
-        <DashboardActions />
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-          gap: 12,
-        }}
-      >
-        <StatCard label="Alerts (Actionable)" value={d.alertsCount} />
-
-        {d.alertsSuppressedCount > 0 ? (
-          <StatCard label="Alerts (Suppressed)" value={d.alertsSuppressedCount} />
-        ) : null}
-
-        {/* Label clarified: this is actionable/unexpected count */}
-        <StatCard label="Public Ports (Unexpected)" value={actionablePublicPorts} />
-
-        {showPortsContext ? (
-          <StatCard label="Public Ports (Total)" value={totalPublicPorts as number} />
-        ) : null}
-
-        <StatCard label="SSH Failed" value={s.auth?.ssh_failed_password ?? 0} />
-        <StatCard label="Invalid User" value={s.auth?.ssh_invalid_user ?? 0} />
-
-        <Box>
-          <div style={{ opacity: 0.8, fontSize: 12 }}>As-of timestamp</div>
-          <div style={{ fontSize: 14, fontWeight: 800, marginTop: 6 }}>
-            {fmt(d.snapshotTs)}
-          </div>
-          <div style={{ opacity: 0.65, fontSize: 12, marginTop: 6 }}>
-            These stats are a single snapshot from vps-sentry.
-          </div>
-        </Box>
-      </div>
+      <DashboardActions />
     </div>
   );
 }

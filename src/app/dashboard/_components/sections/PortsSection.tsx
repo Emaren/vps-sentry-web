@@ -9,14 +9,14 @@ export default function PortsSection(props: { derived: DerivedDashboard; snapsho
 
   const rows: React.ReactNode[] = [];
   for (let i = 0; i < (d.portsPublicForAction?.length ?? 0); i++) {
-    const p = d.portsPublicForAction[i] as any;
+    const p = d.portsPublicForAction[i] as Record<string, unknown>;
     rows.push(
-      <tr key={i} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-        <td style={tdStyle}>{p.proto}</td>
-        <td style={tdStyle}>{p.host}</td>
-        <td style={tdStyle}>{p.port}</td>
-        <td style={tdStyle}>{p.proc}</td>
-        <td style={tdStyle}>{p.pid}</td>
+      <tr key={i} style={{ borderTop: "1px solid var(--dash-soft-border, rgba(255,255,255,0.08))" }}>
+        <td style={tdStyle}>{String(p.proto ?? "—")}</td>
+        <td style={tdStyle}>{String(p.host ?? "—")}</td>
+        <td style={tdStyle}>{String(p.port ?? "—")}</td>
+        <td style={tdStyle}>{String(p.proc ?? "—")}</td>
+        <td style={tdStyle}>{String(p.pid ?? "—")}</td>
       </tr>
     );
   }

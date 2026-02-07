@@ -2,10 +2,11 @@
 import type React from "react";
 
 export const boxStyle: React.CSSProperties = {
-  border: "1px solid rgba(255,255,255,0.10)",
+  border: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))",
   borderRadius: 14,
   padding: 14,
-  background: "rgba(255,255,255,0.03)",
+  background: "var(--dash-card-bg, rgba(255,255,255,0.03))",
+  boxShadow: "var(--dash-card-shadow, none)",
 };
 
 export const thStyle: React.CSSProperties = { padding: "8px 6px" };

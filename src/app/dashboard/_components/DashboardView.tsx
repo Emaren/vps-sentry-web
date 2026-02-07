@@ -18,6 +18,7 @@ import {
   ThreatSection,
   TopArea,
 } from "./sections";
+import DashboardThemeControls from "./DashboardThemeControls";
 
 export default function DashboardView(props: {
   env: DashboardEnv;
@@ -30,7 +31,7 @@ export default function DashboardView(props: {
   const d: DerivedDashboard = deriveDashboard(env);
 
   return (
-    <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
+    <main id="dashboard-page" className="dashboard-shell dashboard-main" data-dashboard-theme="dark">
       <div className="app-header">
         <div className="app-header-brand">
           <Link href="/" aria-label="VPS Sentry home" className="app-header-logo-link">
@@ -62,14 +63,18 @@ export default function DashboardView(props: {
         </div>
       </div>
 
-      <div style={{ marginTop: 12 }}>
-      <TopArea
-        status={s}
-        billing={billing}
-        signedInAs={signedInAs}
-        derived={d}
-        showTitle={false}
-      />
+      <div className="dashboard-theme-row">
+        <DashboardThemeControls rootId="dashboard-page" />
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <TopArea
+          status={s}
+          billing={billing}
+          signedInAs={signedInAs}
+          derived={d}
+          showTitle={false}
+        />
       </div>
 
       <AlertsSection derived={d} snapshotTs={d.snapshotTs} />

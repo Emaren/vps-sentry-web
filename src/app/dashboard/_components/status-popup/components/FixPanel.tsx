@@ -41,8 +41,8 @@ export default function FixPanel(props: {
             marginTop: 12,
             padding: "10px 12px",
             borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.12)",
-            background: "rgba(255,255,255,0.04)",
+            border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
+            background: "var(--dash-card-bg, rgba(255,255,255,0.04))",
             fontWeight: 900,
           }}
         >

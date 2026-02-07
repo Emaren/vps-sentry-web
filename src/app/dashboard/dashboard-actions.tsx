@@ -4,11 +4,16 @@
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 
+type JsonResponse = {
+  message?: string;
+  error?: string;
+};
+
 const linkStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 12,
-  border: "1px solid rgba(255,255,255,0.15)",
-  background: "rgba(255,255,255,0.04)",
+  border: "1px solid var(--dash-btn-border, rgba(255,255,255,0.15))",
+  background: "var(--dash-btn-bg, rgba(255,255,255,0.04))",
   color: "inherit",
   textDecoration: "none",
   fontWeight: 800,
@@ -17,8 +22,8 @@ const linkStyle: React.CSSProperties = {
 const buttonStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 12,
-  border: "1px solid rgba(255,255,255,0.15)",
-  background: "rgba(255,255,255,0.06)",
+  border: "1px solid var(--dash-btn-border, rgba(255,255,255,0.15))",
+  background: "var(--dash-btn-bg-strong, rgba(255,255,255,0.06))",
   color: "inherit",
   fontWeight: 800,
   cursor: "pointer",
@@ -26,18 +31,23 @@ const buttonStyle: React.CSSProperties = {
 
 async function postJson(path: string) {
   const res = await fetch(path, { method: "POST" });
-  const data = (await res.json().catch(() => ({}))) as any;
+  const data: JsonResponse = await res.json().catch(() => ({} as JsonResponse));
   if (!res.ok) throw new Error(data?.error || `${path} ${res.status}`);
   return data;
+}
+
+function asErrorMessage(err: unknown, fallback: string) {
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
 }
 
 async function sendTestEmail() {
   try {
     await postJson("/api/ops/test-email");
     alert("✅ Test email sent.");
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error(e);
-    alert(e?.message ?? "Failed to send test email");
+    alert(asErrorMessage(e, "Failed to send test email"));
   }
 }
 
@@ -45,9 +55,9 @@ async function sendReportNow() {
   try {
     const data = await postJson("/api/ops/report-now");
     alert(data?.message ?? "✅ Report triggered.");
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error(e);
-    alert(e?.message ?? "Failed to trigger report");
+    alert(asErrorMessage(e, "Failed to trigger report"));
   }
 }
 
