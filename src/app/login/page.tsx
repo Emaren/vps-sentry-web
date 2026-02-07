@@ -73,7 +73,7 @@ export default async function LoginPage({
       <LoginClient callbackUrl={callbackUrl} error={errorCode} />
 
       <div style={{ marginTop: 18, opacity: 0.6, fontSize: 12 }}>
-        If email doesn’t arrive, check spam. (We’ll also verify SMTP/DNS next.)
+        If email doesn’t arrive, check spam.
       </div>
     </main>
   );
