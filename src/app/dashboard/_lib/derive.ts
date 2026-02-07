@@ -305,3 +305,65 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
 // Shared table styles (so sections don’t duplicate)
 export const thStyle: React.CSSProperties = { padding: "8px 6px" };
 export const tdStyle: React.CSSProperties = { padding: "10px 6px", verticalAlign: "top" };
+
+export type ThreatIndicator = {
+  id: string;
+  severity: "info" | "warn" | "critical";
+  title: string;
+  detail?: string;
+};
+
+function hasAlertMatch(alerts: AlertItem[], pattern: RegExp): boolean {
+  for (const a of alerts) {
+    const text = `${a.title ?? ""}\n${a.detail ?? ""}`;
+    if (pattern.test(text)) return true;
+  }
+  return false;
+}
+
+export function deriveThreatIndicators(s: Status): ThreatIndicator[] {
+  const alerts: AlertItem[] = Array.isArray((s as any).alerts) ? ((s as any).alerts as AlertItem[]) : [];
+  const indicators: ThreatIndicator[] = [];
+
+  const hasRuntimeSignals =
+    Boolean((s as any)?.threat?.suspicious_processes) ||
+    Boolean((s as any)?.threat?.outbound_suspicious) ||
+    Boolean((s as any)?.threat?.persistence_hits);
+
+  if (!hasRuntimeSignals) {
+    indicators.push({
+      id: "runtime-coverage-gap",
+      severity: "warn",
+      title: "Runtime threat telemetry not reported",
+      detail:
+        "Process and outbound-connection threat signals were missing in this snapshot. Compromise activity can be missed even when config/package alerts exist.",
+    });
+  }
+
+  const watchedFilesChanged = hasAlertMatch(alerts, /watched files changed/i);
+  const firewallChanged = hasAlertMatch(alerts, /firewall changed/i);
+  const userListChanged = hasAlertMatch(alerts, /user list changed/i);
+  const packagesChanged = hasAlertMatch(alerts, /packages changed/i);
+
+  if (watchedFilesChanged && (firewallChanged || userListChanged)) {
+    indicators.push({
+      id: "stacked-hardening-surface-changes",
+      severity: "critical",
+      title: "Stacked security-surface changes",
+      detail:
+        "Changes to watched security paths plus firewall/user drift in one window can indicate tampering and should be treated as possible compromise until proven benign.",
+    });
+  }
+
+  if (packagesChanged && alerts.length >= 3) {
+    indicators.push({
+      id: "high-noise-change-window",
+      severity: "info",
+      title: "High-noise update window",
+      detail:
+        "Large package churn can mask malicious activity. During update windows, prioritize runtime process/outbound checks in addition to baseline diffs.",
+    });
+  }
+
+  return indicators;
+}

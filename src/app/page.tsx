@@ -1,5 +1,6 @@
 // /var/www/vps-sentry-web/src/app/page.tsx
 import Link from "next/link";
+import Image from "next/image";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -10,6 +11,21 @@ export default async function Home() {
 
   return (
     <main style={{ padding: 24, maxWidth: 760, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+        <Image
+          src="/vps-sentry-logo.png"
+          alt="VPS Sentry logo"
+          width={560}
+          height={430}
+          priority
+          style={{
+            width: "100%",
+            maxWidth: 560,
+            height: "auto",
+            borderRadius: 12,
+          }}
+        />
+      </div>
       <h1 style={{ fontSize: 34, marginBottom: 10 }}>VPS Sentry</h1>
 
       <p style={{ opacity: 0.85, lineHeight: 1.5 }}>

@@ -62,6 +62,12 @@ export type Status = {
     top_cpu?: unknown[];
     outbound_suspicious?: unknown[];
     persistence_hits?: unknown[];
+    indicators?: Array<{
+      id: string;
+      severity: "info" | "warn" | "critical";
+      title: string;
+      detail?: string;
+    }>;
   };
 
   // Optional: "breach feed" (future)
