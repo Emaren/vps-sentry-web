@@ -162,6 +162,24 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         .map((r) => r.action.key)
     )
   );
+  const heartbeatTone: "ok" | "warn" | "bad" =
+    heartbeat.state === "fresh"
+      ? "ok"
+      : heartbeat.state === "delayed"
+      ? "warn"
+      : "bad";
+  const threatTone: "ok" | "warn" | "bad" =
+    posture.band === "critical" || posture.band === "elevated"
+      ? "bad"
+      : posture.band === "guarded"
+      ? "warn"
+      : "ok";
+  const containmentTone: "ok" | "warn" | "bad" =
+    posture.stage === "lockdown" || posture.stage === "contain"
+      ? "bad"
+      : posture.stage === "watch"
+      ? "warn"
+      : "ok";
 
   return (
     <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
@@ -188,26 +206,55 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
             />
           </Link>
           <div>
-            <h1 style={{ fontSize: 28, margin: 0 }}>{host.name}</h1>
+            <h1 style={{ fontSize: 28, margin: 0 }}>Hosts</h1>
             <p style={{ opacity: 0.75, marginTop: 8 }}>
-              Host ID: <code>{host.id}</code>
+              Viewing details for <strong>{host.name}</strong> · host ID <code>{host.id}</code>
+            </p>
+            <p style={{ opacity: 0.62, marginTop: 6, fontSize: 12 }}>
+              Heartbeat target every {heartbeat.expectedMinutes}m · stale at {heartbeat.staleAfterMinutes}m · missing at{" "}
+              {heartbeat.missingAfterMinutes}m
             </p>
             {host.slug ? (
-              <p style={{ opacity: 0.7, marginTop: 4 }}>
+              <p style={{ opacity: 0.7, marginTop: 4, fontSize: 12 }}>
                 Slug: <code>{host.slug}</code>
               </p>
             ) : null}
           </div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
+          <Link href="/get-vps-sentry" style={btnStyle()}>
+            Install guide
+          </Link>
           <Link href="/hosts/new" style={btnStyle()}>
-            Add another host
+            Add host
           </Link>
           <Link href="/hosts" style={btnStyle()}>
             Back to hosts
           </Link>
         </div>
       </div>
+
+      <section style={sectionStyle()}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>{host.name}</div>
+            <div style={{ marginTop: 4, opacity: 0.72, fontSize: 13 }}>{host.slug ? `/${host.slug}` : host.id}</div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={statusBadgeStyle(threatTone)}>Threat {posture.score} ({posture.band})</span>
+            <span style={statusBadgeStyle(containmentTone)}>
+              Containment: {containmentStageLabel(posture.stage)}
+            </span>
+            <span style={statusBadgeStyle(host.enabled ? "ok" : "warn")}>
+              {host.enabled ? "Enabled" : "Disabled"}
+            </span>
+            <span style={statusBadgeStyle(heartbeatTone)}>{heartbeatLabel(heartbeat)}</span>
+            <span style={statusBadgeStyle(host.breaches.length > 0 ? "bad" : "ok")}>
+              Open breaches: {host.breaches.length}
+            </span>
+          </div>
+        </div>
+      </section>
 
       <section style={sectionStyle()}>
         <h2 style={h2Style()}>Summary</h2>
@@ -573,6 +620,30 @@ function breachCardStyle(): React.CSSProperties {
     borderRadius: 10,
     padding: "10px 12px",
     background: "rgba(255,255,255,0.02)",
+  };
+}
+
+function statusBadgeStyle(tone: "ok" | "warn" | "bad"): React.CSSProperties {
+  const palette =
+    tone === "ok"
+      ? { bg: "rgba(34,197,94,0.14)", border: "rgba(34,197,94,0.35)", color: "#bbf7d0" }
+      : tone === "warn"
+      ? { bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.35)", color: "#fcd34d" }
+      : { bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.35)", color: "#fecaca" };
+
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 34,
+    padding: "4px 11px",
+    border: `1px solid ${palette.border}`,
+    borderRadius: 999,
+    background: palette.bg,
+    color: palette.color,
+    fontSize: 12,
+    fontWeight: 700,
+    whiteSpace: "nowrap",
   };
 }
 
