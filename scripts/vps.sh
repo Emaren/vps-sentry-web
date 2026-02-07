@@ -107,9 +107,27 @@ git fetch --all --prune
 
 # Never deploy over a dirty remote working tree.
 if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "remote_worktree_dirty: commit/stash/reset remote changes before deploy"
-  git status --short
-  exit 40
+  dirty_status="$(git status --short)"
+  only_generated=1
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    path="${line#?? }"
+    if [ "$path" != "next-env.d.ts" ]; then
+      only_generated=0
+      break
+    fi
+  done <<EOF
+$dirty_status
+EOF
+
+  if [ "$only_generated" -eq 1 ]; then
+    echo "remote_worktree_autoclean: next-env.d.ts"
+    git checkout -- next-env.d.ts
+  else
+    echo "remote_worktree_dirty: commit/stash/reset remote changes before deploy"
+    echo "$dirty_status"
+    exit 40
+  fi
 fi
 
 if [ -n "${VPS_GIT_REF:-}" ]; then
