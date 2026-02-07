@@ -49,15 +49,17 @@ export default async function BillingPage() {
           </div>
         </div>
         <div className="app-header-actions app-header-actions-with-theme">
-          <Link href="/dashboard" className="app-header-btn">
-            Dashboard
-          </Link>
-          <Link href="/hosts" className="app-header-btn">
-            Hosts
-          </Link>
-          <Link href="/get-vps-sentry" className="app-header-btn">
-            Install guide
-          </Link>
+          <div className="app-header-actions-row">
+            <Link href="/dashboard" className="app-header-btn">
+              Dashboard
+            </Link>
+            <Link href="/hosts" className="app-header-btn">
+              Hosts
+            </Link>
+            <Link href="/get-vps-sentry" className="app-header-btn">
+              Install guide
+            </Link>
+          </div>
           <div className="app-header-actions-theme-row">
             <SiteThemeControls variant="inline" />
           </div>

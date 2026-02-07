@@ -220,21 +220,23 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           </div>
         </div>
         <div className="app-header-actions app-header-actions-with-theme">
-          <Link href="/dashboard" className="app-header-btn">
-            Dashboard
-          </Link>
-          <Link href="/billing" className="app-header-btn">
-            Billing
-          </Link>
-          <Link href="/get-vps-sentry" className="app-header-btn">
-            Install guide
-          </Link>
-          <Link href="/hosts/new" className="app-header-btn">
-            Add host
-          </Link>
-          <Link href="/hosts" className="app-header-btn">
-            Back to hosts
-          </Link>
+          <div className="app-header-actions-row">
+            <Link href="/dashboard" className="app-header-btn">
+              Dashboard
+            </Link>
+            <Link href="/billing" className="app-header-btn">
+              Billing
+            </Link>
+            <Link href="/get-vps-sentry" className="app-header-btn">
+              Install guide
+            </Link>
+            <Link href="/hosts/new" className="app-header-btn">
+              Add host
+            </Link>
+            <Link href="/hosts" className="app-header-btn">
+              Back to hosts
+            </Link>
+          </div>
           <div className="app-header-actions-theme-row">
             <SiteThemeControls variant="inline" />
           </div>

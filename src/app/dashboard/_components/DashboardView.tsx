@@ -52,16 +52,18 @@ export default function DashboardView(props: {
           </div>
         </div>
         <div className="app-header-actions app-header-actions-with-theme">
-          <Link href="/hosts" className="app-header-btn">
-            Hosts
-          </Link>
-          <Link href="/billing" className="app-header-btn">
-            Billing
-          </Link>
-          <Link href="/get-vps-sentry" className="app-header-btn">
-            Install guide
-          </Link>
-          <DashboardLogoutButton />
+          <div className="app-header-actions-row">
+            <Link href="/hosts" className="app-header-btn">
+              Hosts
+            </Link>
+            <Link href="/billing" className="app-header-btn">
+              Billing
+            </Link>
+            <Link href="/get-vps-sentry" className="app-header-btn">
+              Install guide
+            </Link>
+            <DashboardLogoutButton />
+          </div>
           <div className="app-header-actions-theme-row">
             <SiteThemeControls variant="inline" />
           </div>
