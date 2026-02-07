@@ -102,6 +102,10 @@ function filterActionableAlerts(input: {
   return out;
 }
 
+function countArray(v: unknown): number {
+  return Array.isArray(v) ? v.length : 0;
+}
+
 export type DerivedDashboard = {
   snapshotTs: string;
   ageMin: number | null;
@@ -124,6 +128,16 @@ export type DerivedDashboard = {
   unexpectedPublicPortsCount: number; // alias of actionable count (always numeric)
   expectedPublicPorts: string[] | null; // e.g. ["udp:68"]
   portsPublicForAction: any[]; // unexpected list if present, else total list
+
+  // “Today-proof” sensors (optional, only present if agent emits them)
+  sshdBad: boolean;
+  failedUnitsCount: number;
+  degradedUnitsCount: number;
+  journalErrorsCount: number;
+  journalWarningsCount: number;
+  suspiciousProcCount: number;
+  outboundSuspiciousCount: number;
+  persistenceHitsCount: number;
 
   // Optional future signals (present = show)
   breachesOpen: number | null;
@@ -163,6 +177,24 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
   const ageMin = minutesAgo(snapshotTs);
   const stale = typeof ageMin === "number" ? ageMin >= 15 : false;
 
+  // Optional: system signals emitted by agent (future-ready)
+  const sshd = (s as any).sshd as any | undefined;
+  const services = (s as any).services as any | undefined;
+  const journal = (s as any).journal as any | undefined;
+  const threat = (s as any).threat as any | undefined;
+
+  const sshdBad = Boolean(sshd && sshd.config_ok === false);
+
+  const failedUnitsCount = countArray(services?.failed_units);
+  const degradedUnitsCount = countArray(services?.degraded_units);
+
+  const journalErrorsCount = countArray(journal?.errors);
+  const journalWarningsCount = countArray(journal?.warnings);
+
+  const suspiciousProcCount = countArray(threat?.suspicious_processes);
+  const outboundSuspiciousCount = countArray(threat?.outbound_suspicious);
+  const persistenceHitsCount = countArray(threat?.persistence_hits);
+
   // Future fields (optional)
   const breachesOpen = pickNumber((s as any).breaches_open);
   const breachesFixed = pickNumber((s as any).breaches_fixed);
@@ -177,7 +209,9 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
     | undefined;
 
   const hasBreachSignals =
-    breachesOpen !== null || breachesFixed !== null || (Array.isArray(breaches) && breaches.length > 0);
+    breachesOpen !== null ||
+    breachesFixed !== null ||
+    (Array.isArray(breaches) && breaches.length > 0);
 
   const hasShippingSignals =
     shipping?.last_ship_ok !== undefined ||
@@ -190,7 +224,6 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
 
   const unexpectedMaybe = pickNumber((s as any).unexpected_public_ports_count);
   const publicPortsCount = unexpectedMaybe ?? publicPortsTotalCount;
-
   const unexpectedPublicPortsCount = publicPortsCount;
 
   const expectedPublicPorts = pickStringArray((s as any).expected_public_ports);
@@ -205,8 +238,12 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
   const portsPublicForAction = portsPublicUnexpected ?? (s.ports_public ?? []);
 
   // ---- Alerts: best-effort filter out allowlisted ports noise ----
-  const alertsRaw: AlertItem[] = Array.isArray((s as any).alerts) ? ((s as any).alerts as AlertItem[]) : [];
-  const alertsTotalCount = typeof (s as any).alerts_count === "number" ? (s as any).alerts_count : alertsRaw.length;
+  const alertsRaw: AlertItem[] = Array.isArray((s as any).alerts)
+    ? ((s as any).alerts as AlertItem[])
+    : [];
+
+  const alertsTotalCount =
+    typeof (s as any).alerts_count === "number" ? (s as any).alerts_count : alertsRaw.length;
 
   let alertsForAction: AlertItem[] = alertsRaw;
   let alertsCount = alertsTotalCount;
@@ -221,28 +258,65 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
     alertsCount = alertsForAction.length;
   }
 
-  // “needs action” now uses actionable alerts + actionable ports only
-  const needsAction = alertsCount > 0 || publicPortsCount > 0 || stale;
+  // “needs action” now includes:
+  // - actionable alerts/ports
+  // - stale
+  // - sshd config broken
+  // - systemd failures/degraded
+  // - journal errors
+  // - threat signals (miner/bot/persistence/outbound)
+  const needsAction =
+    stale ||
+    alertsCount > 0 ||
+    publicPortsCount > 0 ||
+    sshdBad ||
+    failedUnitsCount > 0 ||
+    journalErrorsCount > 0 ||
+    suspiciousProcCount > 0 ||
+    outboundSuspiciousCount > 0 ||
+    persistenceHitsCount > 0;
 
   const actionSummary = buildActionSummary({
+    stale,
+
     alertsCount,
     alerts: (alertsForAction as any[]) ?? [],
+
     publicPortsCount,
     portsPublic: portsPublicForAction,
-    stale,
+    publicPortsTotalCount,
+    expectedPublicPorts,
+
+    sshd,
+    services,
+    journal,
+    threat,
   });
 
   const headline: "ACTION NEEDED" | "OK" = needsAction ? "ACTION NEEDED" : "OK";
 
+  // severity level for top banner
   const level: "ok" | "warn" | "bad" =
-    alertsCount > 0 ? "bad" : publicPortsCount > 0 || stale ? "warn" : "ok";
+    sshdBad ||
+    failedUnitsCount > 0 ||
+    journalErrorsCount > 0 ||
+    suspiciousProcCount > 0 ||
+    outboundSuspiciousCount > 0 ||
+    persistenceHitsCount > 0 ||
+    alertsCount > 0
+      ? "bad"
+      : publicPortsCount > 0 || stale || degradedUnitsCount > 0 || journalWarningsCount > 0
+      ? "warn"
+      : "ok";
 
   const scanLabel =
-    `${fmt(snapshotTs)}` + (typeof ageMin === "number" ? ` · Age: ${ageMin}m${stale ? " (stale)" : ""}` : "");
+    `${fmt(snapshotTs)}` +
+    (typeof ageMin === "number" ? ` · Age: ${ageMin}m${stale ? " (stale)" : ""}` : "");
 
   // Extract canonical status object + warnings/paths from raw /api/status
   const rawAny = env.raw as any;
-  const canonicalStatus = rawAny && typeof rawAny === "object" ? (rawAny as any).status : undefined;
+  const canonicalStatus =
+    rawAny && typeof rawAny === "object" ? (rawAny as any).status : undefined;
 
   const rawWarnings =
     rawAny && typeof rawAny === "object" && Array.isArray((rawAny as any).warnings)
@@ -250,7 +324,10 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
       : undefined;
 
   const rawPaths =
-    rawAny && typeof rawAny === "object" && (rawAny as any).paths && typeof (rawAny as any).paths === "object"
+    rawAny &&
+    typeof rawAny === "object" &&
+    (rawAny as any).paths &&
+    typeof (rawAny as any).paths === "object"
       ? (rawAny as any).paths
       : undefined;
 
@@ -283,6 +360,15 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
     unexpectedPublicPortsCount,
     expectedPublicPorts,
     portsPublicForAction,
+
+    sshdBad,
+    failedUnitsCount,
+    degradedUnitsCount,
+    journalErrorsCount,
+    journalWarningsCount,
+    suspiciousProcCount,
+    outboundSuspiciousCount,
+    persistenceHitsCount,
 
     breachesOpen,
     breachesFixed,

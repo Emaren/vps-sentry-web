@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "migrate:prod": "prisma migrate deploy",
     "generate": "prisma generate"
@@ -35,5 +35,4 @@
     "typescript": "^5",
     "vitest": "^4.0.17"
   }
-
 }

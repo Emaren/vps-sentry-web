@@ -1,6 +1,6 @@
 "use client";
 
-// src/app/dashboard/_components/ActionNeededDrawer.tsx
+// /var/www/vps-sentry-web/src/app/dashboard/_components/ActionNeededDrawer.tsx
 import React from "react";
 import type { ActionItem, ActionSummary } from "../_lib/explain";
 import { boxStyle, subtleText, tinyText } from "../_styles";
@@ -54,6 +54,28 @@ async function post(endpoint: string) {
   return data;
 }
 
+async function copyText(txt: string) {
+  try {
+    await navigator.clipboard.writeText(txt);
+    return true;
+  } catch {
+    // fallback
+    try {
+      // eslint-disable-next-line no-alert
+      prompt("Copy to clipboard:", txt);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function uniqStrings(arr: string[]) {
+  const out: string[] = [];
+  for (const x of arr) if (x && !out.includes(x)) out.push(x);
+  return out;
+}
+
 export default function ActionNeededDrawer(props: {
   open: boolean;
   onClose: () => void;
@@ -66,12 +88,30 @@ export default function ActionNeededDrawer(props: {
   const [toast, setToast] = React.useState<string | null>(null);
 
   React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  React.useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3500);
     return () => clearTimeout(t);
   }, [toast]);
 
   if (!open) return null;
+
+  const safePostEndpoints = uniqStrings(
+    (summary.items ?? [])
+      .flatMap((it) => it.safeActions ?? [])
+      .filter((a: any) => a && a.kind === "POST" && typeof a.endpoint === "string")
+      .map((a: any) => a.endpoint as string)
+  );
+
+  const hasAnySafePosts = safePostEndpoints.length > 0;
 
   return (
     <div
@@ -153,16 +193,45 @@ export default function ActionNeededDrawer(props: {
             >
               AI Explain
             </button>
+
             <button
-              onClick={() => {
-                // “Fix now” = safe actions only, we surface them per item.
-                setToast("Fix Now uses the safe buttons below (Report/Test/Refresh).");
+              onClick={async () => {
+                if (!hasAnySafePosts) {
+                  setToast("No safe actions available for these items.");
+                  return;
+                }
+                try {
+                  setBusy("__fix_all__");
+                  for (const ep of safePostEndpoints) {
+                    await post(ep);
+                  }
+                  setToast("Done. Re-run complete — refresh to see the latest scan.");
+                } catch (e: any) {
+                  setToast(`Fix Now failed: ${String(e?.message ?? e)}`);
+                } finally {
+                  setBusy(null);
+                }
               }}
               style={btn()}
             >
-              Fix Now
+              {busy === "__fix_all__" ? "Working…" : "Fix Now"}
+            </button>
+
+            <button
+              onClick={() => {
+                location.reload();
+              }}
+              style={btn()}
+            >
+              Refresh
             </button>
           </div>
+
+          {hasAnySafePosts ? (
+            <div style={{ marginTop: 10, ...subtleText }}>
+              Safe actions available: <b>{safePostEndpoints.join(", ")}</b>
+            </div>
+          ) : null}
         </div>
 
         <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
@@ -182,6 +251,19 @@ export default function ActionNeededDrawer(props: {
                   <summary style={{ cursor: "pointer", fontWeight: 800, opacity: 0.9 }}>
                     Evidence (geek detail)
                   </summary>
+
+                  <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <button
+                      style={btnSmall()}
+                      onClick={async () => {
+                        const ok = await copyText(it.evidence ?? "");
+                        setToast(ok ? "Evidence copied." : "Copy failed.");
+                      }}
+                    >
+                      Copy evidence
+                    </button>
+                  </div>
+
                   <pre style={{ marginTop: 10, whiteSpace: "pre-wrap", opacity: 0.9 }}>
                     {it.evidence}
                   </pre>
@@ -217,7 +299,11 @@ export default function ActionNeededDrawer(props: {
                     }
                     if (a.kind === "LINK") {
                       return (
-                        <a key={idx} href={a.href} style={{ ...btn(), display: "inline-flex", textDecoration: "none" }}>
+                        <a
+                          key={idx}
+                          href={a.href}
+                          style={{ ...btn(), display: "inline-flex", textDecoration: "none" }}
+                        >
                           {a.label}
                         </a>
                       );
@@ -250,6 +336,20 @@ export default function ActionNeededDrawer(props: {
                   <summary style={{ cursor: "pointer", fontWeight: 900, opacity: 0.9 }}>
                     Copy commands (manual fix)
                   </summary>
+
+                  <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <button
+                      style={btnSmall()}
+                      onClick={async () => {
+                        const txt = it.copyCommands?.join("\n") ?? "";
+                        const ok = await copyText(txt);
+                        setToast(ok ? "Commands copied." : "Copy failed.");
+                      }}
+                    >
+                      Copy commands
+                    </button>
+                  </div>
+
                   <pre style={{ marginTop: 10, whiteSpace: "pre-wrap", opacity: 0.9 }}>
                     {it.copyCommands.join("\n")}
                   </pre>
@@ -288,5 +388,18 @@ function btn(): React.CSSProperties {
     fontWeight: 900,
     cursor: "pointer",
     color: "inherit",
+  };
+}
+
+function btnSmall(): React.CSSProperties {
+  return {
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.05)",
+    padding: "8px 10px",
+    fontWeight: 900,
+    cursor: "pointer",
+    color: "inherit",
+    fontSize: 12,
   };
 }

@@ -1,5 +1,5 @@
-// /var/www/vps-sentry-web/src/app/dashboard/_components/status-popup/StatusActionPopup.tsx
 "use client";
+// /var/www/vps-sentry-web/src/app/dashboard/_components/status-popup/StatusActionPopup.tsx
 
 import React from "react";
 import type { Panel, StatusActionPopupProps } from "./types";
