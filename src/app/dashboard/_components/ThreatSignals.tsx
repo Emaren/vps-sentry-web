@@ -23,7 +23,12 @@ export default function ThreatSignals({ threat }: { threat?: unknown }) {
     const value = entries[i][1];
 
     let body: React.ReactNode = (
-      <div style={{ color: "var(--dash-meta)" }}>— not reported by agent yet</div>
+      <div style={{ color: "var(--dash-meta)" }}>
+        No signal in this snapshot.
+        <div style={{ marginTop: 4, color: "var(--dash-muted)", fontSize: 12 }}>
+          Tip: update agent/runtime telemetry, then send a fresh snapshot to populate this panel.
+        </div>
+      </div>
     );
 
     if (Array.isArray(value)) {

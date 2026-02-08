@@ -18,7 +18,7 @@ export default function ThreatSection(props: { status: Status; snapshotTs: strin
         <NoobTip text="Runtime behavior hints like suspicious processes, outbound mining traffic, or persistence attempts." />
       </div>
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
-        As-of: <b>{fmt(snapshotTs)}</b> · These show “not reported” until the agent emits them.
+        As-of: <b>{fmt(snapshotTs)}</b> · Runtime cards populate from agent telemetry in each fresh snapshot.
       </div>
       {indicators.length > 0 ? (
         <div style={{ display: "grid", gap: 10, marginBottom: 10 }}>
