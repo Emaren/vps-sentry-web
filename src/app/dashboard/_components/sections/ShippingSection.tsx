@@ -30,8 +30,11 @@ export default function ShippingSection(props: {
   return (
     <section style={{ marginTop: 18 }}>
       <div className="dashboard-card-title-row">
-        <h2 style={{ fontSize: 18, margin: 0 }}>Shipping & Notifications</h2>
-        <NoobTip text="Live delivery event stream for email/webhook alerts, with error visibility and recent transport health." />
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          <NoobTip text="Live delivery event stream for email/webhook alerts, with error visibility and recent transport health.">
+            Shipping & Notifications
+          </NoobTip>
+        </h2>
       </div>
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b> · Live source: notification event ledger.

@@ -55,10 +55,8 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const defaultSiteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://vps-sentry.tokentap.ca";
-  const plausibleDomain =
-    process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN ?? new URL(defaultSiteUrl).hostname;
-  const plausibleSrc = process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ?? "https://plausible.io/js/script.js";
+  const plausibleSrc =
+    process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ?? "https://plausible.io/js/pa-VDQL7gVqfpbKgwbCot3B8.js";
 
   return (
     <html lang="en" data-site-theme="dark">
@@ -66,12 +64,10 @@ export default function RootLayout({
         <Script id="site-theme-init" strategy="beforeInteractive">
           {`try{var t=localStorage.getItem("vps_sentry_site_theme");if(t==="light"||t==="sepia"||t==="dark"){document.documentElement.setAttribute("data-site-theme",t);}else{document.documentElement.setAttribute("data-site-theme","dark");}}catch(e){document.documentElement.setAttribute("data-site-theme","dark");}`}
         </Script>
-        <Script
-          defer
-          data-domain={plausibleDomain}
-          src={plausibleSrc}
-          strategy="afterInteractive"
-        />
+        <Script id="plausible-init" strategy="beforeInteractive">
+          {`window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)};plausible.init=plausible.init||function(i){plausible.o=i||{}};plausible.init();`}
+        </Script>
+        <Script async src={plausibleSrc} strategy="afterInteractive" />
         {children}
       </body>
     </html>

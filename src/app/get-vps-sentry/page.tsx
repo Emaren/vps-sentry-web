@@ -41,7 +41,7 @@ export default async function GetVpsSentryPage() {
       </div>
 
       <h1 style={{ fontSize: 34, marginBottom: 10 }}>Get VPS Sentry</h1>
-      <p style={{ opacity: 0.85, lineHeight: 1.5, marginBottom: 18 }}>
+      <p style={{ color: "var(--dash-muted)", lineHeight: 1.5, marginBottom: 18 }}>
         Install the VPS agent on your server in a few minutes. Copy/paste the commands below.
       </p>
 
@@ -113,11 +113,11 @@ function btn(): React.CSSProperties {
   return {
     padding: "12px 14px",
     borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.15)",
-    background: "rgba(255,255,255,0.06)",
+    border: "1px solid var(--dash-btn-border)",
+    background: "var(--dash-btn-bg)",
     fontWeight: 800,
     textDecoration: "none",
-    color: "inherit",
+    color: "var(--dash-fg)",
     display: "inline-block",
   };
 }

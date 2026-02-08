@@ -151,118 +151,137 @@ export default function TopArea(props: {
         </div>
       </div>
 
-      <div className="dashboard-noob-coach">
-        Noob coach mode: red means urgent, orange means watch closely, green means healthy.
-        Click any <code>?</code> badge for plain-English help.
-      </div>
-
       <div className="dashboard-support-grid">
         {billing ? (
-          <Box>
-            <div className="dashboard-card-title-row">
-              <div style={{ fontWeight: 800 }}>Account</div>
-              <NoobTip text="Your plan limits and subscription status for this dashboard account." />
+          <SupportTile
+            title="Account"
+            tip="Your plan limits and subscription status for this dashboard account."
+          >
+            <div className="dashboard-support-metrics">
+              <div className="dashboard-support-metric-pair">
+                <SupportMetric label="Plan" value={billing.plan ?? "—"} />
+                <SupportMetric label="Host limit" value={billing.hostLimit ?? "—"} />
+              </div>
+              <SupportMetric
+                label="Subscription status"
+                value={billing.subscriptionStatus ?? "—"}
+              />
+              <SupportMetric
+                label="Current period end"
+                value={fmtAny(billing.currentPeriodEnd)}
+              />
+              <div className="dashboard-support-metric-pair">
+                <SupportMetric label="Customer" value={billing.stripeCustomerId ?? "—"} />
+                <SupportMetric label="Sub ID" value={billing.subscriptionId ?? "—"} />
+              </div>
             </div>
-            <div style={{ color: "var(--dash-muted)", marginTop: 8 }}>
-              Plan: <b>{billing.plan ?? "—"}</b> · Host limit:{" "}
-              <b>{billing.hostLimit ?? "—"}</b>
-            </div>
-            <div style={{ color: "var(--dash-muted)", marginTop: 6 }}>
-              Subscription status: <b>{billing.subscriptionStatus ?? "—"}</b>
-            </div>
-            <div style={{ color: "var(--dash-muted)", marginTop: 6 }}>
-              Current period end: <b>{fmtAny(billing.currentPeriodEnd)}</b>
-            </div>
-            <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
-              Customer: <b>{billing.stripeCustomerId ?? "—"}</b> · Sub ID:{" "}
-              <b>{billing.subscriptionId ?? "—"}</b>
-            </div>
-          </Box>
+          </SupportTile>
         ) : (
-          <Box>
-            <div className="dashboard-card-title-row">
-              <div style={{ fontWeight: 800 }}>Account</div>
-              <NoobTip text="Your plan limits and subscription status for this dashboard account." />
-            </div>
-            <div style={{ marginTop: 8, color: "var(--dash-meta)" }}>
+          <SupportTile
+            title="Account"
+            tip="Your plan limits and subscription status for this dashboard account."
+          >
+            <div className="dashboard-support-empty">
               — billing record not found for this user yet
             </div>
-          </Box>
+          </SupportTile>
         )}
 
-        <Box>
-          <div className="dashboard-card-title-row">
-            <div style={{ fontWeight: 800 }}>Breach Summary</div>
-            <NoobTip text="Tracked security incidents with open/fixed state history." />
+        <SupportTile
+          title="Breach Summary"
+          tip="Tracked security incidents with open/fixed state history."
+        >
+          <div className="dashboard-support-metrics">
+            <div className="dashboard-support-metric-trio">
+              <SupportMetric label="Open" value={breachOpen} />
+              <SupportMetric label="Fixed" value={breachFixed} />
+              <SupportMetric label="Ignored" value={breachIgnored} />
+            </div>
+            <SupportMetric label="Total breaches tracked" value={breachTotal} />
+            <div className="dashboard-support-note">
+              {liveBreaches
+                ? "Live breach ledger connected from datastore."
+                : d.hasBreachSignals
+                ? "Snapshot breach counts available from latest host status."
+                : "No breach records have been observed yet."}
+            </div>
           </div>
-          <div style={{ color: "var(--dash-muted)", marginTop: 8 }}>
-            Open: <b>{breachOpen}</b> · Fixed: <b>{breachFixed}</b> · Ignored: <b>{breachIgnored}</b>
-          </div>
-          <div style={{ color: "var(--dash-muted)", marginTop: 6 }}>
-            Total breaches tracked: <b>{breachTotal}</b>
-          </div>
-          <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
-            {liveBreaches
-              ? "Live breach ledger connected from datastore."
-              : d.hasBreachSignals
-              ? "Snapshot breach counts available from latest host status."
-              : "No breach records have been observed yet."}
-          </div>
-        </Box>
+        </SupportTile>
 
-        <Box>
-          <div className="dashboard-card-title-row">
-            <div style={{ fontWeight: 800 }}>Shipping / Notifications</div>
-            <NoobTip text="Email/webhook delivery health for alerts and reports." />
+        <SupportTile
+          title="Shipping / Notifications"
+          tip="Email/webhook delivery health for alerts and reports."
+        >
+          <div className="dashboard-support-metrics">
+            <div className="dashboard-support-metric-pair">
+              <SupportMetric label="Delivered 24h" value={shippingDelivered24h} />
+              <SupportMetric label="Failed 24h" value={shippingFailed24h} />
+            </div>
+            <SupportMetric label="Pending deliveries" value={shippingPending} />
+            <SupportMetric
+              label="Last delivered"
+              value={fmt(shippingLastTs ?? undefined)}
+            />
+            <SupportMetric label="Last ship error" value={shippingLastError ?? "—"} />
+            <div className="dashboard-support-note">
+              {liveShipping
+                ? "Live delivery health is connected from notification events."
+                : d.hasShippingSignals
+                ? "Snapshot shipping data available from latest host status."
+                : "No shipping events captured yet."}
+            </div>
           </div>
-          <div style={{ color: "var(--dash-muted)", marginTop: 8 }}>
-            Delivered 24h: <b>{shippingDelivered24h}</b> · Failed 24h: <b>{shippingFailed24h}</b>
-          </div>
-          <div style={{ color: "var(--dash-muted)", marginTop: 6 }}>
-            Pending deliveries: <b>{shippingPending}</b>
-          </div>
-          <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
-            Last delivered: <b>{fmt(shippingLastTs ?? undefined)}</b>
-          </div>
-          <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
-            Last ship error: <b>{shippingLastError ?? "—"}</b>
-          </div>
-          <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
-            {liveShipping
-              ? "Live delivery health is connected from notification events."
-              : d.hasShippingSignals
-              ? "Snapshot shipping data available from latest host status."
-              : "No shipping events captured yet."}
-          </div>
-        </Box>
+        </SupportTile>
 
-        <Box>
-          <div className="dashboard-card-title-row">
-            <div style={{ fontWeight: 800 }}>Operator Access</div>
-            <NoobTip text="Shows which advanced controls this signed-in role can use right now." />
+        <SupportTile
+          title="Operator Access"
+          tip="Shows which advanced controls this signed-in role can use right now."
+        >
+          <div className="dashboard-support-metrics">
+            <SupportMetric label="Role" value={ops.access.role} />
+            <div className="dashboard-chip-row">
+              <span className={ops.access.canOps ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip"}>
+                ops {ops.access.canOps ? "enabled" : "locked"}
+              </span>
+              <span
+                className={
+                  ops.access.canAdmin ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip"
+                }
+              >
+                admin {ops.access.canAdmin ? "enabled" : "locked"}
+              </span>
+            </div>
+            <SupportMetric
+              label="Capability snapshot"
+              value={fmt(ops.generatedAtIso)}
+            />
           </div>
-          <div style={{ color: "var(--dash-muted)", marginTop: 8 }}>
-            Role: <b>{ops.access.role}</b>
-          </div>
-          <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
-            <span className={ops.access.canOps ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip"}>
-              ops {ops.access.canOps ? "enabled" : "locked"}
-            </span>
-            <span
-              className={
-                ops.access.canAdmin ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip"
-              }
-            >
-              admin {ops.access.canAdmin ? "enabled" : "locked"}
-            </span>
-          </div>
-          <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
-            Capability snapshot generated at <b>{fmt(ops.generatedAtIso)}</b>
-          </div>
-        </Box>
+        </SupportTile>
       </div>
 
       <DashboardActions userRole={userRole} />
+    </div>
+  );
+}
+
+function SupportTile(props: { title: string; tip: string; children: React.ReactNode }) {
+  return (
+    <Box className="dashboard-support-card">
+      <div className="dashboard-card-title-row">
+        <div className="dashboard-support-title">
+          <NoobTip text={props.tip}>{props.title}</NoobTip>
+        </div>
+      </div>
+      {props.children}
+    </Box>
+  );
+}
+
+function SupportMetric(props: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="dashboard-support-metric">
+      <span className="dashboard-support-metric-label">{props.label}</span>
+      <span className="dashboard-support-metric-value">{props.value}</span>
     </div>
   );
 }

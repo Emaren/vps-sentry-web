@@ -84,8 +84,11 @@ export default function CommandCenterSection(props: {
   return (
     <section style={{ marginTop: 18 }}>
       <div className="dashboard-card-title-row">
-        <h2 style={{ fontSize: 18, margin: 0 }}>Incident + Remediation Command Center</h2>
-        <NoobTip text="Unified operational timeline combining incident workflow events with remediation execution flow." />
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          <NoobTip text="Unified operational timeline combining incident workflow events with remediation execution flow.">
+            Incident + Remediation Command Center
+          </NoobTip>
+        </h2>
       </div>
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b> · Timeline merges incident state and remediation runtime.

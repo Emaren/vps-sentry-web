@@ -278,14 +278,14 @@ export default function AdminOpsPanel(props: {
     <section
       style={{
         marginTop: 18,
-        border: "1px solid rgba(255,255,255,0.10)",
+        border: "1px solid var(--dash-card-border)",
         borderRadius: 12,
-        background: "rgba(255,255,255,0.02)",
+        background: "var(--dash-card-bg)",
         padding: 14,
       }}
     >
       <h2 style={{ margin: 0, fontSize: 20 }}>Operator Console</h2>
-      <p style={{ marginTop: 8, marginBottom: 0, opacity: 0.78 }}>
+      <p style={{ marginTop: 8, marginBottom: 0, color: "var(--dash-meta)" }}>
         Workflow-driven incident operations with one-click execution for API-safe steps.
       </p>
 
@@ -417,7 +417,7 @@ export default function AdminOpsPanel(props: {
 
         <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
           {queueSnapshot.items.length === 0 ? (
-            <div style={{ opacity: 0.72 }}>No queue items for selected filter.</div>
+            <div style={{ color: "var(--dash-meta)" }}>No queue items for selected filter.</div>
           ) : (
             queueSnapshot.items.map((item) => (
               <QueueItemRow
@@ -466,7 +466,7 @@ export default function AdminOpsPanel(props: {
             {topCounters.map((c, idx) => (
               <div key={`${c.name}-${idx}`} style={entryRowStyle()}>
                 <div style={{ fontWeight: 700 }}>{c.name}</div>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>
+                <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>
                   value={c.value} · {renderLabels(c.labels)}
                 </div>
               </div>
@@ -480,7 +480,7 @@ export default function AdminOpsPanel(props: {
             {topTimings.map((t, idx) => (
               <div key={`${t.name}-${idx}`} style={entryRowStyle()}>
                 <div style={{ fontWeight: 700 }}>{t.name}</div>
-                <div style={{ fontSize: 12, opacity: 0.82 }}>
+                <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>
                   count={t.count} · p50={fmtMs(t.p50Ms)} · p95={fmtMs(t.p95Ms)} · max={fmtMs(t.maxMs)} ·{" "}
                   {renderLabels(t.labels)}
                 </div>
@@ -550,7 +550,7 @@ export default function AdminOpsPanel(props: {
           />
         </div>
 
-        <div style={{ marginTop: 8, opacity: 0.8 }}>
+        <div style={{ marginTop: 8, color: "var(--dash-meta)" }}>
           {slo.burn.title}: {slo.burn.reason}
         </div>
 
@@ -574,16 +574,16 @@ export default function AdminOpsPanel(props: {
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                 <div>
                   <div style={{ fontWeight: 800 }}>{workflow.title}</div>
-                  <div style={{ opacity: 0.8, marginTop: 4 }}>{workflow.summary}</div>
+                  <div style={{ color: "var(--dash-meta)", marginTop: 4 }}>{workflow.summary}</div>
                 </div>
                 <Pill text={workflow.severity.toUpperCase()} tone={toneBySeverity(workflow.severity)} />
               </div>
 
-              <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
+              <div style={{ marginTop: 8, fontSize: 12, color: "var(--dash-meta)" }}>
                 Trigger signals: {workflow.triggerSignals.join(", ")}
               </div>
 
-              <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
+              <div style={{ marginTop: 8, fontSize: 12, color: "var(--dash-meta)" }}>
                 Playbooks: {workflow.playbookRefs.join(" | ")}
               </div>
 
@@ -596,7 +596,7 @@ export default function AdminOpsPanel(props: {
                     <div key={step.id} style={stepRowStyle()}>
                       <div>
                         <div style={{ fontWeight: 700 }}>{step.title}</div>
-                        <div style={{ fontSize: 12, opacity: 0.78 }}>{step.description}</div>
+                        <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>{step.description}</div>
                       </div>
 
                       {step.kind === "api" ? (
@@ -624,15 +624,15 @@ export default function AdminOpsPanel(props: {
       <section style={blockStyle()}>
         <h3 style={h3Style()}>Recent Ops Timeline</h3>
         {props.recentOps.length === 0 ? (
-          <div style={{ opacity: 0.7 }}>No recent ops entries.</div>
+          <div style={{ color: "var(--dash-meta)" }}>No recent ops entries.</div>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
             {props.recentOps.map((entry) => (
               <div key={entry.id} style={entryRowStyle()}>
                 <div style={{ fontWeight: 700 }}>{entry.action}</div>
-                <div style={{ fontSize: 12, opacity: 0.75 }}>{entry.createdAtIso}</div>
+                <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>{entry.createdAtIso}</div>
                 <div style={{ marginTop: 4 }}>{entry.detail ?? "-"}</div>
-                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: "var(--dash-meta)", marginTop: 2 }}>
                   actor: {entry.userEmail ?? "system"}
                 </div>
               </div>
@@ -708,7 +708,7 @@ function SloObjectiveRow(props: { objective: SloObjective }) {
       </div>
       <div style={{ marginTop: 4, fontWeight: 700 }}>{objective.title}</div>
       {objective.kind === "percent" ? (
-        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>
+        <div style={{ marginTop: 4, fontSize: 12, color: "var(--dash-meta)" }}>
           current={objective.currentPct === null ? "n/a" : `${objective.currentPct.toFixed(2)}%`} · target=
           {objective.targetPct}% · budget={objective.errorBudgetRemainingPct === null
             ? "n/a"
@@ -716,7 +716,7 @@ function SloObjectiveRow(props: { objective: SloObjective }) {
           {" "}· burn(short/long)={objective.burnRateShort ?? "n/a"}/{objective.burnRateLong ?? "n/a"}
         </div>
       ) : (
-        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>
+        <div style={{ marginTop: 4, fontSize: 12, color: "var(--dash-meta)" }}>
           current={objective.currentMinutes === null ? "n/a" : `${objective.currentMinutes.toFixed(2)}m`} · target=
           {objective.targetMinutes}m · samples={objective.sampleCount}
         </div>
@@ -732,11 +732,11 @@ function LogRow(props: { item: ObservabilityLogEntry }) {
     <div style={entryRowStyle()}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <Pill text={item.level} tone={tone} />
-        <span style={{ fontSize: 12, opacity: 0.75 }}>{item.ts}</span>
+        <span style={{ fontSize: 12, color: "var(--dash-meta)" }}>{item.ts}</span>
         {item.route ? <Pill text={item.route} tone="neutral" /> : null}
       </div>
       <div style={{ marginTop: 5, fontWeight: 700 }}>{item.message}</div>
-      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.76 }}>
+      <div style={{ marginTop: 4, fontSize: 12, color: "var(--dash-meta)" }}>
         correlation={item.correlationId ?? "na"} trace={item.traceId ?? "na"} span={item.spanId ?? "na"}
       </div>
       {item.fields ? (
@@ -754,7 +754,7 @@ function TraceRow(props: { item: ObservabilityTraceEntry }) {
         <Pill text={item.status} tone={item.status === "ok" ? "ok" : "bad"} />
         <span style={{ fontWeight: 700 }}>{item.name}</span>
       </div>
-      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.76 }}>
+      <div style={{ marginTop: 4, fontSize: 12, color: "var(--dash-meta)" }}>
         {item.ts} · duration={fmtMs(item.durationMs)} · route={item.route ?? "-"} · correlation=
         {item.correlationId ?? "na"} · trace={item.traceId ?? "na"}
       </div>
@@ -774,14 +774,14 @@ function AlertRow(props: { item: AlertMetadata }) {
         <Pill text={item.severity} tone={tone} />
         <Pill text={item.kind} tone="neutral" />
         {typeof item.status === "number" ? <Pill text={`status ${item.status}`} tone="neutral" /> : null}
-        <span style={{ fontSize: 12, opacity: 0.75 }}>{item.ts}</span>
+        <span style={{ fontSize: 12, color: "var(--dash-meta)" }}>{item.ts}</span>
       </div>
       <div style={{ marginTop: 5, fontWeight: 700 }}>{item.title}</div>
-      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.76 }}>
+      <div style={{ marginTop: 4, fontSize: 12, color: "var(--dash-meta)" }}>
         delivered={item.deliveredOk === null ? "unknown" : item.deliveredOk ? "true" : "false"} · target=
         {item.target ?? "-"} · correlation={item.correlationId ?? "na"} · trace={item.traceId ?? "na"}
       </div>
-      {item.detail ? <div style={{ marginTop: 4, opacity: 0.84 }}>{item.detail}</div> : null}
+      {item.detail ? <div style={{ marginTop: 4, color: "var(--dash-muted)" }}>{item.detail}</div> : null}
     </div>
   );
 }
@@ -831,24 +831,24 @@ function QueueItemRow(props: {
           {item.dlq ? <Pill text="DLQ" tone="bad" /> : null}
           {item.delayed ? <Pill text="delayed retry" tone="warn" /> : null}
         </div>
-        <div style={{ fontSize: 12, opacity: 0.75 }}>{item.requestedAt}</div>
+        <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>{item.requestedAt}</div>
       </div>
 
       <div style={{ marginTop: 6, fontWeight: 700 }}>
         {item.hostName} · {item.actionKey}
       </div>
-      <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
+      <div style={{ fontSize: 12, color: "var(--dash-meta)", marginTop: 2 }}>
         run {item.runId}
         {item.replayOfRunId ? ` (replay of ${item.replayOfRunId})` : ""}
       </div>
 
       {item.nextAttemptAt ? (
-        <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
+        <div style={{ fontSize: 12, color: "var(--dash-meta)", marginTop: 2 }}>
           next attempt: {item.nextAttemptAt}
         </div>
       ) : null}
       {item.lastError || item.error ? (
-        <div style={{ marginTop: 4, opacity: 0.86 }}>
+        <div style={{ marginTop: 4, color: "var(--dash-muted)" }}>
           error: {item.lastError ?? item.error}
         </div>
       ) : null}
@@ -897,7 +897,7 @@ function QueueItemRow(props: {
       </div>
 
       {item.canaryEnabled ? (
-        <div style={{ marginTop: 4, opacity: 0.76, fontSize: 12 }}>
+        <div style={{ marginTop: 4, color: "var(--dash-meta)", fontSize: 12 }}>
           canary rollout={item.canaryRolloutPercent ?? "-"}% bucket=
           {item.canaryBucket ?? "-"} selected={item.canarySelected ? "true" : "false"} checks=
           {item.canaryChecks}
@@ -938,10 +938,10 @@ function toneBySeverity(severity: IncidentWorkflow["severity"]): "ok" | "warn" |
 function blockStyle(): CSSProperties {
   return {
     marginTop: 14,
-    border: "1px solid rgba(255,255,255,0.1)",
+    border: "1px solid var(--dash-card-border)",
     borderRadius: 10,
     padding: "10px 12px",
-    background: "rgba(255,255,255,0.02)",
+    background: "var(--dash-card-bg)",
   };
 }
 
@@ -951,10 +951,10 @@ function h3Style(): CSSProperties {
 
 function workflowCardStyle(): CSSProperties {
   return {
-    border: "1px solid rgba(255,255,255,0.12)",
+    border: "1px solid var(--dash-card-border)",
     borderRadius: 10,
     padding: "10px 12px",
-    background: "rgba(255,255,255,0.03)",
+    background: "color-mix(in srgb, var(--dash-card-bg) 94%, transparent 6%)",
   };
 }
 
@@ -964,29 +964,29 @@ function stepRowStyle(): CSSProperties {
     justifyContent: "space-between",
     gap: 10,
     alignItems: "center",
-    border: "1px solid rgba(255,255,255,0.08)",
+    border: "1px solid var(--dash-soft-border)",
     borderRadius: 8,
     padding: "8px 10px",
-    background: "rgba(0,0,0,0.14)",
+    background: "color-mix(in srgb, var(--dash-card-bg) 88%, transparent 12%)",
   };
 }
 
 function entryRowStyle(): CSSProperties {
   return {
-    border: "1px solid rgba(255,255,255,0.08)",
+    border: "1px solid var(--dash-soft-border)",
     borderRadius: 8,
     padding: "8px 10px",
-    background: "rgba(0,0,0,0.16)",
+    background: "color-mix(in srgb, var(--dash-card-bg) 88%, transparent 12%)",
   };
 }
 
 function messageStyle(): CSSProperties {
   return {
     marginTop: 12,
-    border: "1px solid rgba(255,255,255,0.14)",
+    border: "1px solid var(--dash-btn-border)",
     borderRadius: 10,
     padding: "10px 12px",
-    background: "rgba(255,255,255,0.05)",
+    background: "var(--dash-btn-bg)",
   };
 }
 
@@ -995,10 +995,10 @@ function preStyle(): CSSProperties {
     marginTop: 8,
     marginBottom: 0,
     whiteSpace: "pre-wrap",
-    border: "1px solid rgba(255,255,255,0.1)",
+    border: "1px solid var(--dash-soft-border)",
     borderRadius: 10,
     padding: "10px 12px",
-    background: "rgba(0,0,0,0.25)",
+    background: "color-mix(in srgb, var(--dash-card-bg) 86%, transparent 14%)",
   };
 }
 
@@ -1008,9 +1008,9 @@ function inputStyle(): CSSProperties {
     maxWidth: 420,
     padding: "8px 10px",
     borderRadius: 8,
-    border: "1px solid rgba(255,255,255,0.16)",
-    background: "rgba(0,0,0,0.2)",
-    color: "inherit",
+    border: "1px solid var(--dash-btn-border)",
+    background: "var(--dash-btn-bg)",
+    color: "var(--dash-fg)",
   };
 }
 
@@ -1022,21 +1022,30 @@ function Pill(props: {
 
   const bg =
     tone === "ok"
-      ? "rgba(34,197,94,0.14)"
+      ? "var(--dash-sev-ok-bg)"
       : tone === "warn"
-      ? "rgba(245,158,11,0.14)"
+      ? "var(--dash-sev-high-bg)"
       : tone === "bad"
-      ? "rgba(239,68,68,0.14)"
-      : "rgba(255,255,255,0.06)";
+      ? "var(--dash-sev-critical-bg)"
+      : "var(--dash-btn-bg)";
 
   const border =
     tone === "ok"
-      ? "rgba(34,197,94,0.35)"
+      ? "var(--dash-sev-ok-border)"
       : tone === "warn"
-      ? "rgba(245,158,11,0.35)"
+      ? "var(--dash-sev-high-border)"
       : tone === "bad"
-      ? "rgba(239,68,68,0.35)"
-      : "rgba(255,255,255,0.16)";
+      ? "var(--dash-sev-critical-border)"
+      : "var(--dash-btn-border)";
+
+  const color =
+    tone === "ok"
+      ? "var(--dash-sev-ok-text)"
+      : tone === "warn"
+      ? "var(--dash-sev-high-text)"
+      : tone === "bad"
+      ? "var(--dash-sev-critical-text)"
+      : "var(--dash-muted)";
 
   return (
     <span
@@ -1048,6 +1057,7 @@ function Pill(props: {
         fontSize: 12,
         border: `1px solid ${border}`,
         background: bg,
+        color,
       }}
     >
       {props.text}
@@ -1068,9 +1078,11 @@ function ActionButton(props: {
       style={{
         padding: "8px 10px",
         borderRadius: 8,
-        border: "1px solid rgba(255,255,255,0.18)",
-        background: props.busy ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.06)",
-        color: "inherit",
+        border: "1px solid var(--dash-btn-border)",
+        background: props.busy
+          ? "color-mix(in srgb, var(--dash-btn-bg-strong) 88%, transparent 12%)"
+          : "var(--dash-btn-bg)",
+        color: "var(--dash-fg)",
         fontWeight: 700,
         cursor: props.busy ? "default" : "pointer",
       }}

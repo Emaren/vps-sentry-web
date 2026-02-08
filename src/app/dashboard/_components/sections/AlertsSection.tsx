@@ -11,8 +11,11 @@ export default function AlertsSection(props: { derived: DerivedDashboard; snapsh
   return (
     <section style={{ marginTop: 18 }}>
       <div className="dashboard-card-title-row">
-        <h2 style={{ fontSize: 18, margin: 0 }}>Alerts</h2>
-        <NoobTip text="Actionable security signals that need attention right now after suppression rules." />
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          <NoobTip text="Actionable security signals that need attention right now after suppression rules.">
+            Alerts
+          </NoobTip>
+        </h2>
       </div>
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b>

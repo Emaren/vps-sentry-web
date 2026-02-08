@@ -87,17 +87,17 @@ html[data-site-theme="light"] {
 html[data-site-theme="sepia"] {
   color-scheme: light;
   --site-bg: #efe3cf;
-  --site-fg: #2b1f12;
-  --site-muted: rgba(43, 31, 18, 0.99);
-  --site-meta: rgba(43, 31, 18, 0.92);
+  --site-fg: #22170d;
+  --site-muted: #2c1f12;
+  --site-meta: #3a2a18;
   --site-link: #6b3b00;
   --site-card-bg: #f7efe2;
-  --site-card-border: #d9c5a9;
-  --site-soft-border: #ddccb4;
+  --site-card-border: #c8ac86;
+  --site-soft-border: #cfb393;
   --site-card-shadow: 0 10px 24px rgba(71, 45, 17, 0.09);
   --site-btn-bg: #f3e7d4;
   --site-btn-bg-strong: #ecd9bc;
-  --site-btn-border: #ccb08c;
+  --site-btn-border: #b89469;
   --site-btn-bg-hover: #e3cba9;
   --site-input-bg: #fbf3e8;
   --site-cursor: rgba(63, 47, 30, 0.5);
@@ -106,19 +106,19 @@ html[data-site-theme="sepia"] {
   --site-danger-fg: #711515;
   --site-sev-critical-bg: rgba(185, 28, 28, 0.09);
   --site-sev-critical-border: rgba(153, 27, 27, 0.42);
-  --site-sev-critical-text: #571010;
+  --site-sev-critical-text: #4b0e0e;
   --site-sev-high-bg: rgba(180, 83, 9, 0.12);
   --site-sev-high-border: rgba(146, 64, 14, 0.38);
-  --site-sev-high-text: #4f3000;
+  --site-sev-high-text: #422700;
   --site-sev-medium-bg: rgba(30, 64, 175, 0.08);
   --site-sev-medium-border: rgba(30, 64, 175, 0.3);
-  --site-sev-medium-text: #123062;
+  --site-sev-medium-text: #102a53;
   --site-sev-low-bg: rgba(87, 83, 78, 0.1);
   --site-sev-low-border: rgba(87, 83, 78, 0.35);
-  --site-sev-low-text: #2f2a24;
+  --site-sev-low-text: #28231d;
   --site-sev-ok-bg: rgba(21, 128, 61, 0.12);
   --site-sev-ok-border: rgba(21, 128, 61, 0.38);
-  --site-sev-ok-text: #0d3b1c;
+  --site-sev-ok-text: #0b3218;
 }
 
 html[data-site-theme="dark"] {
@@ -577,26 +577,24 @@ html[data-site-theme="sepia"] .dashboard-shell {
   flex-wrap: wrap;
 }
 
-.dashboard-noob-tip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  border: 1px solid var(--dash-btn-border);
-  background: var(--dash-btn-bg);
-  color: var(--dash-fg);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1;
+.dashboard-help-target {
+  display: inline;
+  color: inherit;
   cursor: help;
-  user-select: none;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: color-mix(in srgb, var(--dash-meta) 72%, transparent 28%);
+  text-underline-offset: 3px;
 }
 
-.dashboard-noob-tip:focus-visible {
+.dashboard-help-target:hover {
+  text-decoration-color: color-mix(in srgb, var(--dash-fg) 70%, transparent 30%);
+}
+
+.dashboard-help-target:focus-visible {
   outline: 2px solid var(--dash-link, var(--site-link));
   outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .dashboard-noob-coach {
@@ -623,8 +621,76 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
 .dashboard-support-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.dashboard-support-card {
+  min-height: 220px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 10px;
+  align-content: start;
+}
+
+.dashboard-support-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.dashboard-support-metrics {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.dashboard-support-metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dashboard-support-metric-label {
+  color: var(--dash-meta);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dashboard-support-metric-value {
+  color: var(--dash-fg);
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-support-metric-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dashboard-support-metric-trio {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dashboard-support-note {
+  color: var(--dash-meta);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.dashboard-support-empty {
+  color: var(--dash-meta);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .dashboard-mission-grid {
@@ -683,6 +749,11 @@ html[data-site-theme="sepia"] .dashboard-shell {
   }
 
   .dashboard-support-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-support-metric-pair,
+  .dashboard-support-metric-trio {
     grid-template-columns: 1fr;
   }
 

@@ -37,30 +37,30 @@ function fmtDate(d?: Date | null) {
 function badge(text: string, tone: "ok" | "warn" | "bad" | "neutral" = "neutral") {
   const bg =
     tone === "ok"
-      ? "rgba(34,197,94,0.12)"
+      ? "var(--dash-sev-ok-bg)"
       : tone === "warn"
-      ? "rgba(245,158,11,0.12)"
+      ? "var(--dash-sev-high-bg)"
       : tone === "bad"
-      ? "rgba(239,68,68,0.12)"
-      : "rgba(255,255,255,0.04)";
+      ? "var(--dash-sev-critical-bg)"
+      : "color-mix(in srgb, var(--dash-card-bg) 80%, transparent 20%)";
 
   const border =
     tone === "ok"
-      ? "rgba(34,197,94,0.35)"
+      ? "var(--dash-sev-ok-border)"
       : tone === "warn"
-      ? "rgba(245,158,11,0.35)"
+      ? "var(--dash-sev-high-border)"
       : tone === "bad"
-      ? "rgba(239,68,68,0.35)"
-      : "rgba(255,255,255,0.10)";
+      ? "var(--dash-sev-critical-border)"
+      : "var(--dash-soft-border)";
 
   const color =
     tone === "ok"
-      ? "#86efac"
+      ? "var(--dash-sev-ok-text)"
       : tone === "warn"
-      ? "#fcd34d"
+      ? "var(--dash-sev-high-text)"
       : tone === "bad"
-      ? "#fca5a5"
-      : "#d0d0d0";
+      ? "var(--dash-sev-critical-text)"
+      : "var(--dash-meta)";
 
   return (
     <span
@@ -90,6 +90,14 @@ function roleTone(role: AppRole): "ok" | "warn" | "bad" | "neutral" {
   return "neutral";
 }
 
+function toAdminPlanLabel(plan: string): "FREE" | "BASIC" | "PRO" | "UNKNOWN" {
+  const normalized = String(plan ?? "UNKNOWN").toUpperCase();
+  if (normalized === "FREE") return "FREE";
+  if (normalized === "ELITE") return "PRO";
+  if (normalized === "PRO" || normalized === "BASIC") return "BASIC";
+  return "UNKNOWN";
+}
+
 /**
  * classifyUser()
  *
@@ -107,7 +115,8 @@ function classifyUser(u: {
   subscriptionId: string | null;
   currentPeriodEnd: Date | null;
 }) {
-  const plan = String(u.plan ?? "UNKNOWN").toUpperCase();
+  const rawPlan = String(u.plan ?? "UNKNOWN").toUpperCase();
+  const plan = toAdminPlanLabel(rawPlan);
 
   const hasCustomer = Boolean(u.stripeCustomerId);
   const hasSub = Boolean(u.subscriptionId);
@@ -308,8 +317,8 @@ export default async function AdminPage() {
       const role = normalizeAppRole(u.role) ?? "viewer";
       acc.total += 1;
       if (info.isActive) acc.active += 1;
+      if (info.plan === "BASIC") acc.basic += 1;
       if (info.plan === "PRO") acc.pro += 1;
-      if (info.plan === "ELITE") acc.elite += 1;
       if (info.plan === "FREE") acc.free += 1;
       if (info.suspicious) acc.suspicious += 1;
       if (u.stripeCustomerId) acc.customers += 1;
@@ -324,8 +333,8 @@ export default async function AdminPage() {
       total: 0,
       active: 0,
       free: 0,
+      basic: 0,
       pro: 0,
-      elite: 0,
       customers: 0,
       subs: 0,
       suspicious: 0,
@@ -404,10 +413,10 @@ export default async function AdminPage() {
       <header style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0 }}>Admin</h1>
-          <p style={{ opacity: 0.75, marginTop: 6, marginBottom: 0 }}>
+          <p style={{ color: "var(--dash-meta)", marginTop: 6, marginBottom: 0 }}>
             Logged in as <b>{email}</b> · role <b>{roleLabel(access.identity.role)}</b>
           </p>
-          <p style={{ opacity: 0.7, marginTop: 10, marginBottom: 0, maxWidth: 900 }}>
+          <p style={{ color: "var(--dash-meta)", marginTop: 10, marginBottom: 0, maxWidth: 900 }}>
             This page is your “truth panel”: it shows who exists in your database, what plan they’re on, whether Stripe is
             linked, and whether the subscription state looks sane. If something breaks, this tells you where.
           </p>
@@ -419,10 +428,10 @@ export default async function AdminPage() {
             style={{
               padding: "10px 12px",
               borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.12)",
-              background: "rgba(255,255,255,0.04)",
+              border: "1px solid var(--dash-btn-border)",
+              background: "var(--dash-btn-bg)",
               textDecoration: "none",
-              color: "#eaeaea",
+              color: "var(--dash-fg)",
               fontSize: 14,
             }}
           >
@@ -433,10 +442,10 @@ export default async function AdminPage() {
             style={{
               padding: "10px 12px",
               borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.12)",
-              background: "rgba(255,255,255,0.04)",
+              border: "1px solid var(--dash-btn-border)",
+              background: "var(--dash-btn-bg)",
               textDecoration: "none",
-              color: "#eaeaea",
+              color: "var(--dash-fg)",
               fontSize: 14,
             }}
           >
@@ -445,14 +454,30 @@ export default async function AdminPage() {
         </div>
       </header>
 
+      <section
+        style={{
+          marginTop: 18,
+          padding: 14,
+          border: "1px solid var(--dash-card-border)",
+          borderRadius: 12,
+          background: "var(--dash-card-bg)",
+        }}
+      >
+        <h2 style={{ margin: 0, fontSize: 18 }}>Noob Coach v2</h2>
+        <div style={{ marginTop: 8, color: "var(--dash-meta)", fontSize: 13 }}>
+          Fast admin order-of-operations: 1) resolve suspicious users, 2) verify queue/DLQ is clean,
+          3) confirm observability + SLO are healthy, 4) review recent ops timeline for drift.
+        </div>
+      </section>
+
       {/* Summary row */}
       <section
         style={{
           marginTop: 18,
           padding: 14,
-          border: "1px solid rgba(255,255,255,0.10)",
+          border: "1px solid var(--dash-card-border)",
           borderRadius: 12,
-          background: "rgba(255,255,255,0.02)",
+          background: "var(--dash-card-bg)",
         }}
       >
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -463,14 +488,14 @@ export default async function AdminPage() {
           {badge(`Viewers: ${totals.viewers}`, "neutral")}
           {badge(`Active subs: ${totals.active}`, totals.active > 0 ? "ok" : "neutral")}
           {badge(`FREE: ${totals.free}`, "neutral")}
+          {badge(`BASIC: ${totals.basic}`, totals.basic > 0 ? "ok" : "neutral")}
           {badge(`PRO: ${totals.pro}`, totals.pro > 0 ? "ok" : "neutral")}
-          {badge(`ELITE: ${totals.elite}`, totals.elite > 0 ? "ok" : "neutral")}
           {badge(`Stripe customers: ${totals.customers}`, totals.customers > 0 ? "ok" : "neutral")}
           {badge(`Stripe subs: ${totals.subs}`, totals.subs > 0 ? "ok" : "neutral")}
           {badge(`Suspicious: ${totals.suspicious}`, totals.suspicious > 0 ? "warn" : "ok")}
         </div>
 
-        <p style={{ opacity: 0.7, marginTop: 10, marginBottom: 0, fontSize: 13 }}>
+        <p style={{ color: "var(--dash-meta)", marginTop: 10, marginBottom: 0, fontSize: 13 }}>
           “Suspicious” usually means <b>plan</b> and <b>subscriptionStatus</b> don’t match (e.g. plan=PRO but status isn’t
           active), or Stripe linkage is incomplete (e.g. subscriptionId exists but stripeCustomerId missing).
         </p>
@@ -480,10 +505,10 @@ export default async function AdminPage() {
       <section
         style={{
           marginTop: 18,
-          border: "1px solid rgba(255,255,255,0.10)",
+          border: "1px solid var(--dash-card-border)",
           borderRadius: 12,
           overflow: "hidden",
-          background: "rgba(255,255,255,0.02)",
+          background: "var(--dash-card-bg)",
         }}
       >
         {/* Header row */}
@@ -492,10 +517,10 @@ export default async function AdminPage() {
             display: "grid",
             gridTemplateColumns: "1.2fr 2fr 1.4fr 0.9fr 0.8fr 1.3fr 2.2fr",
             padding: "12px 14px",
-            borderBottom: "1px solid rgba(255,255,255,0.10)",
+            borderBottom: "1px solid var(--dash-soft-border)",
             fontWeight: 700,
-            opacity: 0.92,
-            background: "rgba(255,255,255,0.04)",
+            color: "var(--dash-muted)",
+            background: "color-mix(in srgb, var(--dash-card-bg) 90%, transparent 10%)",
           }}
         >
           <div>Name</div>
@@ -511,7 +536,9 @@ export default async function AdminPage() {
         {users.map((u) => {
           const info = classifyUser(u);
           const userRole = normalizeAppRole(u.role) ?? "viewer";
-          const rowBg = info.suspicious ? "rgba(239,68,68,0.06)" : "rgba(255,255,255,0.00)";
+          const rowBg = info.suspicious
+            ? "color-mix(in srgb, var(--dash-sev-critical-bg) 85%, transparent 15%)"
+            : "transparent";
 
           return (
             <div
@@ -520,7 +547,7 @@ export default async function AdminPage() {
                 display: "grid",
                 gridTemplateColumns: "1.2fr 2fr 1.4fr 0.9fr 0.8fr 1.3fr 2.2fr",
                 padding: "12px 14px",
-                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                borderBottom: "1px solid var(--dash-soft-border)",
                 background: rowBg,
               }}
             >
@@ -542,9 +569,9 @@ export default async function AdminPage() {
                       name="targetRole"
                       defaultValue={userRole}
                       style={{
-                        background: "rgba(255,255,255,0.05)",
-                        color: "inherit",
-                        border: "1px solid rgba(255,255,255,0.15)",
+                        background: "var(--dash-btn-bg)",
+                        color: "var(--dash-fg)",
+                        border: "1px solid var(--dash-btn-border)",
                         borderRadius: 8,
                         padding: "4px 6px",
                         fontSize: 12,
@@ -562,9 +589,9 @@ export default async function AdminPage() {
                     <button
                       type="submit"
                       style={{
-                        background: "rgba(255,255,255,0.05)",
-                        color: "inherit",
-                        border: "1px solid rgba(255,255,255,0.15)",
+                        background: "var(--dash-btn-bg)",
+                        color: "var(--dash-fg)",
+                        border: "1px solid var(--dash-btn-border)",
                         borderRadius: 8,
                         padding: "4px 8px",
                         fontSize: 12,
@@ -579,9 +606,9 @@ export default async function AdminPage() {
 
               <div>{badge(info.plan, info.plan === "FREE" ? "neutral" : "ok")}</div>
 
-              <div style={{ opacity: 0.9 }}>{u.hostLimit ?? "-"}</div>
+              <div style={{ color: "var(--dash-muted)" }}>{u.hostLimit ?? "-"}</div>
 
-              <div style={{ opacity: 0.85 }}>{fmtDate(u.currentPeriodEnd)}</div>
+              <div style={{ color: "var(--dash-meta)" }}>{fmtDate(u.currentPeriodEnd)}</div>
 
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {info.flags.map((f, idx) => (
@@ -592,7 +619,7 @@ export default async function AdminPage() {
           );
         })}
 
-        {users.length === 0 && <div style={{ padding: 14, opacity: 0.7 }}>No users yet.</div>}
+        {users.length === 0 && <div style={{ padding: 14, color: "var(--dash-meta)" }}>No users yet.</div>}
       </section>
 
       <AdminOpsPanel
@@ -610,20 +637,6 @@ export default async function AdminPage() {
           role: access.identity.role,
         }}
       />
-
-      {/* Footer notes */}
-      <footer style={{ marginTop: 16, opacity: 0.7, fontSize: 13, lineHeight: "18px" }}>
-        <p style={{ margin: 0 }}>Notes:</p>
-        <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 18 }}>
-          <li>
-            RBAC is now role-based (<b>owner/admin/ops/viewer</b>). Owner can change roles in the table above.
-          </li>
-          <li>
-            Stripe “truth” is: <b>customerId</b> must exist to open the Billing Portal; <b>subscriptionStatus</b> and{" "}
-            <b>currentPeriodEnd</b> should be updated by your webhook.
-          </li>
-        </ul>
-      </footer>
     </main>
   );
 }

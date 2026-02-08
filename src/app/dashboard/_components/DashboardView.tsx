@@ -13,7 +13,6 @@ import {
   AdaptiveSection,
   AlertsSection,
   BreachesSection,
-  CoachSection,
   CommandCenterSection,
   ChangesDebugSection,
   DashboardFooter,
@@ -110,7 +109,6 @@ export default function DashboardView(props: {
       <MissionControlSection ops={ops} snapshotTs={d.snapshotTs} />
       <LivePulseStrip initial={livePulse} />
       <CommandCenterSection ops={ops} snapshotTs={d.snapshotTs} />
-      <CoachSection derived={d} ops={ops} snapshotTs={d.snapshotTs} />
       <AdaptiveSection ops={ops} snapshotTs={d.snapshotTs} />
 
       <AlertsSection derived={d} snapshotTs={d.snapshotTs} />

@@ -253,13 +253,11 @@ export default async function HostsPage() {
 
       <section style={{ ...cardStyle(), marginTop: 14 }}>
         <div className="dashboard-card-title-row">
-          <h2 style={h2Style()}>Fleet Mission Control</h2>
-          <NoobTip text="Fleet-wide pulse: threat, incidents, remediation queue, key health, and capacity usage." />
-        </div>
-
-        <div className="dashboard-noob-coach" style={{ marginTop: 10 }}>
-          Noob coach: clear red counts first (threat, breaches, DLQ), then orange counts
-          (delayed heartbeat, queued approvals, expiring keys).
+          <h2 style={h2Style()}>
+            <NoobTip text="Fleet-wide pulse: threat, incidents, remediation queue, key health, and capacity usage.">
+              Fleet Mission Control
+            </NoobTip>
+          </h2>
         </div>
 
         <div className="dashboard-chip-row" style={{ marginTop: 10 }}>

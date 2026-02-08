@@ -8,8 +8,7 @@ export default function StatCard(props: { label: string; value: number; hint?: s
   return (
     <Box style={{ minWidth: 140 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--dash-meta)", fontSize: 12 }}>
-        <span>{label}</span>
-        {hint ? <NoobTip text={hint} /> : null}
+        {hint ? <NoobTip text={hint}>{label}</NoobTip> : <span>{label}</span>}
       </div>
       <div style={{ fontSize: 28, fontWeight: 800, marginTop: 6 }}>{value}</div>
     </Box>

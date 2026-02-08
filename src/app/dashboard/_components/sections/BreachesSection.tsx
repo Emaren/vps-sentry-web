@@ -54,8 +54,11 @@ export default function BreachesSection(props: {
   return (
     <section style={{ marginTop: 18 }}>
       <div className="dashboard-card-title-row">
-        <h2 style={{ fontSize: 18, margin: 0 }}>Breaches</h2>
-        <NoobTip text="Live breach ledger from DB: open/fixed/ignored states with host and timing context." />
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          <NoobTip text="Live breach ledger from DB: open/fixed/ignored states with host and timing context.">
+            Breaches
+          </NoobTip>
+        </h2>
       </div>
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b> · Live source: breach records in datastore.

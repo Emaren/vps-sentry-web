@@ -154,7 +154,8 @@ function getCspValue(): string {
   const scriptSrc = ["'self'", "'unsafe-inline'"];
   const connectSrc = ["'self'", "https:", "wss:"];
 
-  const plausibleSrc = process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ?? "https://plausible.io/js/script.js";
+  const plausibleSrc =
+    process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ?? "https://plausible.io/js/pa-VDQL7gVqfpbKgwbCot3B8.js";
   try {
     const plausibleUrl = new URL(plausibleSrc);
     if (plausibleUrl.protocol === "https:" || plausibleUrl.protocol === "http:") {

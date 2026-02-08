@@ -12,9 +12,15 @@ export const boxStyle: React.CSSProperties = {
 export default function Box({
   children,
   style,
+  className,
 }: {
   children: React.ReactNode;
   style?: React.CSSProperties;
+  className?: string;
 }) {
-  return <div style={{ ...boxStyle, ...(style ?? {}) }}>{children}</div>;
+  return (
+    <div className={className} style={{ ...boxStyle, ...(style ?? {}) }}>
+      {children}
+    </div>
+  );
 }

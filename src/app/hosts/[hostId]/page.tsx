@@ -478,10 +478,6 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           title="Operator Navigator"
           tip="Quick jump links plus immediate host-health framing so you can orient in one glance."
         />
-        <div className="dashboard-noob-coach" style={{ marginTop: 10 }}>
-          Noob coach: start with Security and Timeline to understand risk, then run Playbook
-          actions, then verify in Incidents and Remediation history.
-        </div>
         <div className="dashboard-chip-row" style={{ marginTop: 10 }}>
           <span className={latestSnapshotAgeMinutes !== null && latestSnapshotAgeMinutes <= heartbeatConfig.expectedMinutes * 2 ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip dashboard-chip-warn"}>
             latest snapshot age {latestSnapshotAgeMinutes !== null ? `${latestSnapshotAgeMinutes}m` : "—"}
@@ -511,16 +507,14 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           tip="Operator-grade runtime view: incident workflow timers, remediation queue state, and key lifecycle health."
         />
 
-        <div className="dashboard-noob-coach" style={{ marginTop: 10 }}>
-          Noob coach: if incidents are open, acknowledge quickly; if approvals are pending, review
-          and decide; if DLQ is non-zero, investigate failed automation before replay.
-        </div>
-
         <div className="dashboard-mission-grid" style={{ marginTop: 10 }}>
           <div style={subPanelStyle()}>
             <div className="dashboard-card-title-row">
-              <div style={{ fontWeight: 800 }}>Incident Workflow Engine</div>
-              <NoobTip text="Assignment + acknowledgement + escalation state for this specific host." />
+              <div style={{ fontWeight: 800 }}>
+                <NoobTip text="Assignment + acknowledgement + escalation state for this specific host.">
+                  Incident Workflow Engine
+                </NoobTip>
+              </div>
             </div>
             <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
               <span className={incidentOpenCount > 0 ? "dashboard-chip dashboard-chip-bad" : "dashboard-chip dashboard-chip-ok"}>
@@ -561,8 +555,11 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
 
           <div style={subPanelStyle()}>
             <div className="dashboard-card-title-row">
-              <div style={{ fontWeight: 800 }}>Remediation Queue Runtime</div>
-              <NoobTip text="Execution backlog, pending approvals, and DLQ risk for automated actions on this host." />
+              <div style={{ fontWeight: 800 }}>
+                <NoobTip text="Execution backlog, pending approvals, and DLQ risk for automated actions on this host.">
+                  Remediation Queue Runtime
+                </NoobTip>
+              </div>
             </div>
             <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
               <span className={queueQueuedCount > 0 ? "dashboard-chip dashboard-chip-warn" : "dashboard-chip dashboard-chip-ok"}>
@@ -592,8 +589,11 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
 
           <div style={subPanelStyle()}>
             <div className="dashboard-card-title-row">
-              <div style={{ fontWeight: 800 }}>Key Lifecycle</div>
-              <NoobTip text="Active, expiring, and stale keys for this host's API ingest auth surface." />
+              <div style={{ fontWeight: 800 }}>
+                <NoobTip text="Active, expiring, and stale keys for this host's API ingest auth surface.">
+                  Key Lifecycle
+                </NoobTip>
+              </div>
             </div>
             <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
               <span className={keyActiveCount > 0 ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip dashboard-chip-warn"}>
@@ -619,8 +619,11 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
 
           <div style={subPanelStyle()}>
             <div className="dashboard-card-title-row">
-              <div style={{ fontWeight: 800 }}>Signal + Run Mix</div>
-              <NoobTip text="Severity distribution from deduped timeline plus remediation run outcomes." />
+              <div style={{ fontWeight: 800 }}>
+                <NoobTip text="Severity distribution from deduped timeline plus remediation run outcomes.">
+                  Signal + Run Mix
+                </NoobTip>
+              </div>
             </div>
             <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
               <span className={timelineSummary.bySeverity.critical > 0 ? "dashboard-chip dashboard-chip-bad" : "dashboard-chip dashboard-chip-ok"}>
@@ -1093,8 +1096,9 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
 function SectionHeading(props: { title: string; tip: string }) {
   return (
     <div className="dashboard-card-title-row">
-      <h2 style={h2Style()}>{props.title}</h2>
-      <NoobTip text={props.tip} />
+      <h2 style={h2Style()}>
+        <NoobTip text={props.tip}>{props.title}</NoobTip>
+      </h2>
     </div>
   );
 }

@@ -64,24 +64,25 @@ export default function MissionControlSection(props: {
   return (
     <section style={{ marginTop: 18 }}>
       <div className="dashboard-card-title-row">
-        <h2 style={{ fontSize: 18, margin: 0 }}>Mission Control</h2>
-        <NoobTip text="Backend engine health: queue, incident workflow, SLO burn, observability, fleet safety, and key lifecycle." />
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          <NoobTip text="Backend engine health: queue, incident workflow, SLO burn, observability, fleet safety, and key lifecycle.">
+            Mission Control
+          </NoobTip>
+        </h2>
       </div>
 
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b> · Data refresh: <b>{fmt(ops.generatedAtIso)}</b>
       </div>
 
-      <div className="dashboard-noob-coach" style={{ marginTop: 10 }}>
-        Noob coach: start with red/orange chips first, then clear pending approvals, then clear
-        incident timers, then verify SLO burn is back to green.
-      </div>
-
       <div className="dashboard-mission-grid" style={{ marginTop: 10 }}>
         <Box>
           <div className="dashboard-card-title-row">
-            <div style={{ fontWeight: 800 }}>Remediation Queue</div>
-            <NoobTip text="Self-healing jobs waiting/running. DLQ means jobs that failed too many times or failed canary checks." />
+            <div style={{ fontWeight: 800 }}>
+              <NoobTip text="Self-healing jobs waiting/running. DLQ means jobs that failed too many times or failed canary checks.">
+                Remediation Queue
+              </NoobTip>
+            </div>
           </div>
 
           {!ops.access.canOps || !queue ? (
@@ -114,8 +115,11 @@ export default function MissionControlSection(props: {
 
         <Box>
           <div className="dashboard-card-title-row">
-            <div style={{ fontWeight: 800 }}>Incident Workflow Engine</div>
-            <NoobTip text="Tracks ownership, acknowledgement deadlines, escalations, and postmortem flow." />
+            <div style={{ fontWeight: 800 }}>
+              <NoobTip text="Tracks ownership, acknowledgement deadlines, escalations, and postmortem flow.">
+                Incident Workflow Engine
+              </NoobTip>
+            </div>
           </div>
 
           {!ops.access.canOps || !incidents ? (
@@ -160,8 +164,11 @@ export default function MissionControlSection(props: {
 
         <Box>
           <div className="dashboard-card-title-row">
-            <div style={{ fontWeight: 800 }}>SLO & Burn Rate</div>
-            <NoobTip text="Checks if reliability/error-budget is being burned too fast. Burn tells when to escalate quickly." />
+            <div style={{ fontWeight: 800 }}>
+              <NoobTip text="Checks if reliability/error-budget is being burned too fast. Burn tells when to escalate quickly.">
+                SLO & Burn Rate
+              </NoobTip>
+            </div>
           </div>
 
           {!ops.access.canOps || !slo ? (
@@ -198,8 +205,11 @@ export default function MissionControlSection(props: {
 
         <Box>
           <div className="dashboard-card-title-row">
-            <div style={{ fontWeight: 800 }}>Observability</div>
-            <NoobTip text="Runtime telemetry: logs, traces, counters, and alert metadata for deep debugging and performance." />
+            <div style={{ fontWeight: 800 }}>
+              <NoobTip text="Runtime telemetry: logs, traces, counters, and alert metadata for deep debugging and performance.">
+                Observability
+              </NoobTip>
+            </div>
           </div>
 
           {!ops.access.canAdmin || !observability ? (
@@ -227,8 +237,11 @@ export default function MissionControlSection(props: {
 
         <Box>
           <div className="dashboard-card-title-row">
-            <div style={{ fontWeight: 800 }}>Fleet Policy & Blast Radius</div>
-            <NoobTip text="Group/tag/scope controls for staged rollout and limiting impact when automating changes." />
+            <div style={{ fontWeight: 800 }}>
+              <NoobTip text="Group/tag/scope controls for staged rollout and limiting impact when automating changes.">
+                Fleet Policy & Blast Radius
+              </NoobTip>
+            </div>
           </div>
 
           {!ops.access.canAdmin || !fleet ? (
@@ -270,8 +283,11 @@ export default function MissionControlSection(props: {
 
         <Box>
           <div className="dashboard-card-title-row">
-            <div style={{ fontWeight: 800 }}>Key & Secret Lifecycle</div>
-            <NoobTip text="Shows key rotation/revocation health so leaked or stale keys do not linger." />
+            <div style={{ fontWeight: 800 }}>
+              <NoobTip text="Shows key rotation/revocation health so leaked or stale keys do not linger.">
+                Key & Secret Lifecycle
+              </NoobTip>
+            </div>
           </div>
 
           {!ops.access.canAdmin || !keyLifecycle ? (

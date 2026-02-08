@@ -27,8 +27,11 @@ export default function PortsSection(props: { derived: DerivedDashboard; snapsho
   return (
     <section style={{ marginTop: 18 }}>
       <div className="dashboard-card-title-row">
-        <h2 style={{ fontSize: 18, margin: 0 }}>Public Listening Ports</h2>
-        <NoobTip text="Internet-exposed service ports. Unexpected ports are possible attack doors." />
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          <NoobTip text="Internet-exposed service ports. Unexpected ports are possible attack doors.">
+            Public Listening Ports
+          </NoobTip>
+        </h2>
       </div>
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b>

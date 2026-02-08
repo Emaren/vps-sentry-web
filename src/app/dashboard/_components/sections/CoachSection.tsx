@@ -93,8 +93,11 @@ export default function CoachSection(props: {
   return (
     <section style={{ marginTop: 18 }}>
       <div className="dashboard-card-title-row">
-        <h2 style={{ fontSize: 18, margin: 0 }}>Noob Coach v2</h2>
-        <NoobTip text="Contextual play-by-play: what to do next, in plain language, based on current live risk signals." />
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          <NoobTip text="Contextual play-by-play: what to do next in plain language based on current live risk signals.">
+            Priority Guidance
+          </NoobTip>
+        </h2>
       </div>
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b> · Auto-prioritized guidance from current dashboard state.

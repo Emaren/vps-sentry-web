@@ -21,8 +21,8 @@ export default function CopyCodeBlock(props: { text: string }) {
         margin: 0,
         padding: 0,
         borderRadius: 12,
-        border: "1px solid rgba(255,255,255,0.15)",
-        background: "rgba(255,255,255,0.04)",
+        border: "1px solid var(--dash-card-border)",
+        background: "color-mix(in srgb, var(--dash-card-bg) 92%, transparent 8%)",
       }}
     >
       <div
@@ -54,9 +54,9 @@ export default function CopyCodeBlock(props: { text: string }) {
             style={{
               padding: "6px 9px",
               borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.15)",
-              background: "rgba(255,255,255,0.06)",
-              color: "inherit",
+              border: "1px solid var(--dash-btn-border)",
+              background: "var(--dash-btn-bg)",
+              color: "var(--dash-fg)",
               fontWeight: 700,
               fontSize: 12,
               cursor: "pointer",

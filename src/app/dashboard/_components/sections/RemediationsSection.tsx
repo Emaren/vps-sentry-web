@@ -23,8 +23,11 @@ export default function RemediationsSection(props: {
   return (
     <section style={{ marginTop: 18 }}>
       <div className="dashboard-card-title-row">
-        <h2 style={{ fontSize: 18, margin: 0 }}>Remediations</h2>
-        <NoobTip text="Live remediation execution ledger: queue/running/DLQ/approval states and latest outcomes." />
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          <NoobTip text="Live remediation execution ledger: queue/running/DLQ/approval states and latest outcomes.">
+            Remediations
+          </NoobTip>
+        </h2>
       </div>
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b> · Live source: remediation run history.

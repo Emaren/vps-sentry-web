@@ -22,8 +22,11 @@ export default function AdaptiveSection(props: {
   return (
     <section style={{ marginTop: 18 }}>
       <div className="dashboard-card-title-row">
-        <h2 style={{ fontSize: 18, margin: 0 }}>Adaptive Guard (Learning)</h2>
-        <NoobTip text="Cross-host signal correlation and explainable policy-tuning recommendations generated from recent telemetry." />
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          <NoobTip text="Cross-host signal correlation and explainable policy-tuning recommendations generated from recent telemetry.">
+            Adaptive Guard (Learning)
+          </NoobTip>
+        </h2>
       </div>
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b> · Adaptive snapshot: <b>{fmt(adaptive?.generatedAtIso)}</b>

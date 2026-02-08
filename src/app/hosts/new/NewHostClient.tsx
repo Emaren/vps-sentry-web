@@ -88,13 +88,11 @@ export default function NewHostClient(props: {
     <div>
       <section style={panelStyle()}>
         <div className="dashboard-card-title-row">
-          <div style={{ fontWeight: 800, fontSize: 17 }}>Host Onboarding Mission Control</div>
-          <NoobTip text="Create host identity, issue one-time token, validate ingest, then install auto-push hook." />
-        </div>
-
-        <div className="dashboard-noob-coach" style={{ marginTop: 10 }}>
-          Noob coach: create host, copy token once, run single ingest test, then install hook so
-          every scan auto-streams to dashboard.
+          <div style={{ fontWeight: 800, fontSize: 17 }}>
+            <NoobTip text="Create host identity, issue one-time token, validate ingest, then install auto-push hook.">
+              Host Onboarding Mission Control
+            </NoobTip>
+          </div>
         </div>
 
         <div style={usageGridStyle()}>
@@ -134,8 +132,11 @@ export default function NewHostClient(props: {
       <div style={layoutStyle()}>
         <section style={panelStyle()}>
           <div className="dashboard-card-title-row">
-            <div style={{ fontWeight: 800 }}>Create Host Identity</div>
-            <NoobTip text="This creates a host record and returns a one-time token for that host." />
+            <div style={{ fontWeight: 800 }}>
+              <NoobTip text="This creates a host record and returns a one-time token for that host.">
+                Create Host Identity
+              </NoobTip>
+            </div>
           </div>
 
           <form onSubmit={onCreate} style={{ marginTop: 14, display: "grid", gap: 12 }}>
@@ -192,8 +193,11 @@ export default function NewHostClient(props: {
 
         <aside style={panelStyle()}>
           <div className="dashboard-card-title-row">
-            <div style={{ fontWeight: 800 }}>What Happens Next</div>
-            <NoobTip text="Operator checklist for safe onboarding after host creation." />
+            <div style={{ fontWeight: 800 }}>
+              <NoobTip text="Operator checklist for safe onboarding after host creation.">
+                What Happens Next
+              </NoobTip>
+            </div>
           </div>
 
           <ol style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--dash-muted)", lineHeight: 1.6 }}>
@@ -217,8 +221,11 @@ export default function NewHostClient(props: {
             }}
           >
             <div className="dashboard-card-title-row">
-              <div style={{ fontWeight: 800 }}>If onboarding fails</div>
-              <NoobTip text="Quick checks before troubleshooting deeper networking issues." />
+              <div style={{ fontWeight: 800 }}>
+                <NoobTip text="Quick checks before troubleshooting deeper networking issues.">
+                  If onboarding fails
+                </NoobTip>
+              </div>
             </div>
             <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--dash-muted)", lineHeight: 1.5 }}>
               <li>Verify host appears on Hosts page after test ingest.</li>
@@ -245,8 +252,11 @@ export default function NewHostClient(props: {
 
           <div style={tokenBoxStyle()}>
             <div className="dashboard-card-title-row">
-              <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>One-time host token</div>
-              <NoobTip text="This raw token is only returned once. Store it in a secure password vault immediately." />
+              <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>
+                <NoobTip text="This raw token is only returned once. Store it in a secure password vault immediately.">
+                  One-time host token
+                </NoobTip>
+              </div>
             </div>
             <div
               style={{
@@ -294,11 +304,6 @@ export default function NewHostClient(props: {
           {created.onboarding.note ? (
             <div style={{ color: "var(--dash-meta)", fontSize: 12 }}>{created.onboarding.note}</div>
           ) : null}
-
-          <div className="dashboard-noob-coach">
-            Noob coach: after install hook, run one more local scan and confirm this host updates
-            heartbeat on the Hosts page.
-          </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Link href={`/hosts/${created.host.id}`} style={secondaryBtnStyle()}>

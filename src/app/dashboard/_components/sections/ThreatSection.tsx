@@ -14,8 +14,11 @@ export default function ThreatSection(props: { status: Status; snapshotTs: strin
   return (
     <section style={{ marginTop: 18 }}>
       <div className="dashboard-card-title-row">
-        <h2 style={{ fontSize: 18, margin: 0 }}>Threat signals (runtime)</h2>
-        <NoobTip text="Runtime behavior hints like suspicious processes, outbound mining traffic, or persistence attempts." />
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          <NoobTip text="Runtime behavior hints like suspicious processes, outbound mining traffic, or persistence attempts.">
+            Threat signals (runtime)
+          </NoobTip>
+        </h2>
       </div>
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b> · Runtime cards populate from agent telemetry in each fresh snapshot.
