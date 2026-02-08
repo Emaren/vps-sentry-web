@@ -12,6 +12,12 @@ export type CommandGuardPolicy = {
   blocklist: RegExp[];
 };
 
+export type CommandGuardOverrides = Partial<{
+  enforceAllowlist: boolean;
+  maxCommandsPerAction: number;
+  maxCommandLength: number;
+}>;
+
 const DEFAULT_ALLOWLIST: RegExp[] = [
   /^sudo(\s+-n)?\s+(cp|ls|journalctl|ufw|nft|ss|lsof|getent|systemctl|vps-sentry|grep)\b/i,
   /^grep\b/i,
@@ -79,6 +85,28 @@ export function readCommandGuardPolicy(): CommandGuardPolicy {
     maxCommandLength: clamp(parseIntEnv("VPS_REMEDIATE_MAX_COMMAND_LENGTH", 800), 10, 8000),
     allowlist: [...DEFAULT_ALLOWLIST, ...parseRegexEnv("VPS_REMEDIATE_ALLOWLIST_REGEX")],
     blocklist: [...DEFAULT_BLOCKLIST, ...parseRegexEnv("VPS_REMEDIATE_BLOCKLIST_REGEX")],
+  };
+}
+
+export function applyCommandGuardOverrides(
+  base: CommandGuardPolicy,
+  overrides?: CommandGuardOverrides
+): CommandGuardPolicy {
+  if (!overrides) return base;
+  return {
+    ...base,
+    enforceAllowlist:
+      typeof overrides.enforceAllowlist === "boolean"
+        ? overrides.enforceAllowlist
+        : base.enforceAllowlist,
+    maxCommandsPerAction:
+      typeof overrides.maxCommandsPerAction === "number"
+        ? clamp(Math.trunc(overrides.maxCommandsPerAction), 1, 200)
+        : base.maxCommandsPerAction,
+    maxCommandLength:
+      typeof overrides.maxCommandLength === "number"
+        ? clamp(Math.trunc(overrides.maxCommandLength), 10, 8000)
+        : base.maxCommandLength,
   };
 }
 

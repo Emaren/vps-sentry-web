@@ -320,6 +320,48 @@ Important Postgres drill note:
 - If backup includes `postgres.sql`, set `VPS_RESTORE_DRILL_POSTGRES_URL` to a dedicated scratch DB.
 - Restore drill resets `public` schema on that drill DB (never point it at live production DB).
 
+## v2.4 Step 7 (Queued Remediation + Host Policy Profiles + Stronger Safety)
+
+Remediation execute path is now queue-first:
+
+- `POST /api/remediate` with `mode: "execute"` now writes a `queued` run first.
+- Queue safety controls enforce:
+  - per-host queue cap
+  - global queue cap
+  - queued-run TTL
+  - dry-run freshness gate
+  - cooldown + hourly execute rate limits
+- Queue drain can run via:
+  - `POST /api/remediate` with `mode: "drain-queue"` (admin session)
+  - `POST /api/ops/remediate-drain` (admin session or `x-remediate-queue-token`)
+
+Host policy profiles:
+
+- Per-host profile can be set to:
+  - `strict`
+  - `balanced` (default)
+  - `rapid`
+- Host update API supports policy config:
+  - `PUT /api/hosts/:hostId`
+  - body keys:
+    - `remediationPolicyProfile`
+    - `remediationPolicyOverrides` (queue/rate/timeout knobs)
+    - `remediationGuardOverrides` (allowlist + command-length/count knobs)
+
+Step 7 env knobs:
+
+- `VPS_REMEDIATE_MAX_QUEUE_PER_HOST`
+- `VPS_REMEDIATE_MAX_QUEUE_TOTAL`
+- `VPS_REMEDIATE_QUEUE_TTL_MINUTES`
+- `VPS_REMEDIATE_COMMAND_TIMEOUT_MS`
+- `VPS_REMEDIATE_MAX_BUFFER_BYTES`
+- `VPS_REMEDIATE_QUEUE_AUTODRAIN`
+- `VPS_REMEDIATE_QUEUE_TOKEN` (optional; used by `/api/ops/remediate-drain`)
+
+Runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/remediation-queue-runbook.md`
+
 Release gate commands:
 
 ```bash

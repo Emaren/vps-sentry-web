@@ -3,6 +3,11 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildUniqueSlug, slugifyHostName } from "@/lib/host-onboarding";
+import {
+  mergeHostRemediationPolicyMeta,
+  normalizeRemediationPolicyProfile,
+  readHostRemediationPolicyConfig,
+} from "@/lib/remediate/host-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +33,32 @@ function toSlug(input: unknown): string | null {
   if (!t) return null;
   const normalized = t.replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
   return normalized || null;
+}
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  return v as Record<string, unknown>;
+}
+
+function toIntMaybe(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (!t) return undefined;
+    const n = Number(t);
+    if (Number.isFinite(n)) return Math.trunc(n);
+  }
+  return undefined;
+}
+
+function toBoolMaybe(v: unknown): boolean | undefined {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") {
+    const t = v.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(t)) return true;
+    if (["0", "false", "no", "off"].includes(t)) return false;
+  }
+  return undefined;
 }
 
 async function findUniqueSlug(userId: string, hostId: string, preferredBase: string): Promise<string> {
@@ -119,7 +150,11 @@ export async function GET(
 
   if (!host) return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
 
-  return NextResponse.json({ ok: true, host });
+  return NextResponse.json({
+    ok: true,
+    host,
+    remediationPolicy: readHostRemediationPolicyConfig(host.metaJson),
+  });
 }
 
 export async function PUT(
@@ -135,7 +170,7 @@ export async function PUT(
       id: hostId,
       userId: user.id,
     },
-    select: { id: true, name: true, slug: true, enabled: true },
+    select: { id: true, name: true, slug: true, enabled: true, metaJson: true },
   });
 
   if (!existing) return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
@@ -144,6 +179,39 @@ export async function PUT(
   const nextName = toName(body?.name);
   const nextEnabled = typeof body?.enabled === "boolean" ? body.enabled : null;
   const requestedSlug = body?.slug === null ? null : toSlug(body?.slug);
+  const requestedProfile =
+    typeof body?.remediationPolicyProfile === "string"
+      ? normalizeRemediationPolicyProfile(body.remediationPolicyProfile)
+      : null;
+
+  const policyOverridesRaw = asRecord(body?.remediationPolicyOverrides);
+  const guardOverridesRaw = asRecord(body?.remediationGuardOverrides);
+
+  const remediationPolicyOverrides = policyOverridesRaw
+    ? {
+        dryRunMaxAgeMinutes: toIntMaybe(policyOverridesRaw.dryRunMaxAgeMinutes),
+        executeCooldownMinutes: toIntMaybe(policyOverridesRaw.executeCooldownMinutes),
+        maxExecutePerHour: toIntMaybe(policyOverridesRaw.maxExecutePerHour),
+        timelineDedupeWindowMinutes: toIntMaybe(policyOverridesRaw.timelineDedupeWindowMinutes),
+        maxQueuePerHost: toIntMaybe(policyOverridesRaw.maxQueuePerHost),
+        maxQueueTotal: toIntMaybe(policyOverridesRaw.maxQueueTotal),
+        queueTtlMinutes: toIntMaybe(policyOverridesRaw.queueTtlMinutes),
+        commandTimeoutMs: toIntMaybe(policyOverridesRaw.commandTimeoutMs),
+        maxBufferBytes: toIntMaybe(policyOverridesRaw.maxBufferBytes),
+        queueAutoDrain: toBoolMaybe(policyOverridesRaw.queueAutoDrain),
+      }
+    : undefined;
+
+  const remediationGuardOverrides = guardOverridesRaw
+    ? {
+        enforceAllowlist: toBoolMaybe(guardOverridesRaw.enforceAllowlist),
+        maxCommandsPerAction: toIntMaybe(guardOverridesRaw.maxCommandsPerAction),
+        maxCommandLength: toIntMaybe(guardOverridesRaw.maxCommandLength),
+      }
+    : undefined;
+
+  const shouldUpdateRemediationPolicy =
+    requestedProfile !== null || Boolean(policyOverridesRaw) || Boolean(guardOverridesRaw);
 
   let resolvedSlug: string | null | undefined = undefined;
   if (requestedSlug === null && body?.slug === null) {
@@ -152,6 +220,15 @@ export async function PUT(
     resolvedSlug = await findUniqueSlug(user.id, existing.id, requestedSlug);
   }
 
+  const nextMetaJson = shouldUpdateRemediationPolicy
+    ? mergeHostRemediationPolicyMeta({
+        currentMetaJson: existing.metaJson,
+        profile: requestedProfile ?? undefined,
+        overrides: remediationPolicyOverrides,
+        guardOverrides: remediationGuardOverrides,
+      })
+    : undefined;
+
   const updated = await prisma.$transaction(async (tx) => {
     const host = await tx.host.update({
       where: { id: existing.id },
@@ -159,12 +236,14 @@ export async function PUT(
         name: nextName ?? undefined,
         enabled: nextEnabled === null ? undefined : nextEnabled,
         slug: resolvedSlug,
+        metaJson: nextMetaJson,
       },
       select: {
         id: true,
         name: true,
         slug: true,
         enabled: true,
+        metaJson: true,
         updatedAt: true,
       },
     });
@@ -174,14 +253,20 @@ export async function PUT(
         userId: user.id,
         hostId: existing.id,
         action: "host.update",
-        detail: `Updated host '${host.name}'`,
+        detail: shouldUpdateRemediationPolicy
+          ? `Updated host '${host.name}' (including remediation policy)`
+          : `Updated host '${host.name}'`,
       },
     });
 
     return host;
   });
 
-  return NextResponse.json({ ok: true, host: updated });
+  return NextResponse.json({
+    ok: true,
+    host: updated,
+    remediationPolicy: readHostRemediationPolicyConfig(updated.metaJson),
+  });
 }
 
 export async function DELETE(

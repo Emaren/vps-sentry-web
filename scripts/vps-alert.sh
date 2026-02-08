@@ -74,7 +74,7 @@ json_escape() {
 
 split_targets() {
   local raw="$1"
-  printf '%s' "$raw" | sed -e 's/||/\n/g' -e 's/,/\n/g' | while IFS= read -r line; do
+  printf '%s\n' "$raw" | sed -e 's/||/\n/g' -e 's/,/\n/g' | while IFS= read -r line; do
     local t
     t="$(trim "$line")"
     [[ -z "$t" ]] && continue

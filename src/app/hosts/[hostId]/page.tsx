@@ -9,6 +9,8 @@ import { classifyHeartbeat, heartbeatLabel, readHeartbeatConfig } from "@/lib/ho
 import { buildIncidentTimeline } from "@/lib/incident-signals";
 import { buildRemediationPlanFromSnapshots } from "@/lib/remediate";
 import { isWithinMinutes, readRemediationPolicy } from "@/lib/remediate/policy";
+import { readCommandGuardPolicy } from "@/lib/remediate/guard";
+import { resolveHostRemediationPolicy } from "@/lib/remediate/host-policy";
 import { buildSecurityPostureFromSnapshots, type ContainmentStage, type ThreatBand } from "@/lib/security-posture";
 import { buildContainmentKit, renderContainmentKitScript } from "@/lib/remediate/containment-kit";
 import CopyCodeBlock from "@/app/get-vps-sentry/CopyCodeBlock";
@@ -45,6 +47,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       name: true,
       slug: true,
       enabled: true,
+      metaJson: true,
       agentVersion: true,
       lastSeenAt: true,
       createdAt: true,
@@ -139,7 +142,12 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       }
     })
     .filter((x): x is { id: string; ts: Date; status: Record<string, unknown> } => Boolean(x));
-  const remediationPolicy = readRemediationPolicy();
+  const remediationPolicyResolved = resolveHostRemediationPolicy({
+    metaJson: host.metaJson,
+    globalPolicy: readRemediationPolicy(),
+    globalGuardPolicy: readCommandGuardPolicy(),
+  });
+  const remediationPolicy = remediationPolicyResolved.policy;
   const timelineResult = buildIncidentTimeline(timelineInput, {
     dedupeWindowMinutes: remediationPolicy.timelineDedupeWindowMinutes,
   });
@@ -487,6 +495,9 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         <div style={{ opacity: 0.72, marginTop: 6, fontSize: 12 }}>
           Dry-run first, then confirm phrase to execute. Every run is logged to host history.
         </div>
+        <div style={{ marginTop: 6, opacity: 0.72, fontSize: 12 }}>
+          Host policy profile: <strong>{remediationPolicyResolved.profile}</strong> · queue cap {remediationPolicy.maxQueuePerHost}/host
+        </div>
         <div style={{ marginTop: 8, opacity: 0.75, fontSize: 12 }}>
           Dry-run freshness window: {remediationPolicy.dryRunMaxAgeMinutes} minute(s)
         </div>
@@ -523,7 +534,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
                   <div style={{ fontWeight: 800 }}>
                     {run.action.title} <span style={{ opacity: 0.72 }}>({run.action.key})</span>
                   </div>
-                  <span style={severityPill(run.state === "failed" ? "high" : run.state === "running" ? "medium" : "info")}>
+                  <span style={severityPill(run.state === "failed" ? "high" : run.state === "running" || run.state === "queued" ? "medium" : "info")}>
                     {run.state}
                   </span>
                 </div>
