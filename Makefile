@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: vps-check vps-doctor vps-hygiene-check vps-prune-archives vps-monitor vps-monitor-alert vps-backup vps-backup-dry-run vps-restore-drill vps-backup-automation-status vps-backup-automation-install vps-backup-automation-remove deploy restart logs rollback release-gate smoke release db-pg-init db-pg-copy db-pg-verify db-pg-migrate
+.PHONY: vps-check vps-doctor vps-hygiene-check vps-prune-archives vps-monitor vps-monitor-alert vps-backup vps-backup-dry-run vps-restore-drill vps-backup-automation-status vps-backup-automation-install vps-backup-automation-remove security-headers-check perf-load-smoke deploy restart logs rollback release-gate smoke release db-pg-init db-pg-copy db-pg-verify db-pg-migrate
 
 vps-check:
 	./scripts/vps.sh check
@@ -37,6 +37,12 @@ vps-backup-automation-install:
 
 vps-backup-automation-remove:
 	./scripts/vps-backup-automation.sh remove
+
+security-headers-check:
+	./scripts/security-headers-check.sh
+
+perf-load-smoke:
+	./scripts/perf-load-smoke.sh --remote
 
 deploy:
 	./scripts/vps.sh deploy

@@ -362,6 +362,43 @@ Runbook:
 
 - `/Users/tonyblum/projects/vps-sentry-web/docs/remediation-queue-runbook.md`
 
+## v2.5 Step 8 (Security Headers + CSP + Rate Limits + Load Hardening)
+
+Global web hardening:
+
+- Middleware now injects security headers + CSP on app/API responses:
+  - `Content-Security-Policy`
+  - `X-Content-Type-Options`
+  - `X-Frame-Options`
+  - `Referrer-Policy`
+  - `Permissions-Policy`
+  - `Cross-Origin-Opener-Policy`
+  - `Cross-Origin-Resource-Policy`
+  - `Strict-Transport-Security` (when served via HTTPS)
+
+API abuse protection:
+
+- Middleware applies route-aware request rate limiting with `429` enforcement.
+- Rate limit response headers are emitted (`X-RateLimit-*` and `RateLimit-*`).
+- Higher-risk write routes (`/api/auth/*`, `/api/remediate`, `/api/ops/*`, ingest POST) use stricter quotas.
+
+Performance/load hardening:
+
+- `/api/status` now uses short in-process micro-cache to reduce repeated disk reads under burst load.
+- Default TTL is `1200ms`, configurable via:
+  - `VPS_STATUS_CACHE_TTL_MS` (set `0` to disable).
+
+Operational verification scripts:
+
+```bash
+make security-headers-check
+make perf-load-smoke
+```
+
+Step 8 runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/security-performance-runbook.md`
+
 Release gate commands:
 
 ```bash

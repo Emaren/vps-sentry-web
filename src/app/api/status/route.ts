@@ -8,6 +8,21 @@ export const revalidate = 0;
 const STATUS_PATH = "/var/lib/vps-sentry/public/status.json";
 const LAST_PATH = "/var/lib/vps-sentry/public/last.json";
 const DIFF_PATH = "/var/lib/vps-sentry/public/diff.json";
+const STATUS_CACHE_TTL_MS = readStatusCacheTtlMs();
+
+type StatusCacheEntry = {
+  expiresAt: number;
+  status: number;
+  body: unknown;
+};
+
+function readStatusCacheTtlMs(): number {
+  const raw = Number(process.env.VPS_STATUS_CACHE_TTL_MS ?? "1200");
+  if (!Number.isFinite(raw)) return 1200;
+  if (raw < 0) return 0;
+  if (raw > 10_000) return 10_000;
+  return Math.trunc(raw);
+}
 
 type ReadResult =
   | { ok: true; path: string; data: unknown }
@@ -37,7 +52,29 @@ function noStoreJson(body: unknown, init?: { status?: number }) {
   return res;
 }
 
+function readStatusCache(): StatusCacheEntry | null {
+  if (STATUS_CACHE_TTL_MS <= 0) return null;
+  const g = globalThis as unknown as { __vpsStatusApiCache?: StatusCacheEntry };
+  if (!g.__vpsStatusApiCache) return null;
+  if (g.__vpsStatusApiCache.expiresAt <= Date.now()) {
+    g.__vpsStatusApiCache = undefined;
+    return null;
+  }
+  return g.__vpsStatusApiCache;
+}
+
+function writeStatusCache(entry: StatusCacheEntry) {
+  if (STATUS_CACHE_TTL_MS <= 0) return;
+  const g = globalThis as unknown as { __vpsStatusApiCache?: StatusCacheEntry };
+  g.__vpsStatusApiCache = entry;
+}
+
 export async function GET() {
+  const cached = readStatusCache();
+  if (cached) {
+    return noStoreJson(cached.body, { status: cached.status });
+  }
+
   const ts = new Date().toISOString();
 
   // Prefer the canonical "published status" file (single source of truth)
@@ -53,24 +90,27 @@ export async function GET() {
 
   // If literally everything is missing/unreadable, return a hard 500.
   if (!status && !last && !diff) {
-    return noStoreJson(
-      {
-        ok: false,
-        error: "No readable status files found",
-        ts,
-        paths: {
-          status: STATUS_PATH,
-          last: LAST_PATH,
-          diff: DIFF_PATH,
-        },
-        details: {
-          status: statusR.ok ? null : statusR.error,
-          last: lastR.ok ? null : lastR.error,
-          diff: diffR.ok ? null : diffR.error,
-        },
+    const body = {
+      ok: false,
+      error: "No readable status files found",
+      ts,
+      paths: {
+        status: STATUS_PATH,
+        last: LAST_PATH,
+        diff: DIFF_PATH,
       },
-      { status: 500 }
-    );
+      details: {
+        status: statusR.ok ? null : statusR.error,
+        last: lastR.ok ? null : lastR.error,
+        diff: diffR.ok ? null : diffR.error,
+      },
+    };
+    writeStatusCache({
+      body,
+      status: 500,
+      expiresAt: Date.now() + STATUS_CACHE_TTL_MS,
+    });
+    return noStoreJson(body, { status: 500 });
   }
 
   // Otherwise: OK (even if some are missing) + include warnings so UI/debug can show it.
@@ -79,7 +119,7 @@ export async function GET() {
   if (!last) warnings.push(`last_unavailable: ${lastR.ok ? "n/a" : lastR.error}`);
   if (!diff) warnings.push(`diff_unavailable: ${diffR.ok ? "n/a" : diffR.error}`);
 
-  return noStoreJson({
+  const body = {
     ok: true,
 
     // Canonical payload (what your dashboard should increasingly rely on)
@@ -97,5 +137,13 @@ export async function GET() {
       diff: DIFF_PATH,
     },
     warnings: warnings.length ? warnings : undefined,
+  };
+
+  writeStatusCache({
+    body,
+    status: 200,
+    expiresAt: Date.now() + STATUS_CACHE_TTL_MS,
   });
+
+  return noStoreJson(body);
 }
