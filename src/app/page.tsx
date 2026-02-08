@@ -33,9 +33,6 @@ export default async function Home() {
       </p>
 
       <div style={{ display: "flex", gap: 12, marginTop: 18, flexWrap: "wrap" }}>
-        <Link href="/get-vps-sentry" style={btn()}>
-          Get VPS Sentry
-        </Link>
         {session ? (
           <Link href="/dashboard" style={btn()}>
             Go to dashboard
