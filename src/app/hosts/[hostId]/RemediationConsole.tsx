@@ -100,7 +100,11 @@ export default function RemediationConsole(props: {
   }
 
   if (!props.actions.length) {
-    return <div style={{ marginTop: 10, opacity: 0.7 }}>No response actions suggested for recent signals.</div>;
+    return (
+      <div style={{ marginTop: 10, color: "var(--dash-meta, rgba(255,255,255,0.72))" }}>
+        No response actions suggested for recent signals.
+      </div>
+    );
   }
 
   return (
@@ -114,10 +118,10 @@ export default function RemediationConsole(props: {
           <div
             key={a.id}
             style={{
-              border: "1px solid rgba(255,255,255,0.10)",
+              border: "1px solid var(--dash-soft-border, rgba(255,255,255,0.10))",
               borderRadius: 10,
               padding: "10px 12px",
-              background: "rgba(255,255,255,0.02)",
+              background: "var(--dash-card-bg, rgba(255,255,255,0.02))",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
@@ -128,11 +132,11 @@ export default function RemediationConsole(props: {
               </div>
             </div>
 
-            <div style={{ marginTop: 8, opacity: 0.9 }}>{a.why}</div>
-            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.72 }}>
+            <div style={{ marginTop: 8, color: "var(--dash-fg, inherit)" }}>{a.why}</div>
+            <div style={{ marginTop: 8, fontSize: 12, color: "var(--dash-meta, rgba(255,255,255,0.72))" }}>
               Triggered by: {a.sourceCodes.join(", ")}
             </div>
-            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.82 }}>
+            <div style={{ marginTop: 6, fontSize: 12, color: "var(--dash-meta, rgba(255,255,255,0.72))" }}>
               Dry-run gate: {dryRunReady ? "ready" : "required"} (within {props.dryRunWindowMinutes}m)
             </div>
 
@@ -178,13 +182,13 @@ export default function RemediationConsole(props: {
               <div
                 style={{
                   marginTop: 10,
-                  border: "1px solid rgba(245,158,11,0.30)",
-                  background: "rgba(245,158,11,0.08)",
+                  border: "1px solid var(--dash-sev-high-border, rgba(245,158,11,0.30))",
+                  background: "var(--dash-sev-high-bg, rgba(245,158,11,0.08))",
                   borderRadius: 10,
                   padding: "10px 12px",
                 }}
               >
-                <div style={{ fontSize: 12, opacity: 0.88 }}>
+                <div style={{ fontSize: 12, color: "var(--dash-meta, rgba(255,255,255,0.72))" }}>
                   Type <code>{a.confirmPhrase}</code> to execute this action.
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
@@ -196,9 +200,10 @@ export default function RemediationConsole(props: {
                       minWidth: 260,
                       padding: "9px 10px",
                       borderRadius: 8,
-                      border: "1px solid rgba(255,255,255,0.18)",
-                      background: "rgba(0,0,0,0.24)",
-                      color: "inherit",
+                      border: "1px solid var(--dash-btn-border, rgba(255,255,255,0.18))",
+                      background:
+                        "color-mix(in srgb, var(--dash-card-bg, rgba(255,255,255,0.03)) 80%, var(--dash-bg, #000) 20%)",
+                      color: "var(--dash-fg, inherit)",
                     }}
                   />
                   <button
@@ -234,10 +239,10 @@ export default function RemediationConsole(props: {
                   style={{
                     marginTop: 8,
                     whiteSpace: "pre-wrap",
-                    border: "1px solid rgba(255,255,255,0.1)",
+                    border: "1px solid var(--dash-soft-border, rgba(255,255,255,0.10))",
                     borderRadius: 8,
                     padding: "8px 10px",
-                    background: "rgba(0,0,0,0.18)",
+                    background: "color-mix(in srgb, var(--dash-card-bg, rgba(255,255,255,0.03)) 88%, transparent 12%)",
                   }}
                 >
                   {lastOutputByAction[a.id]}
@@ -251,12 +256,12 @@ export default function RemediationConsole(props: {
       {message ? (
         <div
           style={{
-            border: "1px solid rgba(255,255,255,0.12)",
+            border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
             borderRadius: 10,
-            background: "rgba(255,255,255,0.05)",
+            background: "color-mix(in srgb, var(--dash-card-bg, rgba(255,255,255,0.03)) 90%, transparent 10%)",
             padding: "10px 12px",
             fontSize: 13,
-            opacity: 0.92,
+            color: "var(--dash-fg, inherit)",
           }}
         >
           {message}
@@ -271,13 +276,13 @@ function buttonStyle(tone: "normal" | "warn" = "normal"): React.CSSProperties {
     borderRadius: 10,
     border:
       tone === "warn"
-        ? "1px solid rgba(245,158,11,0.35)"
-        : "1px solid rgba(255,255,255,0.15)",
+        ? "1px solid var(--dash-sev-high-border, rgba(245,158,11,0.35))"
+        : "1px solid var(--dash-btn-border, rgba(255,255,255,0.15))",
     background:
       tone === "warn"
-        ? "rgba(245,158,11,0.12)"
-        : "rgba(255,255,255,0.06)",
-    color: "inherit",
+        ? "var(--dash-sev-high-bg, rgba(245,158,11,0.12))"
+        : "var(--dash-btn-bg, rgba(255,255,255,0.06))",
+    color: "var(--dash-fg, inherit)",
     fontWeight: 700,
     padding: "8px 10px",
     cursor: "pointer",
@@ -287,8 +292,16 @@ function buttonStyle(tone: "normal" | "warn" = "normal"): React.CSSProperties {
 function pillStyle(kind: "priority" | "risk"): React.CSSProperties {
   const tone =
     kind === "priority"
-      ? { bg: "rgba(59,130,246,0.14)", border: "rgba(59,130,246,0.35)", color: "#bfdbfe" }
-      : { bg: "rgba(245,158,11,0.14)", border: "rgba(245,158,11,0.35)", color: "#fcd34d" };
+      ? {
+          bg: "var(--dash-sev-medium-bg, rgba(59,130,246,0.14))",
+          border: "var(--dash-sev-medium-border, rgba(59,130,246,0.35))",
+          color: "var(--dash-sev-medium-text, #bfdbfe)",
+        }
+      : {
+          bg: "var(--dash-sev-high-bg, rgba(245,158,11,0.14))",
+          border: "var(--dash-sev-high-border, rgba(245,158,11,0.35))",
+          color: "var(--dash-sev-high-text, #fcd34d)",
+        };
 
   return {
     border: `1px solid ${tone.border}`,
