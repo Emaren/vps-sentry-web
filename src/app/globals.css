@@ -32,6 +32,9 @@
   --site-sev-low-bg: rgba(156, 163, 175, 0.12);
   --site-sev-low-border: rgba(156, 163, 175, 0.35);
   --site-sev-low-text: #d1d5db;
+  --site-sev-ok-bg: rgba(34, 197, 94, 0.14);
+  --site-sev-ok-border: rgba(34, 197, 94, 0.35);
+  --site-sev-ok-text: #bbf7d0;
 
   --background: var(--site-bg);
   --foreground: var(--site-fg);
@@ -76,6 +79,9 @@ html[data-site-theme="light"] {
   --site-sev-low-bg: rgba(71, 85, 105, 0.09);
   --site-sev-low-border: rgba(71, 85, 105, 0.35);
   --site-sev-low-text: #334155;
+  --site-sev-ok-bg: rgba(22, 163, 74, 0.12);
+  --site-sev-ok-border: rgba(22, 163, 74, 0.42);
+  --site-sev-ok-text: #166534;
 }
 
 html[data-site-theme="sepia"] {
@@ -110,6 +116,9 @@ html[data-site-theme="sepia"] {
   --site-sev-low-bg: rgba(87, 83, 78, 0.1);
   --site-sev-low-border: rgba(87, 83, 78, 0.35);
   --site-sev-low-text: #44403c;
+  --site-sev-ok-bg: rgba(21, 128, 61, 0.12);
+  --site-sev-ok-border: rgba(21, 128, 61, 0.38);
+  --site-sev-ok-text: #14532d;
 }
 
 html[data-site-theme="dark"] {
@@ -435,6 +444,9 @@ body:has(.dashboard-main) {
   --dash-sev-low-bg: var(--site-sev-low-bg);
   --dash-sev-low-border: var(--site-sev-low-border);
   --dash-sev-low-text: var(--site-sev-low-text);
+  --dash-sev-ok-bg: var(--site-sev-ok-bg);
+  --dash-sev-ok-border: var(--site-sev-ok-border);
+  --dash-sev-ok-text: var(--site-sev-ok-text);
 
   color: var(--dash-fg);
   border-radius: 16px;

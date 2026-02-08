@@ -260,13 +260,13 @@ function Stat(props: { label: string; value: string }) {
   return (
     <div
       style={{
-        border: "1px solid rgba(255,255,255,0.10)",
+        border: "1px solid var(--dash-soft-border, rgba(255,255,255,0.10))",
         borderRadius: 10,
         padding: "8px 10px",
-        background: "rgba(255,255,255,0.02)",
+        background: "var(--dash-card-bg, rgba(255,255,255,0.02))",
       }}
     >
-      <div style={{ fontSize: 11, opacity: 0.7 }}>{props.label}</div>
+      <div style={{ fontSize: 11, color: "var(--dash-meta, rgba(255,255,255,0.72))" }}>{props.label}</div>
       <div style={{ marginTop: 4, fontWeight: 700 }}>{props.value}</div>
     </div>
   );
@@ -275,10 +275,22 @@ function Stat(props: { label: string; value: string }) {
 function Badge(props: { tone: "ok" | "warn" | "bad"; text: string }) {
   const tone =
     props.tone === "ok"
-      ? { bg: "rgba(34,197,94,0.14)", border: "rgba(34,197,94,0.35)", color: "#bbf7d0" }
+      ? {
+          bg: "var(--dash-sev-ok-bg, rgba(34,197,94,0.14))",
+          border: "var(--dash-sev-ok-border, rgba(34,197,94,0.35))",
+          color: "var(--dash-sev-ok-text, #bbf7d0)",
+        }
       : props.tone === "warn"
-      ? { bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.35)", color: "#fcd34d" }
-      : { bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.35)", color: "#fecaca" };
+      ? {
+          bg: "var(--dash-sev-high-bg, rgba(245,158,11,0.12))",
+          border: "var(--dash-sev-high-border, rgba(245,158,11,0.35))",
+          color: "var(--dash-sev-high-text, #fcd34d)",
+        }
+      : {
+          bg: "var(--dash-sev-critical-bg, rgba(239,68,68,0.12))",
+          border: "var(--dash-sev-critical-border, rgba(239,68,68,0.35))",
+          color: "var(--dash-sev-critical-text, #fecaca)",
+        };
 
   return (
     <span
@@ -326,8 +338,10 @@ function btnStyle(disabled: boolean): React.CSSProperties {
   return {
     padding: "10px 12px",
     borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.15)",
-    background: disabled ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.06)",
+    border: "1px solid var(--dash-btn-border, rgba(255,255,255,0.15))",
+    background: disabled
+      ? "color-mix(in srgb, var(--dash-btn-bg, rgba(255,255,255,0.06)) 75%, transparent 25%)"
+      : "var(--dash-btn-bg, rgba(255,255,255,0.06))",
     color: "inherit",
     textDecoration: "none",
     fontWeight: 700,
@@ -338,19 +352,19 @@ function btnStyle(disabled: boolean): React.CSSProperties {
 
 function cardStyle(): React.CSSProperties {
   return {
-    border: "1px solid rgba(255,255,255,0.12)",
+    border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
     borderRadius: 12,
     padding: 12,
-    background: "rgba(255,255,255,0.02)",
+    background: "var(--dash-card-bg, rgba(255,255,255,0.02))",
   };
 }
 
 function emptyStateStyle(): React.CSSProperties {
   return {
     marginTop: 14,
-    border: "1px solid rgba(255,255,255,0.12)",
+    border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
     borderRadius: 12,
     padding: "14px 16px",
-    background: "rgba(255,255,255,0.02)",
+    background: "var(--dash-card-bg, rgba(255,255,255,0.02))",
   };
 }
