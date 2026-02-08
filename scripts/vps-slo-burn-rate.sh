@@ -354,9 +354,8 @@ if [[ "$json_output" -eq 1 ]]; then
 fi
 
 kv_lines="$(
-  node <<'NODE' <<<"$response_json"
-const fs = require("node:fs");
-const raw = fs.readFileSync(0, "utf8");
+  RESPONSE_JSON="$response_json" node <<'NODE'
+const raw = process.env.RESPONSE_JSON ?? "";
 
 function b64(v) {
   return Buffer.from(String(v ?? ""), "utf8").toString("base64");
