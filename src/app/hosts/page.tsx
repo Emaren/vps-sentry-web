@@ -100,7 +100,7 @@ export default async function HostsPage() {
   }
 
   return (
-    <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
+    <main className="dashboard-shell dashboard-main">
       <div className="app-header">
         <div className="app-header-brand">
           <Link

@@ -513,7 +513,16 @@ html[data-site-theme="sepia"] .dashboard-shell {
 .app-header-actions-with-theme .app-header-actions-theme-row {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
   width: 100%;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-header-actions-with-theme .app-header-actions-theme-row > * {
+  flex: 0 0 auto;
 }
 
 .app-header-actions-with-theme .app-header-actions-row {
@@ -536,6 +545,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
   .app-header-actions-with-theme .app-header-actions-theme-row {
     justify-content: flex-end;
+    overflow-x: visible;
   }
 
   .app-header-actions-with-theme .app-header-actions-row {

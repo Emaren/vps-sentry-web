@@ -11,7 +11,7 @@ export default async function SettingsPage() {
   if (!session) redirect("/login");
 
   return (
-    <main style={{ padding: 24, maxWidth: 980, margin: "0 auto" }}>
+    <main className="dashboard-shell dashboard-main" style={{ maxWidth: 980 }}>
       <h1 style={{ fontSize: 28, margin: 0 }}>Settings</h1>
       <div style={{ opacity: 0.75, marginTop: 8 }}>
         Notification preferences live here (presets + toggles). We’ll wire this to Prisma next.

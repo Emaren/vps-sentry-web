@@ -118,7 +118,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
 
   if (!host) {
     return (
-      <main style={{ padding: 16, maxWidth: 980, margin: "0 auto" }}>
+      <main className="dashboard-shell dashboard-main" style={{ maxWidth: 980 }}>
         <h1 style={{ fontSize: 28, margin: 0 }}>Host not found</h1>
         <div style={{ marginTop: 12 }}>
           <Link href="/hosts" style={btnStyle()}>
@@ -199,7 +199,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       : "ok";
 
   return (
-    <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
+    <main className="dashboard-shell dashboard-main">
       <div className="app-header">
         <div className="app-header-brand">
           <Link
@@ -241,11 +241,11 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
             <Link href="/hosts/new" className="app-header-btn">
               Add host
             </Link>
+          </div>
+          <div className="app-header-actions-theme-row">
             <Link href="/hosts" className="app-header-btn">
               Back to hosts
             </Link>
-          </div>
-          <div className="app-header-actions-theme-row">
             <SiteThemeControls variant="inline" />
           </div>
         </div>

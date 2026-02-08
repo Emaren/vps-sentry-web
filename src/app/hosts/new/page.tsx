@@ -31,7 +31,7 @@ export default async function NewHostPage() {
   const hostLimit = user.hostLimit ?? 1;
 
   return (
-    <main style={{ padding: 16, maxWidth: 1060, margin: "0 auto" }}>
+    <main className="dashboard-shell dashboard-main">
       <div className="app-header">
         <div className="app-header-brand">
           <Link href="/" aria-label="VPS Sentry home" className="app-header-logo-link">
@@ -64,11 +64,11 @@ export default async function NewHostPage() {
             <Link href="/get-vps-sentry" className="app-header-btn">
               Install guide
             </Link>
+          </div>
+          <div className="app-header-actions-theme-row">
             <Link href="/hosts" className="app-header-btn">
               Back to hosts
             </Link>
-          </div>
-          <div className="app-header-actions-theme-row">
             <SiteThemeControls variant="inline" />
           </div>
         </div>

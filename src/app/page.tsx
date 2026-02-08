@@ -10,7 +10,7 @@ export default async function Home() {
   const session = await getServerSession(authOptions);
 
   return (
-    <main style={{ padding: 24, maxWidth: 760, margin: "0 auto" }}>
+    <main className="dashboard-shell dashboard-main" style={{ maxWidth: 760 }}>
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
         <Image
           src="/vps-sentry-logo.png"

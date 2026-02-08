@@ -43,7 +43,7 @@ export default async function LoginPage({
   );
 
   return (
-    <main style={{ padding: 24, maxWidth: 760, margin: "0 auto" }}>
+    <main className="dashboard-shell dashboard-main" style={{ maxWidth: 760 }}>
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
         <Link href="/" aria-label="VPS Sentry home">
           <Image

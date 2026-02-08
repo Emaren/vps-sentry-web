@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export default function GetVpsSentryPage() {
   return (
-    <main style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
+    <main className="dashboard-shell dashboard-main" style={{ maxWidth: 900 }}>
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
         <Link href="/" aria-label="VPS Sentry home">
           <Image

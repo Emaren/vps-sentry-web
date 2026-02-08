@@ -247,7 +247,7 @@ export default async function AdminPage() {
 
   // ---------- 4) UI ----------
   return (
-    <main style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+    <main className="dashboard-shell dashboard-main" style={{ maxWidth: 1200 }}>
       <header style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0 }}>Admin</h1>
