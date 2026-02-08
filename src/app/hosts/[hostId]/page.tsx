@@ -431,7 +431,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           </div>
           <div
             className="host-status-badge-row"
-            style={{ minHeight: 40 }}
+            style={{ minHeight: 34 }}
           >
             <span style={statusBadgeStyle(threatTone)}>Threat {posture.score} ({posture.band})</span>
             <span style={statusBadgeStyle(containmentTone)}>
@@ -1226,16 +1226,19 @@ function statusBadgeStyle(tone: "ok" | "warn" | "bad"): React.CSSProperties {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    height: 40,
-    padding: "0 12px",
+    width: "100%",
+    height: 34,
+    padding: "0 8px",
     border: `1px solid ${palette.border}`,
     borderRadius: 999,
     background: palette.bg,
     color: palette.color,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 700,
     lineHeight: 1,
     whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   };
 }
 
