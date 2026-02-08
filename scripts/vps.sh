@@ -26,6 +26,7 @@ VPS_SSH_SERVER_ALIVE_COUNT_MAX="${VPS_SSH_SERVER_ALIVE_COUNT_MAX:-3}"
 VPS_SSH_RETRIES="${VPS_SSH_RETRIES:-4}"
 VPS_SSH_RETRY_DELAY_SECONDS="${VPS_SSH_RETRY_DELAY_SECONDS:-5}"
 VPS_DB_PROVIDER="${VPS_DB_PROVIDER:-sqlite}"
+VPS_RUN_DB_MIGRATIONS="${VPS_RUN_DB_MIGRATIONS:-1}"
 
 usage() {
   cat <<'EOF'
@@ -65,6 +66,8 @@ DB provider knob:
   VPS_DB_PROVIDER=sqlite|postgres
     - sqlite (default): generate Prisma client from prisma/schema.prisma
     - postgres: generate Prisma client from prisma/schema.postgres.prisma
+  VPS_RUN_DB_MIGRATIONS=1|0
+    - 1 (default): run `prisma migrate deploy` during VPS deploy.
 EOF
 }
 
@@ -244,6 +247,21 @@ fi
 
 if [ -x ./scripts/db/prisma-generate-provider.sh ]; then
   ./scripts/db/prisma-generate-provider.sh "${VPS_DB_PROVIDER:-sqlite}"
+fi
+
+if [ "${VPS_RUN_DB_MIGRATIONS:-1}" = "1" ] && [ -d prisma/migrations ]; then
+  PRISMA_SCHEMA="prisma/schema.prisma"
+  if [ "${VPS_DB_PROVIDER:-sqlite}" = "postgres" ]; then
+    PRISMA_SCHEMA="prisma/schema.postgres.prisma"
+  fi
+
+  if command -v npx >/dev/null 2>&1; then
+    npx prisma migrate deploy --schema "$PRISMA_SCHEMA"
+  elif [ -x ./node_modules/.bin/prisma ]; then
+    ./node_modules/.bin/prisma migrate deploy --schema "$PRISMA_SCHEMA"
+  else
+    echo "prisma_migrate_skipped:no_prisma_binary"
+  fi
 fi
 
 if node -e "const p=require(\"./package.json\"); process.exit(p?.scripts?.build ? 0 : 1)"; then
