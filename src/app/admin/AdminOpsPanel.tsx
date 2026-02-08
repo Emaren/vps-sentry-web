@@ -48,6 +48,12 @@ export default function AdminOpsPanel(props: {
     name: string | null;
     role: AppRole;
   }>;
+  hostOptions: Array<{
+    id: string;
+    name: string;
+    slug: string | null;
+    ownerEmail: string | null;
+  }>;
   currentIdentity: {
     userId: string;
     email: string;
@@ -618,6 +624,7 @@ export default function AdminOpsPanel(props: {
         initialSnapshot={props.incidentSnapshot}
         initialIncidentDetail={props.initialIncidentDetail}
         incidentAssignees={props.incidentAssignees}
+        hostOptions={props.hostOptions}
         currentIdentity={props.currentIdentity}
       />
 

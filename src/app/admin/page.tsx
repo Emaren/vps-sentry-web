@@ -310,6 +310,27 @@ export default async function AdminPage() {
     },
   });
 
+  const hostOptionsRaw = await prisma.host.findMany({
+    orderBy: [{ name: "asc" }, { createdAt: "asc" }],
+    take: 300,
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      user: {
+        select: {
+          email: true,
+        },
+      },
+    },
+  });
+  const hostOptions = hostOptionsRaw.map((host) => ({
+    id: host.id,
+    name: host.name,
+    slug: host.slug ?? null,
+    ownerEmail: host.user?.email ?? null,
+  }));
+
   // ---------- 3) Quick summary numbers (helps you “see” the system at a glance) ----------
   const totals = users.reduce(
     (acc, u) => {
@@ -615,6 +636,7 @@ export default async function AdminPage() {
         incidentSnapshot={incidentSnapshot}
         initialIncidentDetail={initialIncidentDetail}
         incidentAssignees={incidentAssignees}
+        hostOptions={hostOptions}
         currentIdentity={{
           userId: access.identity.userId,
           email: access.identity.email,

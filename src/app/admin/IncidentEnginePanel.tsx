@@ -17,6 +17,13 @@ type IncidentAssignee = {
   role: AppRole;
 };
 
+type IncidentHostOption = {
+  id: string;
+  name: string;
+  slug: string | null;
+  ownerEmail: string | null;
+};
+
 type CurrentIdentity = {
   userId: string;
   email: string;
@@ -85,6 +92,7 @@ export default function IncidentEnginePanel(props: {
   initialSnapshot: IncidentRunListSnapshot;
   initialIncidentDetail: IncidentRunDetail | null;
   incidentAssignees: IncidentAssignee[];
+  hostOptions: IncidentHostOption[];
   currentIdentity: CurrentIdentity;
 }) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -130,6 +138,33 @@ export default function IncidentEnginePanel(props: {
     () => workflowById(props.workflows, detail?.workflowId ?? null),
     [props.workflows, detail?.workflowId]
   );
+
+  async function postJsonWithGatewayRetry(
+    path: string,
+    body: Record<string, unknown>
+  ): Promise<{ res: Response; data: ApiResponse; retried: boolean }> {
+    const gatewayStatuses = new Set([502, 503, 504]);
+    let retried = false;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json().catch(() => ({}))) as ApiResponse;
+      const shouldRetry = attempt === 0 && gatewayStatuses.has(res.status);
+      if (shouldRetry) {
+        retried = true;
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        continue;
+      }
+      return { res, data, retried };
+    }
+
+    const res = new Response(null, { status: 502 });
+    return { res, data: {}, retried };
+  }
 
   useEffect(() => {
     if (!detail) return;
@@ -225,14 +260,19 @@ export default function IncidentEnginePanel(props: {
       if (createAssigneeEmail.trim()) body.assigneeEmail = createAssigneeEmail.trim();
       if (createInitialNote.trim()) body.initialNote = createInitialNote.trim();
 
-      const res = await fetch("/api/ops/incidents", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json().catch(() => ({}))) as ApiResponse;
+      const { res, data, retried } = await postJsonWithGatewayRetry(
+        "/api/ops/incidents",
+        body
+      );
       if (!res.ok || !data.ok || !data.incident) {
-        setMessage(`incident create failed: ${data.error ?? `HTTP ${res.status}`}`);
+        const hostHint =
+          createHostId.trim().length > 0
+            ? " If Host is set, pick it from the dropdown so the exact host ID is used."
+            : "";
+        const retryHint = retried ? " (retried once after gateway error)" : "";
+        setMessage(
+          `incident create failed: ${data.error ?? `HTTP ${res.status}`}${retryHint}.${hostHint}`
+        );
         setResultPreview(preview(data));
         return;
       }
@@ -374,6 +414,10 @@ export default function IncidentEnginePanel(props: {
 
       <section style={nestedBlockStyle()}>
         <div style={{ fontWeight: 700 }}>Create Incident</div>
+        <div style={{ marginTop: 6, fontSize: 12, color: "var(--dash-meta)" }}>
+          Use this to open an operator task card for a real issue, investigation, or drill. It tracks
+          ownership, timers, actions, and closure.
+        </div>
         <div style={grid2Style()}>
           <label style={fieldStyle()}>
             <span style={labelStyle()}>Workflow</span>
@@ -412,13 +456,21 @@ export default function IncidentEnginePanel(props: {
             />
           </label>
           <label style={fieldStyle()}>
-            <span style={labelStyle()}>Host ID (optional)</span>
-            <input
+            <span style={labelStyle()}>Host (optional)</span>
+            <select
               value={createHostId}
               onChange={(e) => setCreateHostId(e.currentTarget.value)}
-              placeholder="cmk..."
               style={inputStyle()}
-            />
+            >
+              <option value="">no host binding</option>
+              {props.hostOptions.map((host) => (
+                <option key={host.id} value={host.id}>
+                  {host.name}
+                  {host.slug ? ` (${host.slug})` : ""} · {host.id.slice(0, 8)}
+                  {host.ownerEmail ? ` · ${host.ownerEmail}` : ""}
+                </option>
+              ))}
+            </select>
           </label>
           <label style={fieldStyle()}>
             <span style={labelStyle()}>Trigger signal (optional)</span>
