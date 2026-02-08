@@ -53,9 +53,10 @@ export function hasEmailEnv(): boolean {
 }
 
 const debugEnabled =
-  process.env.NEXTAUTH_DEBUG === "true" ||
-  process.env.NEXTAUTH_DEBUG === "1" ||
-  (process.env.DEBUG?.includes("next-auth") ?? false);
+  process.env.NODE_ENV !== "production" &&
+  (process.env.NEXTAUTH_DEBUG === "true" ||
+    process.env.NEXTAUTH_DEBUG === "1" ||
+    (process.env.DEBUG?.includes("next-auth") ?? false));
 
 // Next build sets NEXT_PHASE=phase-production-build
 const isBuildTime =
