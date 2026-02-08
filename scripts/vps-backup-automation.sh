@@ -13,6 +13,7 @@ VPS_HOST="${VPS_HOST:-hetzner-codex}"
 VPS_APP_DIR="${VPS_APP_DIR:-}"
 VPS_BACKUP_CRON="${VPS_BACKUP_CRON:-17 * * * *}"
 VPS_BACKUP_LOG_PATH="${VPS_BACKUP_LOG_PATH:-/home/tony/vps-sentry-backup.log}"
+VPS_BACKUP_REPORT_AFTER_RUN="${VPS_BACKUP_REPORT_AFTER_RUN:-1}"
 
 VPS_SSH_CONNECT_TIMEOUT="${VPS_SSH_CONNECT_TIMEOUT:-10}"
 VPS_SSH_CONNECTION_ATTEMPTS="${VPS_SSH_CONNECTION_ATTEMPTS:-2}"
@@ -25,9 +26,10 @@ action="status"
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/vps-backup-automation.sh [install|remove|status] [--schedule "17 * * * *"] [--log-path /path]
+Usage: ./scripts/vps-backup-automation.sh [install|remove|status] [--schedule "17 * * * *"] [--log-path /path] [--with-report|--no-report]
 
 Manages a cron entry on VPS for hourly backups using scripts/vps-backup.sh.
+When VPS_BACKUP_REPORT_AFTER_RUN=1, also writes an RPO/RTO report after backup.
 USAGE
 }
 
@@ -45,6 +47,16 @@ require_positive_int() {
     echo "[backup-automation] $name must be a positive integer: $value"
     exit 1
   fi
+}
+
+normalize_bool() {
+  local raw="${1:-}"
+  local fallback="${2:-0}"
+  case "$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) printf '1' ;;
+    0|false|no|off) printf '0' ;;
+    *) printf '%s' "$fallback" ;;
+  esac
 }
 
 remote() {
@@ -107,6 +119,14 @@ while [[ $# -gt 0 ]]; do
       VPS_BACKUP_LOG_PATH="$2"
       shift 2
       ;;
+    --no-report)
+      VPS_BACKUP_REPORT_AFTER_RUN=0
+      shift
+      ;;
+    --with-report)
+      VPS_BACKUP_REPORT_AFTER_RUN=1
+      shift
+      ;;
     -h|--help|help)
       usage
       exit 0
@@ -126,16 +146,21 @@ require_positive_int "VPS_SSH_SERVER_ALIVE_INTERVAL" "$VPS_SSH_SERVER_ALIVE_INTE
 require_positive_int "VPS_SSH_SERVER_ALIVE_COUNT_MAX" "$VPS_SSH_SERVER_ALIVE_COUNT_MAX"
 require_positive_int "VPS_SSH_RETRIES" "$VPS_SSH_RETRIES"
 require_positive_int "VPS_SSH_RETRY_DELAY_SECONDS" "$VPS_SSH_RETRY_DELAY_SECONDS"
+VPS_BACKUP_REPORT_AFTER_RUN="$(normalize_bool "$VPS_BACKUP_REPORT_AFTER_RUN" 1)"
 
 echo "[backup-automation] host: $VPS_HOST"
 echo "[backup-automation] action: $action"
 
-remote "VPS_APP_DIR=$(printf %q "$VPS_APP_DIR") VPS_BACKUP_CRON=$(printf %q "$VPS_BACKUP_CRON") VPS_BACKUP_LOG_PATH=$(printf %q "$VPS_BACKUP_LOG_PATH") VPS_BACKUP_ACTION=$(printf %q "$action") bash -s" <<'REMOTE_EOF'
+remote "VPS_APP_DIR=$(printf %q "$VPS_APP_DIR") VPS_BACKUP_CRON=$(printf %q "$VPS_BACKUP_CRON") VPS_BACKUP_LOG_PATH=$(printf %q "$VPS_BACKUP_LOG_PATH") VPS_BACKUP_REPORT_AFTER_RUN=$(printf %q "$VPS_BACKUP_REPORT_AFTER_RUN") VPS_BACKUP_ACTION=$(printf %q "$action") bash -s" <<'REMOTE_EOF'
 set -euo pipefail
 
 begin_marker="# BEGIN vps-sentry-backup"
 end_marker="# END vps-sentry-backup"
-cron_line="$VPS_BACKUP_CRON cd $VPS_APP_DIR && /usr/bin/env bash ./scripts/vps-backup.sh >> $VPS_BACKUP_LOG_PATH 2>&1"
+if [[ "$VPS_BACKUP_REPORT_AFTER_RUN" == "1" ]]; then
+  cron_line="$VPS_BACKUP_CRON cd $VPS_APP_DIR && (VPS_LOCAL_EXEC=1 /usr/bin/env bash ./scripts/vps-backup.sh && VPS_LOCAL_EXEC=1 /usr/bin/env bash ./scripts/vps-rpo-rto-report.sh --soft) >> $VPS_BACKUP_LOG_PATH 2>&1"
+else
+  cron_line="$VPS_BACKUP_CRON cd $VPS_APP_DIR && VPS_LOCAL_EXEC=1 /usr/bin/env bash ./scripts/vps-backup.sh >> $VPS_BACKUP_LOG_PATH 2>&1"
+fi
 
 tmp_file="$(mktemp)"
 cleanup() {

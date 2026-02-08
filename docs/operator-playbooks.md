@@ -24,6 +24,7 @@ Runbook:
 1. Open `/admin` and run workflow `critical-triage`:
    - `status-snapshot`
    - `drain-queue`
+   - `replay-dlq` (when DLQ count > 0 and root cause is fixed)
    - `notify-test`
 2. Run smoke validation:
    ```bash
@@ -42,6 +43,7 @@ Exit criteria:
 
 - smoke endpoints return `200`
 - queue drain no longer showing stuck critical runs
+- DLQ backlog is cleared or intentionally deferred with operator notes
 - notification path confirmed
 
 ## Auth Abuse Response

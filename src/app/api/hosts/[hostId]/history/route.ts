@@ -1,20 +1,14 @@
 // /var/www/vps-sentry-web/src/app/api/hosts/[hostId]/history/route.ts
 import { NextResponse } from "next/server";
-import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { normalizeHostKeyScope } from "@/lib/host-keys";
+import {
+  readBearerToken,
+  touchHostKeyLastUsed,
+  verifyHostTokenForScope,
+} from "@/lib/host-key-auth";
 
 export const dynamic = "force-dynamic";
-
-function sha256(s: string) {
-  return crypto.createHash("sha256").update(s).digest("hex");
-}
-
-function bearerToken(req: Request): string | null {
-  const h = req.headers.get("authorization") || req.headers.get("Authorization");
-  if (!h) return null;
-  const m = h.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1].trim() : null;
-}
 
 export async function GET(
   req: Request,
@@ -22,20 +16,29 @@ export async function GET(
 ) {
   const { hostId } = await ctx.params;
 
-  const token = bearerToken(req);
+  const token = readBearerToken(req);
   if (!token) {
     return NextResponse.json({ ok: false, error: "Missing Authorization: Bearer <token>" }, { status: 401 });
   }
-
-  const host = await prisma.host.findUnique({
-    where: { id: hostId },
-    include: { apiKeys: { where: { revokedAt: null }, select: { tokenHash: true }, take: 50 } },
+  const requiredScope = normalizeHostKeyScope("host.history.read");
+  const auth = await verifyHostTokenForScope({
+    hostId,
+    token,
+    requiredScope: requiredScope ?? undefined,
   });
-
-  if (!host) return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
-
-  const allowed = host.apiKeys.some((k) => k.tokenHash === sha256(token));
-  if (!allowed) return NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 });
+  if (!auth.ok) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: auth.error,
+        code: auth.code,
+        requiredScope: auth.requiredScope ?? null,
+        key: auth.keySummary ?? null,
+      },
+      { status: auth.status }
+    );
+  }
+  await touchHostKeyLastUsed(auth.key.id);
 
   const url = new URL(req.url);
   const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 200);

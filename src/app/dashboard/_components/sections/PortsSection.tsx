@@ -2,6 +2,7 @@
 import React from "react";
 import { fmt } from "@/lib/status";
 import Box from "../Box";
+import NoobTip from "../NoobTip";
 import { thStyle, tdStyle, type DerivedDashboard } from "../../_lib/derive";
 
 export default function PortsSection(props: { derived: DerivedDashboard; snapshotTs: string }) {
@@ -25,8 +26,11 @@ export default function PortsSection(props: { derived: DerivedDashboard; snapsho
 
   return (
     <section style={{ marginTop: 18 }}>
-      <h2 style={{ fontSize: 18, marginBottom: 8 }}>Public Listening Ports</h2>
-      <div style={{ opacity: 0.65, fontSize: 12, marginBottom: 8 }}>
+      <div className="dashboard-card-title-row">
+        <h2 style={{ fontSize: 18, margin: 0 }}>Public Listening Ports</h2>
+        <NoobTip text="Internet-exposed service ports. Unexpected ports are possible attack doors." />
+      </div>
+      <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b>
       </div>
 
@@ -34,7 +38,7 @@ export default function PortsSection(props: { derived: DerivedDashboard; snapsho
         <Box>
           ✅ No unexpected public listeners detected.
           {hasAllowlistedOnly ? (
-            <div style={{ marginTop: 8, opacity: 0.8, fontSize: 12 }}>
+            <div style={{ marginTop: 8, color: "var(--dash-meta)", fontSize: 12 }}>
               Total public ports: <b>{d.publicPortsTotalCount}</b>
               {d.expectedPublicPorts?.length ? (
                 <>

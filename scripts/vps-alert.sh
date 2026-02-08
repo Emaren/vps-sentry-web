@@ -16,15 +16,20 @@ VPS_ALERT_EMAIL_FROM="${VPS_ALERT_EMAIL_FROM:-}"
 VPS_ALERT_LOG_PATH="${VPS_ALERT_LOG_PATH:-$ROOT_DIR/.ops-alerts.log}"
 VPS_ALERT_CURL_TIMEOUT_SECONDS="${VPS_ALERT_CURL_TIMEOUT_SECONDS:-10}"
 VPS_ALERT_MAX_DETAIL_CHARS="${VPS_ALERT_MAX_DETAIL_CHARS:-5000}"
+VPS_ALERT_DEFAULT_ROUTE="${VPS_ALERT_DEFAULT_ROUTE:-both}"
+VPS_ALERT_ROUTE_INFO="${VPS_ALERT_ROUTE_INFO:-webhook}"
+VPS_ALERT_ROUTE_WARN="${VPS_ALERT_ROUTE_WARN:-both}"
+VPS_ALERT_ROUTE_CRITICAL="${VPS_ALERT_ROUTE_CRITICAL:-both}"
 
 severity="warn"
+route="$VPS_ALERT_DEFAULT_ROUTE"
 title=""
 detail=""
 context=""
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/vps-alert.sh --title "..." [--severity info|warn|critical] [--detail "..."] [--context "..."]
+Usage: ./scripts/vps-alert.sh --title "..." [--severity info|warn|critical] [--route none|webhook|email|both|auto] [--detail "..."] [--context "..."]
 
 Env:
   VPS_ALERT_WEBHOOK_URLS         List of webhooks (split by comma, newline, or ||)
@@ -33,6 +38,10 @@ Env:
   VPS_ALERT_SUBJECT_PREFIX       Default: [VPS Sentry]
   VPS_ALERT_LOG_PATH             Default: ./.ops-alerts.log
   VPS_ALERT_CURL_TIMEOUT_SECONDS Default: 10
+  VPS_ALERT_DEFAULT_ROUTE        Default routing when --route is omitted (default: both)
+  VPS_ALERT_ROUTE_INFO           Route used when --route auto and severity=info
+  VPS_ALERT_ROUTE_WARN           Route used when --route auto and severity=warn
+  VPS_ALERT_ROUTE_CRITICAL       Route used when --route auto and severity=critical
 USAGE
 }
 
@@ -149,6 +158,11 @@ while [[ $# -gt 0 ]]; do
       severity="$(trim "$2")"
       shift 2
       ;;
+    --route)
+      [[ $# -lt 2 ]] && { echo "[alert] missing value for --route"; usage; exit 1; }
+      route="$(trim "$2")"
+      shift 2
+      ;;
     --title)
       [[ $# -lt 2 ]] && { echo "[alert] missing value for --title"; usage; exit 1; }
       title="$2"
@@ -185,6 +199,15 @@ case "$severity" in
     ;;
 esac
 
+case "$route" in
+  none|webhook|email|both|auto) ;;
+  *)
+    echo "[alert] invalid route: $route"
+    usage
+    exit 1
+    ;;
+esac
+
 require_positive_int "VPS_ALERT_CURL_TIMEOUT_SECONDS" "$VPS_ALERT_CURL_TIMEOUT_SECONDS"
 require_positive_int "VPS_ALERT_MAX_DETAIL_CHARS" "$VPS_ALERT_MAX_DETAIL_CHARS"
 
@@ -202,25 +225,76 @@ hostname_value="$(hostname 2>/dev/null || echo unknown-host)"
 ts_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 subject="$VPS_ALERT_SUBJECT_PREFIX [$severity] $title"
 
+resolved_route="$route"
+if [[ "$resolved_route" == "auto" ]]; then
+  case "$severity" in
+    info) resolved_route="$VPS_ALERT_ROUTE_INFO" ;;
+    warn) resolved_route="$VPS_ALERT_ROUTE_WARN" ;;
+    critical) resolved_route="$VPS_ALERT_ROUTE_CRITICAL" ;;
+  esac
+fi
+
+case "$resolved_route" in
+  none|webhook|email|both) ;;
+  *)
+    echo "[alert] resolved route is invalid: $resolved_route"
+    exit 1
+    ;;
+esac
+
+if [[ "$resolved_route" == "none" ]]; then
+  echo "[alert] skipped (route=none)"
+  exit 0
+fi
+
 payload="{\"type\":\"ops.alert\",\"severity\":\"$(json_escape "$severity")\",\"title\":\"$(json_escape "$title")\",\"detail\":\"$(json_escape "$detail")\",\"context\":\"$(json_escape "$context")\",\"host\":\"$(json_escape "$hostname_value")\",\"ts\":\"$(json_escape "$ts_iso")\"}"
 
-log_line="[$ts_iso] severity=$severity title=$(truncate_value "$title" 180) detail=$(truncate_value "$detail" 280)"
+log_line="[$ts_iso] severity=$severity route=$resolved_route title=$(truncate_value "$title" 180) detail=$(truncate_value "$detail" 280)"
 printf '%s\n' "$log_line" >> "$VPS_ALERT_LOG_PATH"
+
+want_webhook=0
+want_email=0
+case "$resolved_route" in
+  webhook)
+    want_webhook=1
+    ;;
+  email)
+    want_email=1
+    ;;
+  both)
+    want_webhook=1
+    want_email=1
+    ;;
+esac
 
 webhook_sent=0
 webhook_failed=0
-while IFS= read -r webhook_url; do
-  [[ -z "$webhook_url" ]] && continue
-  if send_webhook "$webhook_url" "$payload"; then
-    webhook_sent=$((webhook_sent + 1))
+if [[ "$want_webhook" -eq 1 ]]; then
+  if [[ -z "$(trim "$VPS_ALERT_WEBHOOK_URLS")" ]]; then
+    echo "[alert] webhook route selected but VPS_ALERT_WEBHOOK_URLS is empty"
+    webhook_failed=1
   else
-    webhook_failed=$((webhook_failed + 1))
+    while IFS= read -r webhook_url; do
+      [[ -z "$webhook_url" ]] && continue
+      if send_webhook "$webhook_url" "$payload"; then
+        webhook_sent=$((webhook_sent + 1))
+      else
+        webhook_failed=$((webhook_failed + 1))
+      fi
+    done < <(split_targets "$VPS_ALERT_WEBHOOK_URLS")
   fi
-done < <(split_targets "$VPS_ALERT_WEBHOOK_URLS")
+fi
 
 email_sent=0
 email_failed=0
-if [[ -n "$(trim "$VPS_ALERT_EMAIL_TO")" ]]; then
+if [[ "$want_email" -eq 1 ]]; then
+  if [[ -z "$(trim "$VPS_ALERT_EMAIL_TO")" ]]; then
+    echo "[alert] email route selected but VPS_ALERT_EMAIL_TO is empty"
+    email_failed=1
+  fi
+fi
+
+if [[ "$want_email" -eq 1 && -n "$(trim "$VPS_ALERT_EMAIL_TO")" ]]; then
   email_body="$subject
 
 Time: $ts_iso
@@ -252,11 +326,22 @@ $context"
   fi
 fi
 
-channels=$((webhook_sent + webhook_failed + email_sent + email_failed))
-if [[ "$channels" -eq 0 ]]; then
-  echo "[alert] no delivery channels configured"
-  echo "[alert] configure VPS_ALERT_WEBHOOK_URLS and/or VPS_ALERT_EMAIL_TO"
+attempted=$((webhook_sent + webhook_failed + email_sent + email_failed))
+success_total=$((webhook_sent + email_sent))
+failed_total=$((webhook_failed + email_failed))
+
+if [[ "$attempted" -eq 0 ]]; then
+  echo "[alert] no delivery attempts were made"
   exit 2
+fi
+
+if [[ "$failed_total" -gt 0 && "$success_total" -eq 0 ]]; then
+  echo "[alert] all selected channels failed"
+  exit 1
+fi
+
+if [[ "$failed_total" -gt 0 ]]; then
+  echo "[alert] partial delivery: success=$success_total failed=$failed_total"
 fi
 
 if [[ "$webhook_failed" -gt 0 || "$email_failed" -gt 0 ]]; then

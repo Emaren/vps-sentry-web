@@ -1,21 +1,10 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import type { BreachSeverity, BreachState, Prisma } from "@prisma/client";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit-log";
+import { requireOpsAccess, requireViewerAccess } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
-
-async function requireUser() {
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email?.trim();
-  if (!email) return null;
-  return prisma.user.findUnique({
-    where: { email },
-    select: { id: true, email: true },
-  });
-}
 
 function parseLimit(raw: string | null): number {
   const n = Number(raw ?? "");
@@ -71,11 +60,13 @@ export async function GET(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
-  const user = await requireUser();
-  if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const access = await requireViewerAccess();
+  if (!access.ok) {
+    return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+  }
 
   const { hostId } = await ctx.params;
-  const host = await resolveHost(hostId, user.id);
+  const host = await resolveHost(hostId, access.identity.userId);
   if (!host) return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
 
   const url = new URL(req.url);
@@ -194,11 +185,26 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
-  const user = await requireUser();
-  if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const access = await requireOpsAccess();
+  if (!access.ok) {
+    await writeAuditLog({
+      req,
+      action: "breach.mutate.denied",
+      detail: `status=${access.status} role=${access.role ?? "unknown"} email=${access.email ?? "unknown"}`,
+      meta: {
+        route: "/api/hosts/[hostId]/breaches",
+        method: "POST",
+        requiredRole: "ops",
+        status: access.status,
+        email: access.email ?? null,
+        role: access.role ?? null,
+      },
+    });
+    return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+  }
 
   const { hostId } = await ctx.params;
-  const host = await resolveHost(hostId, user.id);
+  const host = await resolveHost(hostId, access.identity.userId);
   if (!host) return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
@@ -238,7 +244,7 @@ export async function POST(
 
     await writeAuditLog({
       req,
-      userId: user.id,
+      userId: access.identity.userId,
       hostId,
       action: "breach.create",
       detail: `Created breach '${created.title}'`,
@@ -303,7 +309,7 @@ export async function POST(
 
   await writeAuditLog({
     req,
-    userId: user.id,
+    userId: access.identity.userId,
     hostId,
     action: "breach.update_state",
     detail: `Breach '${existing.title}' moved ${existing.state} -> ${nextState}`,

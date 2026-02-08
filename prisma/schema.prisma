@@ -17,6 +17,13 @@ enum Plan {
   PRO
 }
 
+enum UserRole {
+  owner
+  admin
+  ops
+  viewer
+}
+
 enum BreachSeverity {
   info
   warn
@@ -42,6 +49,26 @@ enum RemediationState {
   canceled
 }
 
+enum IncidentSeverity {
+  critical
+  high
+  medium
+}
+
+enum IncidentState {
+  open
+  acknowledged
+  resolved
+  closed
+}
+
+enum PostmortemStatus {
+  not_started
+  draft
+  published
+  waived
+}
+
 //
 // ---------- Models ----------
 //
@@ -49,6 +76,7 @@ model User {
   id            String    @id @default(cuid())
   name          String?
   email         String?   @unique
+  role          UserRole  @default(viewer)
   emailVerified DateTime?
   image         String?
 
@@ -77,6 +105,12 @@ model User {
   notificationEndpoints   NotificationEndpoint[]
   remediationRuns         RemediationRun[]        @relation("RemediationRequestedBy")
   auditLogs               AuditLog[]
+  incidentCreatedRuns     IncidentWorkflowRun[]   @relation("IncidentCreatedBy")
+  incidentAssignedRuns    IncidentWorkflowRun[]   @relation("IncidentAssignee")
+  incidentAcknowledgedRuns IncidentWorkflowRun[]  @relation("IncidentAcknowledgedBy")
+  incidentResolvedRuns    IncidentWorkflowRun[]   @relation("IncidentResolvedBy")
+  incidentClosedRuns      IncidentWorkflowRun[]   @relation("IncidentClosedBy")
+  incidentEvents          IncidentWorkflowEvent[] @relation("IncidentEventActor")
 }
 
 model Subscription {
@@ -125,6 +159,7 @@ model Host {
   remediationRuns      RemediationRun[]
   notificationEvents   NotificationEvent[]
   auditLogs            AuditLog[]
+  incidentRuns         IncidentWorkflowRun[]
 
   @@index([userId])
   @@unique([userId, slug])
@@ -139,15 +174,24 @@ model HostApiKey {
 
   // short prefix for display like "vs_8f3a..."
   prefix     String
+  version    Int      @default(1)
+  label      String?
+  // JSON array for scopes, e.g. ["host.status.write","host.status.read"]
+  scopeJson  String?
 
   createdAt  DateTime @default(now())
   lastUsedAt DateTime?
   revokedAt  DateTime?
+  revokedReason String?
+  expiresAt  DateTime?
+  rotatedFromKeyId String?
 
   host       Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
 
   @@index([hostId])
   @@index([hostId, revokedAt])
+  @@index([hostId, version])
+  @@index([hostId, expiresAt])
 }
 
 model HostSnapshot {
@@ -315,6 +359,76 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([hostId, createdAt])
   @@index([action, createdAt])
+}
+
+model IncidentWorkflowRun {
+  id                  String           @id @default(cuid())
+  workflowId          String
+  workflowTitle       String?
+  title               String
+  summary             String?
+  severity            IncidentSeverity @default(medium)
+  state               IncidentState    @default(open)
+  triggerSignal       String?
+
+  hostId              String?
+  createdByUserId     String?
+  assigneeUserId      String?
+  assigneeEmail       String?
+  acknowledgedAt      DateTime?
+  acknowledgedByUserId String?
+  ackDueAt            DateTime?
+  escalatedAt         DateTime?
+  escalationCount     Int              @default(0)
+  nextEscalationAt    DateTime?
+  resolvedAt          DateTime?
+  resolvedByUserId    String?
+  closedAt            DateTime?
+  closedByUserId      String?
+
+  postmortemStatus         PostmortemStatus @default(not_started)
+  postmortemSummary        String?
+  postmortemImpact         String?
+  postmortemRootCause      String?
+  postmortemActionItemsJson String?
+  postmortemPublishedAt    DateTime?
+
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  host                Host?            @relation(fields: [hostId], references: [id], onDelete: SetNull)
+  createdByUser       User?            @relation("IncidentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  assigneeUser        User?            @relation("IncidentAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  acknowledgedByUser  User?            @relation("IncidentAcknowledgedBy", fields: [acknowledgedByUserId], references: [id], onDelete: SetNull)
+  resolvedByUser      User?            @relation("IncidentResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  closedByUser        User?            @relation("IncidentClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull)
+  events              IncidentWorkflowEvent[]
+
+  @@index([state, createdAt])
+  @@index([workflowId, createdAt])
+  @@index([hostId, createdAt])
+  @@index([ackDueAt, state])
+  @@index([nextEscalationAt, state])
+  @@index([createdByUserId, createdAt])
+  @@index([assigneeUserId, state])
+}
+
+model IncidentWorkflowEvent {
+  id          String              @id @default(cuid())
+  incidentId  String
+  type        String
+  stepId      String?
+  message     String
+  eventTs     DateTime            @default(now())
+  actorUserId String?
+  metaJson    String?
+
+  incident    IncidentWorkflowRun @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  actorUser   User?               @relation("IncidentEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([incidentId, eventTs])
+  @@index([type, eventTs])
+  @@index([actorUserId, eventTs])
 }
 
 //

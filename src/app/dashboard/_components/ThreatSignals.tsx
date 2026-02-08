@@ -23,19 +23,19 @@ export default function ThreatSignals({ threat }: { threat?: unknown }) {
     const value = entries[i][1];
 
     let body: React.ReactNode = (
-      <div style={{ opacity: 0.75 }}>— not reported by agent yet</div>
+      <div style={{ color: "var(--dash-meta)" }}>— not reported by agent yet</div>
     );
 
     if (Array.isArray(value)) {
       if (value.length === 0) body = <div>✅ none</div>;
       else body = (
-        <pre style={{ marginTop: 8, whiteSpace: "pre-wrap", opacity: 0.9 }}>
+        <pre style={{ marginTop: 8, whiteSpace: "pre-wrap", color: "var(--dash-muted)" }}>
           {safeJson(value)}
         </pre>
       );
     } else if (value !== undefined) {
       body = (
-        <pre style={{ marginTop: 8, whiteSpace: "pre-wrap", opacity: 0.9 }}>
+        <pre style={{ marginTop: 8, whiteSpace: "pre-wrap", color: "var(--dash-muted)" }}>
           {safeJson(value)}
         </pre>
       );

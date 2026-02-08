@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
+import { generateHostKeyTokenBundle } from "@/lib/host-keys";
 
 export type HostTokenBundle = {
   token: string;
   tokenHash: string;
   prefix: string;
+  version: number;
 };
 
 export function sha256(input: string): string {
@@ -27,14 +29,9 @@ export function buildUniqueSlug(baseSlug: string, attempt: number): string {
   return `${baseSlug.slice(0, maxBase)}-${suffix}`;
 }
 
-export function generateHostTokenBundle(): HostTokenBundle {
-  const raw = crypto.randomBytes(24).toString("base64url");
-  const token = `vs_${raw}`;
-  return {
-    token,
-    tokenHash: sha256(token),
-    prefix: `${token.slice(0, 11)}...`,
-  };
+export function generateHostTokenBundle(input?: { version?: number }): HostTokenBundle {
+  const version = input?.version ?? 1;
+  return generateHostKeyTokenBundle(version);
 }
 
 export function buildIngestEndpoint(baseUrl: string, hostId: string): string {

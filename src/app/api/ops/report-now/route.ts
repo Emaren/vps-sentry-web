@@ -1,8 +1,7 @@
 // /var/www/vps-sentry-web/src/app/api/ops/report-now/route.ts
 import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
-import crypto from "node:crypto";
-import { requireAdminAccess } from "@/lib/rbac";
+import { requireOpsAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
 import {
   buildReportEmailHtml,
@@ -10,6 +9,7 @@ import {
   buildReportEmailText,
   type ReportStatusJson,
 } from "@/lib/notify/templates";
+import { incrementCounter, logEvent, runObservedRoute } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
 
@@ -237,175 +237,208 @@ async function sendEmail(opts: { to: string; subject: string; text: string; html
 }
 
 export async function POST(req: Request) {
-  const rid = crypto.randomUUID().slice(0, 8);
-
-  const access = await requireAdminAccess();
-  if (!access.ok) {
-    await writeAuditLog({
-      req,
-      action: "ops.report_now.denied",
-      detail: `status=${access.status} email=${access.email ?? "unknown"}`,
-      meta: {
-        rid,
-        route: "/api/ops/report-now",
+  return runObservedRoute(req, { route: "/api/ops/report-now", source: "ops-report-now" }, async (obsCtx) => {
+    const rid = obsCtx.correlationId.slice(0, 8);
+    const access = await requireOpsAccess();
+    if (!access.ok) {
+      incrementCounter("ops.report_now.denied.total", 1, {
         status: access.status,
-        email: access.email ?? null,
-      },
-    });
-    return NextResponse.json({ error: access.error }, { status: access.status });
-  }
+      });
+      await writeAuditLog({
+        req,
+        action: "ops.report_now.denied",
+        detail: `status=${access.status} email=${access.email ?? "unknown"}`,
+        meta: {
+          rid,
+          route: "/api/ops/report-now",
+          status: access.status,
+          requiredRole: "ops",
+          email: access.email ?? null,
+          role: access.role ?? null,
+        },
+      });
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
 
-  const requestedBy = access.identity.email;
-  const to = access.identity.email;
+    obsCtx.userId = access.identity.userId;
 
-  await writeAuditLog({
-    req,
-    userId: access.identity.userId,
-    action: "ops.report_now.request",
-    detail: `Manual report requested by ${requestedBy}`,
-    meta: {
-      rid,
-      route: "/api/ops/report-now",
-    },
-  });
-
-  console.log(`[report-now:${rid}] start requestedBy=${requestedBy} to=${to ?? "—"}`);
-
-  try {
-    // Read status BEFORE (so we can detect that it changed)
-    const before = await readJsonSafe<ReportStatusJson>(STATUS_PATH);
-    const beforeTs = before?.ts ?? null;
-
-    // Trigger: systemd path unit watches this
-    await fs.writeFile(
-      TRIGGER_PATH,
-      JSON.stringify({ ts: new Date().toISOString(), requestedBy, reason: "manual-report" }, null, 2),
-      "utf8"
-    );
+    const requestedBy = access.identity.email;
+    const to = access.identity.email;
 
     await writeAuditLog({
       req,
       userId: access.identity.userId,
-      action: "ops.report_now.trigger_written",
-      detail: `Trigger file updated: ${TRIGGER_PATH}`,
+      action: "ops.report_now.request",
+      detail: `Manual report requested by ${requestedBy}`,
       meta: {
         rid,
-        triggerPath: TRIGGER_PATH,
+        route: "/api/ops/report-now",
       },
     });
 
-    // Poll briefly for a newer status timestamp
-    let after: ReportStatusJson | null = null;
-    const start = Date.now();
-    while (Date.now() - start < POLL_MAX_MS) {
-      await sleep(POLL_STEP_MS);
-      after = await readJsonSafe<ReportStatusJson>(STATUS_PATH);
-      if (after?.ts && after.ts !== beforeTs) break;
-    }
+    logEvent("info", "ops.report_now.start", obsCtx, {
+      requestedBy,
+      to: to ?? null,
+      rid,
+    });
 
-    const s = after?.ts && after.ts !== beforeTs ? after : after || before;
+    try {
+      // Read status BEFORE (so we can detect that it changed)
+      const before = await readJsonSafe<ReportStatusJson>(STATUS_PATH);
+      const beforeTs = before?.ts ?? null;
 
-    console.log(`[report-now:${rid}] status ts=${s?.ts ?? "—"} (before=${beforeTs ?? "—"})`);
+      // Trigger: systemd path unit watches this
+      await fs.writeFile(
+        TRIGGER_PATH,
+        JSON.stringify({ ts: new Date().toISOString(), requestedBy, reason: "manual-report" }, null, 2),
+        "utf8"
+      );
 
-    if (!to) {
       await writeAuditLog({
         req,
         userId: access.identity.userId,
-        action: "ops.report_now.no_email",
-        detail: "Admin has no email in session; skipping mail delivery",
+        action: "ops.report_now.trigger_written",
+        detail: `Trigger file updated: ${TRIGGER_PATH}`,
         meta: {
           rid,
-          statusTs: s?.ts ?? null,
+          triggerPath: TRIGGER_PATH,
         },
       });
-      return NextResponse.json({
-        ok: true,
-        triggered: true,
-        emailed: false,
-        warning: "No session email found; cannot send report email.",
+
+      // Poll briefly for a newer status timestamp
+      let after: ReportStatusJson | null = null;
+      const start = Date.now();
+      while (Date.now() - start < POLL_MAX_MS) {
+        await sleep(POLL_STEP_MS);
+        after = await readJsonSafe<ReportStatusJson>(STATUS_PATH);
+        if (after?.ts && after.ts !== beforeTs) break;
+      }
+
+      const s = after?.ts && after.ts !== beforeTs ? after : after || before;
+
+      logEvent("info", "ops.report_now.status_loaded", obsCtx, {
+        rid,
+        beforeTs,
         statusTs: s?.ts ?? null,
       });
-    }
 
-    const baseUrl = getBaseUrl(req);
-    const subject = buildReportEmailSubject(s);
-    const text = buildReportEmailText({ requestedBy, baseUrl, s });
-    const html = buildReportEmailHtml({ requestedBy, baseUrl, s });
+      if (!to) {
+        incrementCounter("ops.report_now.no_email.total", 1);
+        await writeAuditLog({
+          req,
+          userId: access.identity.userId,
+          action: "ops.report_now.no_email",
+          detail: "Admin has no email in session; skipping mail delivery",
+          meta: {
+            rid,
+            statusTs: s?.ts ?? null,
+          },
+        });
+        return NextResponse.json({
+          ok: true,
+          triggered: true,
+          emailed: false,
+          warning: "No session email found; cannot send report email.",
+          statusTs: s?.ts ?? null,
+        });
+      }
 
-    const mail = await sendEmail({ to, subject, text, html });
+      const baseUrl = getBaseUrl(req);
+      const subject = buildReportEmailSubject(s);
+      const text = buildReportEmailText({ requestedBy, baseUrl, s });
+      const html = buildReportEmailHtml({ requestedBy, baseUrl, s });
 
-    if (!mail.ok) {
-      console.log(
-        `[report-now:${rid}] ERROR ${mail.error}${mail.detail ? ` — ${mail.detail}` : ""}`
-      );
-      await writeAuditLog({
-        req,
-        userId: access.identity.userId,
-        action: "ops.report_now.mail_failed",
-        detail: `Mail delivery failed: ${mail.error}`,
-        meta: {
+      const mail = await sendEmail({ to, subject, text, html });
+
+      if (!mail.ok) {
+        incrementCounter("ops.report_now.mail_failed.total", 1, {
+          code: mail.code ?? "unknown",
+        });
+        logEvent("warn", "ops.report_now.mail_failed", obsCtx, {
           rid,
           error: mail.error,
           detail: mail.detail ?? null,
           code: mail.code ?? null,
+        });
+        await writeAuditLog({
+          req,
+          userId: access.identity.userId,
+          action: "ops.report_now.mail_failed",
+          detail: `Mail delivery failed: ${mail.error}`,
+          meta: {
+            rid,
+            error: mail.error,
+            detail: mail.detail ?? null,
+            code: mail.code ?? null,
+            statusTs: s?.ts ?? null,
+          },
+        });
+
+        return NextResponse.json(
+          {
+            ok: false,
+            triggered: true,
+            emailed: false,
+            error: mail.error,
+            detail: mail.detail,
+            code: mail.code,
+            statusTs: s?.ts ?? null,
+          },
+          { status: 502 }
+        );
+      }
+
+      incrementCounter("ops.report_now.mail_sent.total", 1);
+      logEvent("info", "ops.report_now.mail_sent", obsCtx, {
+        rid,
+        to,
+        subject,
+      });
+      await writeAuditLog({
+        req,
+        userId: access.identity.userId,
+        action: "ops.report_now.mail_sent",
+        detail: `Manual report emailed to ${to}`,
+        meta: {
+          rid,
+          to,
+          subject,
           statusTs: s?.ts ?? null,
         },
       });
 
-      return NextResponse.json(
-        {
-          ok: false,
-          triggered: true,
-          emailed: false,
-          error: mail.error,
-          detail: mail.detail,
-          code: mail.code,
-          statusTs: s?.ts ?? null,
-        },
-        { status: 502 }
-      );
-    }
-
-    console.log(`[report-now:${rid}] emailed ok to=${to}`);
-    await writeAuditLog({
-      req,
-      userId: access.identity.userId,
-      action: "ops.report_now.mail_sent",
-      detail: `Manual report emailed to ${to}`,
-      meta: {
-        rid,
+      return NextResponse.json({
+        ok: true,
+        triggered: true,
+        emailed: true,
         to,
         subject,
         statusTs: s?.ts ?? null,
-      },
-    });
-
-    return NextResponse.json({
-      ok: true,
-      triggered: true,
-      emailed: true,
-      to,
-      subject,
-      statusTs: s?.ts ?? null,
-    });
-  } catch (err: unknown) {
-    const message = errorMessage(err);
-    await writeAuditLog({
-      req,
-      userId: access.identity.userId,
-      action: "ops.report_now.failed",
-      detail: message,
-      meta: {
-        rid,
-      },
-    });
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Report trigger failed",
+      });
+    } catch (err: unknown) {
+      incrementCounter("ops.report_now.errors.total", 1);
+      const message = errorMessage(err);
+      await writeAuditLog({
+        req,
+        userId: access.identity.userId,
+        action: "ops.report_now.failed",
         detail: message,
-      },
-      { status: 500 }
-    );
-  }
+        meta: {
+          rid,
+        },
+      });
+      logEvent("error", "ops.report_now.failed", obsCtx, {
+        rid,
+        error: message,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Report trigger failed",
+          detail: message,
+        },
+        { status: 500 }
+      );
+    }
+  });
 }

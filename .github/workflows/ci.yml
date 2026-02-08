@@ -39,3 +39,6 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Supply-Chain Check
+        run: ./scripts/supply-chain-check.sh --no-lock-verify

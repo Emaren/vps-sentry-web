@@ -1,8 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { fmt } from "@/lib/status";
 import { classifyHeartbeat, heartbeatLabel, readHeartbeatConfig } from "@/lib/host-heartbeat";
@@ -11,22 +9,26 @@ import { buildRemediationPlanFromSnapshots } from "@/lib/remediate";
 import { isWithinMinutes, readRemediationPolicy } from "@/lib/remediate/policy";
 import { readCommandGuardPolicy } from "@/lib/remediate/guard";
 import { resolveHostRemediationPolicy } from "@/lib/remediate/host-policy";
+import { readHostFleetPolicyConfig } from "@/lib/remediate/fleet-policy";
 import { buildSecurityPostureFromSnapshots, type ContainmentStage, type ThreatBand } from "@/lib/security-posture";
 import { buildContainmentKit, renderContainmentKitScript } from "@/lib/remediate/containment-kit";
 import CopyCodeBlock from "@/app/get-vps-sentry/CopyCodeBlock";
 import SiteThemeControls from "@/app/_components/SiteThemeControls";
+import NoobTip from "@/app/dashboard/_components/NoobTip";
+import { requireViewerAccess } from "@/lib/rbac";
+import { hasRequiredRole, roleLabel } from "@/lib/rbac-policy";
+import { hostKeyScopeSummary, parseHostKeyScopes } from "@/lib/host-keys";
 import RemediationConsole from "./RemediationConsole";
 
 export const dynamic = "force-dynamic";
 
 export default async function HostDetailPage(props: { params: Promise<{ hostId: string }> }) {
   const heartbeatConfig = readHeartbeatConfig();
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email?.trim();
-  if (!email) redirect("/login");
+  const access = await requireViewerAccess();
+  if (!access.ok) redirect("/login");
 
   const user = await prisma.user.findUnique({
-    where: { email },
+    where: { id: access.identity.userId },
     select: {
       id: true,
       hostLimit: true,
@@ -38,6 +40,8 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
     },
   });
   if (!user) redirect("/login");
+  const canManageHosts = hasRequiredRole(access.identity.role, "admin");
+  const canRunRemediation = hasRequiredRole(access.identity.role, "ops");
 
   const { hostId } = await props.params;
   const host = await prisma.host.findFirst({
@@ -53,14 +57,20 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       createdAt: true,
       updatedAt: true,
       apiKeys: {
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ version: "desc" }, { createdAt: "desc" }],
         take: 20,
         select: {
           id: true,
           prefix: true,
+          version: true,
+          label: true,
+          scopeJson: true,
           createdAt: true,
           lastUsedAt: true,
           revokedAt: true,
+          revokedReason: true,
+          expiresAt: true,
+          rotatedFromKeyId: true,
         },
       },
       snapshots: {
@@ -113,6 +123,23 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           },
         },
       },
+      incidentRuns: {
+        orderBy: { createdAt: "desc" },
+        take: 25,
+        select: {
+          id: true,
+          workflowId: true,
+          title: true,
+          severity: true,
+          state: true,
+          assigneeEmail: true,
+          ackDueAt: true,
+          nextEscalationAt: true,
+          escalationCount: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
     },
   });
 
@@ -129,8 +156,116 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
     );
   }
 
+  const now = new Date();
+  const keyExpirySoon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const keyStaleCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const [
+    queueQueuedCount,
+    queueRunningCount,
+    queueDlqCount,
+    queueApprovalPendingCount,
+    incidentStateRows,
+    incidentAckOverdueCount,
+    incidentEscalationDueCount,
+    keyActiveCount,
+    keyExpiringSoonCount,
+    keyStaleCount,
+  ] = await Promise.all([
+    prisma.remediationRun.count({
+      where: {
+        hostId: host.id,
+        state: "queued",
+        paramsJson: { contains: "\"mode\":\"execute\"" },
+      },
+    }),
+    prisma.remediationRun.count({
+      where: {
+        hostId: host.id,
+        state: "running",
+        paramsJson: { contains: "\"mode\":\"execute\"" },
+      },
+    }),
+    prisma.remediationRun.count({
+      where: {
+        hostId: host.id,
+        state: "failed",
+        paramsJson: { contains: "\"dlq\":true" },
+      },
+    }),
+    prisma.remediationRun.count({
+      where: {
+        hostId: host.id,
+        state: "queued",
+        AND: [
+          { paramsJson: { contains: "\"mode\":\"execute\"" } },
+          { paramsJson: { contains: "\"required\":true" } },
+          { paramsJson: { contains: "\"status\":\"pending\"" } },
+        ],
+      },
+    }),
+    prisma.incidentWorkflowRun.groupBy({
+      by: ["state"],
+      where: { hostId: host.id },
+      _count: { _all: true },
+    }),
+    prisma.incidentWorkflowRun.count({
+      where: {
+        hostId: host.id,
+        state: "open",
+        ackDueAt: { lte: now },
+      },
+    }),
+    prisma.incidentWorkflowRun.count({
+      where: {
+        hostId: host.id,
+        state: { in: ["open", "acknowledged"] },
+        nextEscalationAt: { lte: now },
+      },
+    }),
+    prisma.hostApiKey.count({
+      where: {
+        hostId: host.id,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+    }),
+    prisma.hostApiKey.count({
+      where: {
+        hostId: host.id,
+        revokedAt: null,
+        expiresAt: { gt: now, lte: keyExpirySoon },
+      },
+    }),
+    prisma.hostApiKey.count({
+      where: {
+        hostId: host.id,
+        revokedAt: null,
+        AND: [
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+          {
+            OR: [
+              { lastUsedAt: { lt: keyStaleCutoff } },
+              { AND: [{ lastUsedAt: null }, { createdAt: { lt: keyStaleCutoff } }] },
+            ],
+          },
+        ],
+      },
+    }),
+  ]);
+
+  const countIncidentState = (state: string) => {
+    const row = incidentStateRows.find((x) => x.state === state);
+    return row?._count._all ?? 0;
+  };
+  const incidentOpenCount = countIncidentState("open");
+  const incidentAcknowledgedCount = countIncidentState("acknowledged");
+  const incidentResolvedCount = countIncidentState("resolved");
+  const incidentClosedCount = countIncidentState("closed");
+  const incidentActiveCount = incidentOpenCount + incidentAcknowledgedCount;
+
   const latest = host.snapshots[0] ?? null;
-  const heartbeat = classifyHeartbeat(host.lastSeenAt, new Date(), heartbeatConfig);
+  const heartbeat = classifyHeartbeat(host.lastSeenAt, now, heartbeatConfig);
   const timelineInput = host.snapshots
     .map((s) => {
       try {
@@ -147,6 +282,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
     globalPolicy: readRemediationPolicy(),
     globalGuardPolicy: readCommandGuardPolicy(),
   });
+  const fleetPolicy = readHostFleetPolicyConfig(host.metaJson);
   const remediationPolicy = remediationPolicyResolved.policy;
   const timelineResult = buildIncidentTimeline(timelineInput, {
     dedupeWindowMinutes: remediationPolicy.timelineDedupeWindowMinutes,
@@ -197,6 +333,37 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       : posture.stage === "watch"
       ? "warn"
       : "ok";
+  const queueBacklog = queueQueuedCount + queueRunningCount;
+  const timelineSummary = timelineResult.summary;
+  const timelineTopCodes = Object.entries(timelineSummary.byCode)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+  const remediationRunSummary = host.remediationRuns.reduce(
+    (acc, run) => {
+      if (run.state === "queued") acc.queued += 1;
+      else if (run.state === "running") acc.running += 1;
+      else if (run.state === "succeeded") acc.succeeded += 1;
+      else if (run.state === "failed") acc.failed += 1;
+      return acc;
+    },
+    { queued: 0, running: 0, succeeded: 0, failed: 0 }
+  );
+  const latestSnapshotAgeMinutes =
+    latest ? Math.max(0, Math.round((now.getTime() - latest.ts.getTime()) / 60000)) : null;
+  const hostAgeDays = Math.max(
+    0,
+    Math.round((now.getTime() - host.createdAt.getTime()) / (24 * 60 * 60 * 1000))
+  );
+  const sectionLinks = [
+    { href: "#summary", label: "Summary" },
+    { href: "#security-command-center", label: "Security" },
+    { href: "#incident-timeline", label: "Timeline" },
+    { href: "#response-playbook", label: "Playbook" },
+    { href: "#incident-workflow", label: "Incidents" },
+    { href: "#remediation-runs", label: "Remediation" },
+    { href: "#api-keys", label: "Keys" },
+    { href: "#snapshots", label: "Snapshots" },
+  ];
 
   return (
     <main className="dashboard-shell dashboard-main">
@@ -225,6 +392,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
               Heartbeat target every {heartbeat.expectedMinutes}m · stale at {heartbeat.staleAfterMinutes}m · missing at{" "}
               {heartbeat.missingAfterMinutes}m
             </p>
+            <p className="app-header-meta">Role: {roleLabel(access.identity.role)}</p>
           </div>
         </div>
         <div className="app-header-actions app-header-actions-with-theme">
@@ -238,9 +406,11 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
             <Link href="/get-vps-sentry" className="app-header-btn">
               Install guide
             </Link>
-            <Link href="/hosts/new" className="app-header-btn">
-              Add host
-            </Link>
+            {canManageHosts ? (
+              <Link href="/hosts/new" className="app-header-btn">
+                Add host
+              </Link>
+            ) : null}
           </div>
           <div className="app-header-actions-theme-row">
             <Link href="/hosts" className="app-header-btn">
@@ -255,7 +425,9 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 800 }}>{host.name}</div>
-            <div style={{ marginTop: 4, opacity: 0.72, fontSize: 12 }}>{host.slug ? `/${host.slug}` : host.id}</div>
+            <div style={{ marginTop: 4, color: "var(--dash-meta)", fontSize: 12 }}>
+              {host.slug ? `/${host.slug}` : host.id}
+            </div>
           </div>
           <div
             style={{
@@ -279,13 +451,214 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
             <span style={statusBadgeStyle(host.breaches.length > 0 ? "bad" : "ok")}>
               Open breaches: {host.breaches.length}
             </span>
+            <span style={statusBadgeStyle(incidentActiveCount > 0 ? "warn" : "ok")}>
+              Incidents: {incidentActiveCount}
+            </span>
+            <span style={statusBadgeStyle(queueBacklog > 0 ? "warn" : "ok")}>
+              Queue: {queueBacklog}
+            </span>
+            {queueApprovalPendingCount > 0 ? (
+              <span style={statusBadgeStyle("warn")}>Approvals: {queueApprovalPendingCount}</span>
+            ) : null}
+            {queueDlqCount > 0 ? (
+              <span style={statusBadgeStyle("bad")}>DLQ: {queueDlqCount}</span>
+            ) : null}
+            <span style={statusBadgeStyle(keyActiveCount > 0 ? "ok" : "warn")}>
+              Active keys: {keyActiveCount}
+            </span>
+            {keyExpiringSoonCount > 0 ? (
+              <span style={statusBadgeStyle("warn")}>Keys expiring: {keyExpiringSoonCount}</span>
+            ) : null}
           </div>
         </div>
       </section>
 
       <section style={sectionStyle()}>
-        <h2 style={h2Style()}>Summary</h2>
-        <div style={{ marginTop: 8, marginBottom: 4, opacity: 0.75, fontSize: 12 }}>
+        <SectionHeading
+          title="Operator Navigator"
+          tip="Quick jump links plus immediate host-health framing so you can orient in one glance."
+        />
+        <div className="dashboard-noob-coach" style={{ marginTop: 10 }}>
+          Noob coach: start with Security and Timeline to understand risk, then run Playbook
+          actions, then verify in Incidents and Remediation history.
+        </div>
+        <div className="dashboard-chip-row" style={{ marginTop: 10 }}>
+          <span className={latestSnapshotAgeMinutes !== null && latestSnapshotAgeMinutes <= heartbeatConfig.expectedMinutes * 2 ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip dashboard-chip-warn"}>
+            latest snapshot age {latestSnapshotAgeMinutes !== null ? `${latestSnapshotAgeMinutes}m` : "—"}
+          </span>
+          <span className={hostAgeDays >= 30 ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip"}>
+            host age {hostAgeDays}d
+          </span>
+          <span className={timelineSummary.total > 0 ? "dashboard-chip dashboard-chip-warn" : "dashboard-chip dashboard-chip-ok"}>
+            timeline signals {timelineSummary.total}
+          </span>
+          <span className={remediationRunSummary.failed > 0 ? "dashboard-chip dashboard-chip-bad" : "dashboard-chip dashboard-chip-ok"}>
+            remediation failures {remediationRunSummary.failed}
+          </span>
+        </div>
+        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {sectionLinks.map((link) => (
+            <a key={link.href} href={link.href} style={{ ...btnStyle(), fontSize: 12, padding: "8px 10px" }}>
+              {link.label}
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <section style={sectionStyle()}>
+        <SectionHeading
+          title="Host Mission Control"
+          tip="Operator-grade runtime view: incident workflow timers, remediation queue state, and key lifecycle health."
+        />
+
+        <div className="dashboard-noob-coach" style={{ marginTop: 10 }}>
+          Noob coach: if incidents are open, acknowledge quickly; if approvals are pending, review
+          and decide; if DLQ is non-zero, investigate failed automation before replay.
+        </div>
+
+        <div className="dashboard-mission-grid" style={{ marginTop: 10 }}>
+          <div style={subPanelStyle()}>
+            <div className="dashboard-card-title-row">
+              <div style={{ fontWeight: 800 }}>Incident Workflow Engine</div>
+              <NoobTip text="Assignment + acknowledgement + escalation state for this specific host." />
+            </div>
+            <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
+              <span className={incidentOpenCount > 0 ? "dashboard-chip dashboard-chip-bad" : "dashboard-chip dashboard-chip-ok"}>
+                open {incidentOpenCount}
+              </span>
+              <span
+                className={
+                  incidentAcknowledgedCount > 0
+                    ? "dashboard-chip dashboard-chip-warn"
+                    : "dashboard-chip dashboard-chip-ok"
+                }
+              >
+                ack {incidentAcknowledgedCount}
+              </span>
+              <span
+                className={
+                  incidentAckOverdueCount > 0
+                    ? "dashboard-chip dashboard-chip-bad"
+                    : "dashboard-chip dashboard-chip-ok"
+                }
+              >
+                ack overdue {incidentAckOverdueCount}
+              </span>
+              <span
+                className={
+                  incidentEscalationDueCount > 0
+                    ? "dashboard-chip dashboard-chip-warn"
+                    : "dashboard-chip dashboard-chip-ok"
+                }
+              >
+                escalation due {incidentEscalationDueCount}
+              </span>
+            </div>
+            <div style={{ marginTop: 8, color: "var(--dash-meta)", fontSize: 12 }}>
+              resolved: <b>{incidentResolvedCount}</b> · closed: <b>{incidentClosedCount}</b>
+            </div>
+          </div>
+
+          <div style={subPanelStyle()}>
+            <div className="dashboard-card-title-row">
+              <div style={{ fontWeight: 800 }}>Remediation Queue Runtime</div>
+              <NoobTip text="Execution backlog, pending approvals, and DLQ risk for automated actions on this host." />
+            </div>
+            <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
+              <span className={queueQueuedCount > 0 ? "dashboard-chip dashboard-chip-warn" : "dashboard-chip dashboard-chip-ok"}>
+                queued {queueQueuedCount}
+              </span>
+              <span className={queueRunningCount > 0 ? "dashboard-chip dashboard-chip-warn" : "dashboard-chip dashboard-chip-ok"}>
+                running {queueRunningCount}
+              </span>
+              <span
+                className={
+                  queueApprovalPendingCount > 0
+                    ? "dashboard-chip dashboard-chip-warn"
+                    : "dashboard-chip dashboard-chip-ok"
+                }
+              >
+                approvals {queueApprovalPendingCount}
+              </span>
+              <span className={queueDlqCount > 0 ? "dashboard-chip dashboard-chip-bad" : "dashboard-chip dashboard-chip-ok"}>
+                dlq {queueDlqCount}
+              </span>
+            </div>
+            <div style={{ marginTop: 8, color: "var(--dash-meta)", fontSize: 12 }}>
+              Dry-run freshness gate: <b>{remediationPolicy.dryRunMaxAgeMinutes}m</b> · queue cap:{" "}
+              <b>{remediationPolicy.maxQueuePerHost}</b>
+            </div>
+          </div>
+
+          <div style={subPanelStyle()}>
+            <div className="dashboard-card-title-row">
+              <div style={{ fontWeight: 800 }}>Key Lifecycle</div>
+              <NoobTip text="Active, expiring, and stale keys for this host's API ingest auth surface." />
+            </div>
+            <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
+              <span className={keyActiveCount > 0 ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip dashboard-chip-warn"}>
+                active {keyActiveCount}
+              </span>
+              <span
+                className={
+                  keyExpiringSoonCount > 0
+                    ? "dashboard-chip dashboard-chip-warn"
+                    : "dashboard-chip dashboard-chip-ok"
+                }
+              >
+                expiring soon {keyExpiringSoonCount}
+              </span>
+              <span className={keyStaleCount > 0 ? "dashboard-chip dashboard-chip-warn" : "dashboard-chip dashboard-chip-ok"}>
+                stale {keyStaleCount}
+              </span>
+            </div>
+            <div style={{ marginTop: 8, color: "var(--dash-meta)", fontSize: 12 }}>
+              total keys tracked: <b>{host.apiKeys.length}</b> (latest table window)
+            </div>
+          </div>
+
+          <div style={subPanelStyle()}>
+            <div className="dashboard-card-title-row">
+              <div style={{ fontWeight: 800 }}>Signal + Run Mix</div>
+              <NoobTip text="Severity distribution from deduped timeline plus remediation run outcomes." />
+            </div>
+            <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
+              <span className={timelineSummary.bySeverity.critical > 0 ? "dashboard-chip dashboard-chip-bad" : "dashboard-chip dashboard-chip-ok"}>
+                critical {timelineSummary.bySeverity.critical}
+              </span>
+              <span className={timelineSummary.bySeverity.high > 0 ? "dashboard-chip dashboard-chip-warn" : "dashboard-chip dashboard-chip-ok"}>
+                high {timelineSummary.bySeverity.high}
+              </span>
+              <span className="dashboard-chip">medium {timelineSummary.bySeverity.medium}</span>
+              <span className="dashboard-chip">low/info {timelineSummary.bySeverity.low + timelineSummary.bySeverity.info}</span>
+            </div>
+            <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
+              <span className={remediationRunSummary.succeeded > 0 ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip"}>
+                succeeded {remediationRunSummary.succeeded}
+              </span>
+              <span className={remediationRunSummary.running > 0 ? "dashboard-chip dashboard-chip-warn" : "dashboard-chip"}>
+                running {remediationRunSummary.running}
+              </span>
+              <span className={remediationRunSummary.queued > 0 ? "dashboard-chip dashboard-chip-warn" : "dashboard-chip"}>
+                queued {remediationRunSummary.queued}
+              </span>
+              <span className={remediationRunSummary.failed > 0 ? "dashboard-chip dashboard-chip-bad" : "dashboard-chip dashboard-chip-ok"}>
+                failed {remediationRunSummary.failed}
+              </span>
+            </div>
+            <div style={{ marginTop: 8, color: "var(--dash-meta)", fontSize: 12 }}>
+              top signal codes: {timelineTopCodes.length > 0 ? timelineTopCodes.map(([code, count]) => `${code}(${count})`).join(", ") : "none"}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="summary" style={sectionStyle()}>
+        <SectionHeading
+          title="Summary"
+          tip="Core heartbeat and snapshot health for this host."
+        />
+        <div style={{ marginTop: 8, marginBottom: 4, color: "var(--dash-meta)", fontSize: 12 }}>
           Heartbeat target every {heartbeat.expectedMinutes}m · stale at {heartbeat.staleAfterMinutes}m · missing at{" "}
           {heartbeat.missingAfterMinutes}m
         </div>
@@ -302,9 +675,38 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         </div>
       </section>
 
-      <section style={sectionStyle()}>
-        <h2 style={h2Style()}>Ingest Endpoint</h2>
-        <p style={{ opacity: 0.8, marginTop: 6 }}>
+      <section id="fleet-policy" style={sectionStyle()}>
+        <SectionHeading
+          title="Fleet Policy"
+          tip="Group/tag/scope routing and rollout priority controls that decide blast radius."
+        />
+        <div style={{ ...gridStyle(), marginTop: 8 }}>
+          <Stat label="Group" value={fleetPolicy.group ?? "—"} />
+          <Stat
+            label="Tags"
+            value={fleetPolicy.tags.length ? fleetPolicy.tags.join(", ") : "—"}
+          />
+          <Stat
+            label="Scopes"
+            value={fleetPolicy.scopes.length ? fleetPolicy.scopes.join(", ") : "—"}
+          />
+          <Stat
+            label="Rollout"
+            value={fleetPolicy.rolloutPaused ? "Paused" : "Active"}
+          />
+          <Stat
+            label="Rollout priority"
+            value={String(fleetPolicy.rolloutPriority)}
+          />
+        </div>
+      </section>
+
+      <section id="ingest-endpoint" style={sectionStyle()}>
+        <SectionHeading
+          title="Ingest Endpoint"
+          tip="Where this host posts status snapshots using host API key authentication."
+        />
+        <p style={{ color: "var(--dash-muted)", marginTop: 6 }}>
           Send snapshots to this endpoint with a host API token in <code>Authorization: Bearer ...</code>.
         </p>
         <pre style={preStyle()}>
@@ -312,28 +714,44 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         </pre>
       </section>
 
-      <section style={sectionStyle()}>
-        <h2 style={h2Style()}>API Keys</h2>
+      <section id="api-keys" style={sectionStyle()}>
+        <SectionHeading
+          title="API Keys"
+          tip="Scoped keys for host ingest with rotation, expiry, revocation, and usage tracking."
+        />
+        <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
+          Scoped keys now support rotation, expiry, revocation reason, and explicit versioning.
+        </div>
         {host.apiKeys.length === 0 ? (
-          <div style={{ opacity: 0.7 }}>No keys found.</div>
+          <div style={{ color: "var(--dash-meta)" }}>No keys found.</div>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyle()}>
               <thead>
-                <tr style={{ textAlign: "left", opacity: 0.78 }}>
+                <tr style={{ textAlign: "left", color: "var(--dash-meta)" }}>
                   <th style={thStyle}>Prefix</th>
+                  <th style={thStyle}>Version</th>
+                  <th style={thStyle}>Label</th>
+                  <th style={thStyle}>Scopes</th>
                   <th style={thStyle}>Created</th>
                   <th style={thStyle}>Last used</th>
+                  <th style={thStyle}>Expires</th>
                   <th style={thStyle}>Revoked</th>
+                  <th style={thStyle}>Reason</th>
                 </tr>
               </thead>
               <tbody>
                 {host.apiKeys.map((k) => (
-                  <tr key={k.id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                  <tr key={k.id} style={{ borderTop: "1px solid var(--dash-soft-border, rgba(255,255,255,0.08))" }}>
                     <td style={tdStyle}>{k.prefix}</td>
+                    <td style={tdStyle}>{k.version}</td>
+                    <td style={tdStyle}>{k.label ?? "—"}</td>
+                    <td style={tdStyle}>{hostKeyScopeSummary(parseHostKeyScopes(k.scopeJson))}</td>
                     <td style={tdStyle}>{fmt(k.createdAt.toISOString())}</td>
                     <td style={tdStyle}>{fmt(k.lastUsedAt ? k.lastUsedAt.toISOString() : undefined)}</td>
+                    <td style={tdStyle}>{fmt(k.expiresAt ? k.expiresAt.toISOString() : undefined)}</td>
                     <td style={tdStyle}>{fmt(k.revokedAt ? k.revokedAt.toISOString() : undefined)}</td>
+                    <td style={tdStyle}>{k.revokedReason ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -342,15 +760,18 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         )}
       </section>
 
-      <section style={sectionStyle()}>
-        <h2 style={h2Style()}>Recent Snapshots</h2>
+      <section id="snapshots" style={sectionStyle()}>
+        <SectionHeading
+          title="Recent Snapshots"
+          tip="Latest status payloads from the agent: alert and exposure history."
+        />
         {host.snapshots.length === 0 ? (
-          <div style={{ opacity: 0.7 }}>No snapshots ingested yet.</div>
+          <div style={{ color: "var(--dash-meta)" }}>No snapshots ingested yet.</div>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyle()}>
               <thead>
-                <tr style={{ textAlign: "left", opacity: 0.78 }}>
+                <tr style={{ textAlign: "left", color: "var(--dash-meta)" }}>
                   <th style={thStyle}>Timestamp</th>
                   <th style={thStyle}>OK</th>
                   <th style={thStyle}>Alerts</th>
@@ -359,7 +780,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
               </thead>
               <tbody>
                 {host.snapshots.map((s) => (
-                  <tr key={s.id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                  <tr key={s.id} style={{ borderTop: "1px solid var(--dash-soft-border, rgba(255,255,255,0.08))" }}>
                     <td style={tdStyle}>{fmt(s.ts.toISOString())}</td>
                     <td style={tdStyle}>{s.ok ? "true" : "false"}</td>
                     <td style={tdStyle}>{s.alertsCount}</td>
@@ -372,19 +793,23 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         )}
       </section>
 
-      <section style={sectionStyle()}>
-        <h2 style={h2Style()}>Open Breaches</h2>
+      <section id="open-breaches" style={sectionStyle()}>
+        <SectionHeading
+          title="Open Breaches"
+          tip="Confirmed breach records that are still unresolved."
+        />
         {host.breaches.length === 0 ? (
-          <div style={{ opacity: 0.7 }}>No open breaches.</div>
+          <div style={{ color: "var(--dash-meta)" }}>No open breaches.</div>
         ) : (
           <div style={{ display: "grid", gap: 10 }}>
             {host.breaches.map((b) => (
               <div key={b.id} style={breachCardStyle()}>
                 <div style={{ fontWeight: 800 }}>
-                  {b.title} <span style={{ opacity: 0.7, fontWeight: 500 }}>({b.severity})</span>
+                  {b.title}{" "}
+                  <span style={{ color: "var(--dash-meta)", fontWeight: 500 }}>({b.severity})</span>
                 </div>
                 {b.detail ? <pre style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>{b.detail}</pre> : null}
-                <div style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
+                <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
                   Opened: {fmt(b.openedTs.toISOString())}
                 </div>
               </div>
@@ -393,9 +818,12 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         )}
       </section>
 
-      <section style={sectionStyle()}>
-        <h2 style={h2Style()}>Security Command Center</h2>
-        <div style={{ opacity: 0.72, marginTop: 6, fontSize: 12 }}>
+      <section id="security-command-center" style={sectionStyle()}>
+        <SectionHeading
+          title="Security Command Center"
+          tip="Fused security posture from signal stack + containment state + recommended next move."
+        />
+        <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
           Ultimate-vision preview: combined risk scoring + containment stage from recent incidents and heartbeat health.
         </div>
         <div
@@ -411,13 +839,13 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           <span style={containmentPillStyle(posture.stage)}>
             Containment stage: {containmentStageLabel(posture.stage)}
           </span>
-          <span style={{ opacity: 0.7, fontSize: 12 }}>Signals: {posture.signalCount}</span>
+          <span style={{ color: "var(--dash-meta)", fontSize: 12 }}>Signals: {posture.signalCount}</span>
         </div>
         <div style={{ marginTop: 10, lineHeight: 1.5 }}>
           <strong>Next move:</strong> {posture.nextMove}
         </div>
         {posture.priorityCodes.length > 0 ? (
-          <div style={{ marginTop: 8, fontSize: 12, opacity: 0.78 }}>
+          <div style={{ marginTop: 8, fontSize: 12, color: "var(--dash-meta)" }}>
             Priority signal codes: {posture.priorityCodes.join(", ")}
           </div>
         ) : null}
@@ -428,9 +856,12 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         </div>
       </section>
 
-      <section style={sectionStyle()}>
-        <h2 style={h2Style()}>Emergency Containment Kit</h2>
-        <div style={{ opacity: 0.72, marginTop: 6, fontSize: 12 }}>
+      <section id="containment-kit" style={sectionStyle()}>
+        <SectionHeading
+          title="Emergency Containment Kit"
+          tip="Pre-baked command kit generated from current host posture for fast triage/contain/verify/recover."
+        />
+        <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
           Human-confirmed runbook generated from this host risk posture and top response actions.
         </div>
         <div style={{ marginTop: 8, lineHeight: 1.5 }}>
@@ -460,14 +891,30 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         </div>
       </section>
 
-      <section style={sectionStyle()}>
-        <h2 style={h2Style()}>Incident Timeline</h2>
-        <div style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
+      <section id="incident-timeline" style={sectionStyle()}>
+        <SectionHeading
+          title="Incident Timeline"
+          tip="Signal history collapsed for duplicates so you can see the highest-value sequence."
+        />
+        <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
           Correlated from recent snapshots with duplicate-noise collapsing
           (window {remediationPolicy.timelineDedupeWindowMinutes}m).
         </div>
+        <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
+          <span className={timelineSummary.bySeverity.critical > 0 ? "dashboard-chip dashboard-chip-bad" : "dashboard-chip dashboard-chip-ok"}>
+            critical {timelineSummary.bySeverity.critical}
+          </span>
+          <span className={timelineSummary.bySeverity.high > 0 ? "dashboard-chip dashboard-chip-warn" : "dashboard-chip dashboard-chip-ok"}>
+            high {timelineSummary.bySeverity.high}
+          </span>
+          <span className="dashboard-chip">medium {timelineSummary.bySeverity.medium}</span>
+          <span className="dashboard-chip">low {timelineSummary.bySeverity.low}</span>
+          <span className="dashboard-chip">info {timelineSummary.bySeverity.info}</span>
+        </div>
         {timeline.length === 0 ? (
-          <div style={{ marginTop: 10, opacity: 0.7 }}>No incident signals in recent snapshots.</div>
+          <div style={{ marginTop: 10, color: "var(--dash-meta)" }}>
+            No incident signals in recent snapshots.
+          </div>
         ) : (
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             {timeline.map((item, idx) => (
@@ -478,7 +925,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
                     {item.severity}
                   </span>
                 </div>
-                <div style={{ marginTop: 6, opacity: 0.8, fontSize: 12 }}>
+                <div style={{ marginTop: 6, color: "var(--dash-meta)", fontSize: 12 }}>
                   {item.code} · {item.source} · {fmt(item.ts)}
                 </div>
                 {item.detail ? (
@@ -491,18 +938,21 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       </section>
 
       <section id="response-playbook" style={sectionStyle()}>
-        <h2 style={h2Style()}>Response Playbook (Safe)</h2>
-        <div style={{ opacity: 0.72, marginTop: 6, fontSize: 12 }}>
+        <SectionHeading
+          title="Response Playbook (Safe)"
+          tip="Dry-run gating plus approval-safe execution for response actions."
+        />
+        <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
           Dry-run first, then confirm phrase to execute. Every run is logged to host history.
         </div>
-        <div style={{ marginTop: 6, opacity: 0.72, fontSize: 12 }}>
+        <div style={{ marginTop: 6, color: "var(--dash-meta)", fontSize: 12 }}>
           Host policy profile: <strong>{remediationPolicyResolved.profile}</strong> · queue cap {remediationPolicy.maxQueuePerHost}/host
         </div>
-        <div style={{ marginTop: 8, opacity: 0.75, fontSize: 12 }}>
+        <div style={{ marginTop: 8, color: "var(--dash-meta)", fontSize: 12 }}>
           Dry-run freshness window: {remediationPolicy.dryRunMaxAgeMinutes} minute(s)
         </div>
         {remediationPlan.context.unexpectedPublicPorts.length > 0 ? (
-          <div style={{ marginTop: 8, fontSize: 12, opacity: 0.82 }}>
+          <div style={{ marginTop: 8, fontSize: 12, color: "var(--dash-muted)" }}>
             Detected unexpected public ports:{" "}
             {remediationPlan.context.unexpectedPublicPorts
               .map((p) => `${p.proto}:${p.port}${p.proc ? ` (${p.proc})` : ""}`)
@@ -510,43 +960,108 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           </div>
         ) : null}
         {remediationPlan.topCodes.length > 0 ? (
-          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+          <div style={{ marginTop: 6, fontSize: 12, color: "var(--dash-meta)" }}>
             Top recent signal codes: {remediationPlan.topCodes.join(", ")}
           </div>
         ) : null}
-        <RemediationConsole
-          hostId={host.id}
-          actions={remediations}
-          dryRunWindowMinutes={remediationPolicy.dryRunMaxAgeMinutes}
-          initialDryRunReadyActionIds={dryRunReadyActionIds}
-        />
+        {canRunRemediation ? (
+          <RemediationConsole
+            hostId={host.id}
+            actions={remediations}
+            dryRunWindowMinutes={remediationPolicy.dryRunMaxAgeMinutes}
+            initialDryRunReadyActionIds={dryRunReadyActionIds}
+          />
+        ) : (
+          <div style={{ marginTop: 10, color: "var(--dash-meta)" }}>
+            Read-only role. Ops/admin/owner role required to run remediation actions.
+          </div>
+        )}
       </section>
 
-      <section style={sectionStyle()}>
-        <h2 style={h2Style()}>Remediation Runs</h2>
+      <section id="incident-workflow" style={sectionStyle()}>
+        <SectionHeading
+          title="Incident Workflow Runs"
+          tip="Workflow-run records for this host, including escalation timing and assignment."
+        />
+        {host.incidentRuns.length === 0 ? (
+          <div style={{ marginTop: 10, color: "var(--dash-meta)" }}>
+            No incident workflow runs yet.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+            {host.incidentRuns.map((incident) => (
+              <div key={incident.id} style={breachCardStyle()}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ fontWeight: 800 }}>
+                    {incident.title}{" "}
+                    <span style={{ color: "var(--dash-meta)", fontWeight: 500 }}>
+                      ({incident.workflowId})
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <span style={severityPill(incident.severity)}>{incident.severity}</span>
+                    <span
+                      style={severityPill(
+                        incident.state === "open"
+                          ? "high"
+                          : incident.state === "acknowledged"
+                            ? "medium"
+                            : "info"
+                      )}
+                    >
+                      {incident.state}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ marginTop: 6, color: "var(--dash-meta)", fontSize: 12 }}>
+                  Created: {fmt(incident.createdAt.toISOString())} · Updated:{" "}
+                  {fmt(incident.updatedAt.toISOString())}
+                </div>
+                <div style={{ marginTop: 4, color: "var(--dash-meta)", fontSize: 12 }}>
+                  Assignee: {incident.assigneeEmail ?? "—"} · Escalations: {incident.escalationCount}
+                </div>
+                <div style={{ marginTop: 4, color: "var(--dash-meta)", fontSize: 12 }}>
+                  Ack due: {fmt(incident.ackDueAt ? incident.ackDueAt.toISOString() : undefined)} ·
+                  Next escalation:{" "}
+                  {fmt(
+                    incident.nextEscalationAt ? incident.nextEscalationAt.toISOString() : undefined
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section id="remediation-runs" style={sectionStyle()}>
+        <SectionHeading
+          title="Remediation Runs"
+          tip="Execution history for manual or autonomous remediation actions on this host."
+        />
         {host.remediationRuns.length === 0 ? (
-          <div style={{ marginTop: 10, opacity: 0.7 }}>No remediation runs yet.</div>
+          <div style={{ marginTop: 10, color: "var(--dash-meta)" }}>No remediation runs yet.</div>
         ) : (
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             {host.remediationRuns.map((run) => (
               <div key={run.id} style={breachCardStyle()}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                   <div style={{ fontWeight: 800 }}>
-                    {run.action.title} <span style={{ opacity: 0.72 }}>({run.action.key})</span>
+                    {run.action.title}{" "}
+                    <span style={{ color: "var(--dash-meta)" }}>({run.action.key})</span>
                   </div>
                   <span style={severityPill(run.state === "failed" ? "high" : run.state === "running" || run.state === "queued" ? "medium" : "info")}>
                     {run.state}
                   </span>
                 </div>
-                <div style={{ marginTop: 6, opacity: 0.75, fontSize: 12 }}>
+                <div style={{ marginTop: 6, color: "var(--dash-meta)", fontSize: 12 }}>
                   Requested: {fmt(run.requestedAt.toISOString())}
                   {run.requestedBy?.email ? ` by ${run.requestedBy.email}` : ""}
                 </div>
-                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12 }}>
+                <div style={{ marginTop: 4, color: "var(--dash-meta)", fontSize: 12 }}>
                   Started: {fmt(run.startedAt ? run.startedAt.toISOString() : undefined)} · Finished:{" "}
                   {fmt(run.finishedAt ? run.finishedAt.toISOString() : undefined)}
                 </div>
-                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12 }}>
+                <div style={{ marginTop: 4, color: "var(--dash-meta)", fontSize: 12 }}>
                   Mode: {parseRunMode(run.paramsJson)}
                 </div>
                 {run.error ? (
@@ -572,6 +1087,15 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
         )}
       </section>
     </main>
+  );
+}
+
+function SectionHeading(props: { title: string; tip: string }) {
+  return (
+    <div className="dashboard-card-title-row">
+      <h2 style={h2Style()}>{props.title}</h2>
+      <NoobTip text={props.tip} />
+    </div>
   );
 }
 
@@ -661,6 +1185,15 @@ function topHostCardStyle(): React.CSSProperties {
     border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
     borderRadius: 12,
     padding: 12,
+    background: "var(--dash-card-bg, rgba(255,255,255,0.02))",
+  };
+}
+
+function subPanelStyle(): React.CSSProperties {
+  return {
+    border: "1px solid var(--dash-soft-border, rgba(255,255,255,0.10))",
+    borderRadius: 10,
+    padding: "10px 12px",
     background: "var(--dash-card-bg, rgba(255,255,255,0.02))",
   };
 }

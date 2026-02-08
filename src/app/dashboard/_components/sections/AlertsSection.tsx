@@ -2,6 +2,7 @@
 import React from "react";
 import { fmt } from "@/lib/status";
 import Box from "../Box";
+import NoobTip from "../NoobTip";
 import type { DerivedDashboard } from "../../_lib/derive";
 
 export default function AlertsSection(props: { derived: DerivedDashboard; snapshotTs: string }) {
@@ -9,8 +10,11 @@ export default function AlertsSection(props: { derived: DerivedDashboard; snapsh
 
   return (
     <section style={{ marginTop: 18 }}>
-      <h2 style={{ fontSize: 18, marginBottom: 8 }}>Alerts</h2>
-      <div style={{ opacity: 0.65, fontSize: 12, marginBottom: 8 }}>
+      <div className="dashboard-card-title-row">
+        <h2 style={{ fontSize: 18, margin: 0 }}>Alerts</h2>
+        <NoobTip text="Actionable security signals that need attention right now after suppression rules." />
+      </div>
+      <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b>
       </div>
 
@@ -29,7 +33,7 @@ export default function AlertsSection(props: { derived: DerivedDashboard; snapsh
           <div style={{ fontWeight: 700 }}>
             Suppressed alerts: <b>{d.alertsSuppressedCount}</b>
           </div>
-          <div style={{ marginTop: 6, opacity: 0.8, fontSize: 12 }}>
+          <div style={{ marginTop: 6, color: "var(--dash-meta)", fontSize: 12 }}>
             Suppression can come from allowlist noise filtering, custom suppression regex, package-change toggle, or maintenance mode.
           </div>
         </Box>
@@ -46,7 +50,7 @@ export default function AlertsSection(props: { derived: DerivedDashboard; snapsh
                 <SeverityBadge severity={a.severityLevel} />
               </div>
               {a.detail ? (
-                <pre style={{ marginTop: 8, whiteSpace: "pre-wrap", opacity: 0.9 }}>
+                <pre style={{ marginTop: 8, whiteSpace: "pre-wrap", color: "var(--dash-muted)" }}>
                   {a.detail}
                 </pre>
               ) : null}

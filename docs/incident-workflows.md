@@ -1,106 +1,112 @@
-# Incident Workflows (Step 9)
+# Incident Workflows (Step 17)
 
-Incident workflows provide a structured sequence for admin responders.
-They are intentionally additive and safety-first:
+Step 17 upgrades incident handling from a static step catalog into a persistent
+incident workflow engine with assignment, acknowledgement timers, escalation
+sweeps, timeline history, and postmortem scaffolding.
 
-- API steps can be executed from `/admin`.
-- Manual steps remain explicit and require human confirmation.
-- Every call is RBAC-gated and audit-logged.
+## What’s New in v2
 
-## Workflow Catalog
+- Persistent `IncidentWorkflowRun` records for every incident.
+- Assignment model (`assigneeUserId` + `assigneeEmail`) with timeline events.
+- Explicit lifecycle states:
+  - `open` -> `acknowledged` -> `resolved` -> `closed`
+- Escalation timers:
+  - `ackDueAt`
+  - `nextEscalationAt`
+  - `escalationCount`
+- Rich timeline via `IncidentWorkflowEvent`.
+- Postmortem scaffold fields:
+  - status (`not_started`, `draft`, `published`, `waived`)
+  - summary, impact, root cause, action items.
+
+## Data Model
 
 Source of truth:
 
-- `src/lib/ops/workflows.ts`
+- `prisma/schema.prisma`
+- `prisma/schema.postgres.prisma`
 
-Current workflow IDs:
+SQLite migration:
 
-- `critical-triage` (severity: `critical`)
-- `auth-abuse-response` (severity: `high`)
-- `degraded-performance` (severity: `medium`)
+- `prisma/migrations/20260208223500_incident_workflow_engine_v2/migration.sql`
 
-## API Contract
+Postgres additive SQL:
 
-Route:
+- `prisma/postgres/0004_incident_workflow_engine_v2.sql`
+
+## API Surface
+
+### Existing Catalog + Step Executor
 
 - `GET /api/ops/incident-workflow`
 - `POST /api/ops/incident-workflow`
 
-Auth:
+Used for catalog listing and standalone API-safe workflow step execution.
 
-- Admin session required (`requireAdminAccess`).
+### Incident Engine v2
 
-### List Workflows
+- `GET /api/ops/incidents`
+  - list incidents with counts and filters (`state`, `hostId`, `assigneeUserId`, `includeClosed`)
+- `POST /api/ops/incidents`
+  - `action=create` create incident run
+  - `action=escalation-sweep` run due escalation timers
+- `GET /api/ops/incidents/[incidentId]`
+  - fetch incident detail + timeline
+- `POST /api/ops/incidents/[incidentId]`
+  - lifecycle and ops actions:
+    - `assign`
+    - `acknowledge`
+    - `resolve`
+    - `close`
+    - `reopen`
+    - `note`
+    - `postmortem`
+    - `step` (execute API-safe workflow step and append timeline event)
+- `POST /api/ops/incidents/escalate`
+  - token or ops-authenticated escalation sweep endpoint for automation.
 
-```bash
-curl -sS -X GET "https://<your-host>/api/ops/incident-workflow" \
-  --cookie "<admin-session-cookie>"
-```
+All endpoints are RBAC-gated (`ops+`), audit-logged, and observed.
 
-Response shape:
+## Timer Policy
 
-```json
-{
-  "ok": true,
-  "workflows": [
-    {
-      "id": "critical-triage",
-      "severity": "critical",
-      "steps": [
-        { "id": "status-snapshot", "kind": "api" },
-        { "id": "manual-validate", "kind": "manual" }
-      ]
-    }
-  ]
-}
-```
+Defaults by severity:
 
-### Execute API Step
+- `critical`: ack 5m, escalate every 10m
+- `high`: ack 15m, escalate every 20m
+- `medium`: ack 30m, escalate every 45m
 
-```bash
-curl -sS -X POST "https://<your-host>/api/ops/incident-workflow" \
-  -H "content-type: application/json" \
-  --cookie "<admin-session-cookie>" \
-  -d '{
-    "workflowId": "critical-triage",
-    "stepId": "notify-test",
-    "payload": {
-      "target": "ops@example.com",
-      "kind": "EMAIL"
-    }
-  }'
-```
+Override via runtime env:
 
-Behavior:
+- `VPS_INCIDENT_ACK_MINUTES_CRITICAL`
+- `VPS_INCIDENT_ACK_MINUTES_HIGH`
+- `VPS_INCIDENT_ACK_MINUTES_MEDIUM`
+- `VPS_INCIDENT_ESCALATE_EVERY_MINUTES_CRITICAL`
+- `VPS_INCIDENT_ESCALATE_EVERY_MINUTES_HIGH`
+- `VPS_INCIDENT_ESCALATE_EVERY_MINUTES_MEDIUM`
 
-- Rejects unknown workflow or step IDs.
-- Rejects manual-only steps via API.
-- Merges `defaultPayload` from workflow step with request `payload`.
-- Returns top-level `ok: false` if step execution reports failure.
-- Writes audit log entry for both success and failure.
+Optional automation token:
 
-## Admin UX Flow
+- `VPS_INCIDENT_ESCALATE_TOKEN`
+  - sent as header `x-incident-escalate-token` to
+    `POST /api/ops/incidents/escalate`.
 
-The `/admin` page now includes an **Operator Console** with:
+## Admin UX
 
-- quick actions (drain queue, report now, notify test, status snapshot)
-- workflow cards with one-click API step execution
-- manual-step labeling to prevent accidental API execution
-- recent ops timeline from audit logs
-- compact result preview for last action
+`/admin` now includes **Incident Workflow Engine v2** with:
 
-## Design Constraints
+- incident creation panel
+- active incident list + detail selection
+- assign / acknowledge / resolve / close / reopen controls
+- workflow step execution per incident
+- timeline notes and event stream
+- postmortem scaffold editing
+- escalation sweep action
 
-- No hidden auto-remediation in Step 9.
-- Workflow API executes only pre-approved safe actions:
-  - `status-snapshot`
-  - `drain-queue`
-  - `notify-test`
-- High-risk/manual interventions remain documented playbook steps.
+## Related Code
 
-## Related Docs
-
-- `docs/operator-playbooks.md`
-- `docs/remediation-queue-runbook.md`
-- `docs/production-ops-runbook.md`
-- `docs/security-performance-runbook.md`
+- `src/lib/ops/incident-engine.ts`
+- `src/lib/ops/workflow-executor.ts`
+- `src/app/api/ops/incidents/route.ts`
+- `src/app/api/ops/incidents/[incidentId]/route.ts`
+- `src/app/api/ops/incidents/escalate/route.ts`
+- `src/app/admin/IncidentEnginePanel.tsx`

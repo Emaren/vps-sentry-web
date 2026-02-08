@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { sendEmailNotification } from "@/lib/notify/email";
 import { sendWebhookNotification } from "@/lib/notify/webhook";
 import { buildNotifyTestEmailBodies } from "@/lib/notify/templates";
+import { incrementCounter, logEvent, recordAlertMetadata } from "@/lib/observability";
 
 export type NotifyKind = "EMAIL" | "WEBHOOK";
 
@@ -21,6 +22,12 @@ type DispatchNotifyTestInput = {
   target?: string | null;
   title?: string | null;
   detail?: string | null;
+  observability?: {
+    correlationId?: string | null;
+    traceId?: string | null;
+    route?: string | null;
+    method?: string | null;
+  };
 };
 
 type DispatchNotifyTestAttempt = {
@@ -103,6 +110,7 @@ function buildPayload(input: {
   detail: string;
   hostId?: string | null;
   requestedByEmail: string;
+  observability?: DispatchNotifyTestInput["observability"];
 }) {
   return {
     type: "notify.test",
@@ -112,6 +120,14 @@ function buildPayload(input: {
     hostId: input.hostId ?? null,
     requestedBy: input.requestedByEmail,
     source: "vps-sentry-web",
+    observability: input.observability
+      ? {
+          correlationId: input.observability.correlationId ?? null,
+          traceId: input.observability.traceId ?? null,
+          route: input.observability.route ?? null,
+          method: input.observability.method ?? null,
+        }
+      : null,
   };
 }
 
@@ -200,6 +216,7 @@ export async function dispatchNotifyTest(input: DispatchNotifyTestInput): Promis
     detail,
     hostId: input.hostId,
     requestedByEmail: input.requestedByEmail,
+    observability: input.observability,
   });
 
   const { targets, usedFallback } = await resolveTargets(input);
@@ -225,12 +242,19 @@ export async function dispatchNotifyTest(input: DispatchNotifyTestInput): Promis
         title,
         detail,
         payload,
+        observability: input.observability,
       });
       const res = await sendEmailNotification({
         to: t.target,
         subject,
         text: emailBodies.text,
         html: emailBodies.html,
+        metadata: {
+          correlationId: input.observability?.correlationId ?? null,
+          traceId: input.observability?.traceId ?? null,
+          route: input.observability?.route ?? null,
+          method: input.observability?.method ?? null,
+        },
       });
 
       const attempt: DispatchNotifyTestAttempt = {
@@ -243,6 +267,37 @@ export async function dispatchNotifyTest(input: DispatchNotifyTestInput): Promis
         detail: res.ok ? undefined : res.detail,
       };
       attempts.push(attempt);
+      incrementCounter("notify.dispatch.attempt.total", 1, {
+        kind: t.kind,
+        source: t.source,
+        deliveredOk: res.ok ? "true" : "false",
+      });
+      logEvent(res.ok ? "info" : "warn", "notify.dispatch.email", {
+        correlationId: input.observability?.correlationId ?? null,
+        traceId: input.observability?.traceId ?? null,
+        route: input.observability?.route ?? null,
+        method: input.observability?.method ?? null,
+        userId: input.userId,
+        hostId: input.hostId ?? null,
+      }, {
+        target: t.target,
+        source: t.source,
+        deliveredOk: res.ok,
+        error: res.ok ? null : res.error,
+      });
+      recordAlertMetadata({
+        kind: "notify.test.email",
+        severity: res.ok ? "info" : "warn",
+        title,
+        correlationId: input.observability?.correlationId ?? null,
+        traceId: input.observability?.traceId ?? null,
+        route: input.observability?.route ?? null,
+        method: input.observability?.method ?? null,
+        target: t.target,
+        deliveredOk: res.ok,
+        status: null,
+        detail: res.ok ? "delivered" : `${res.error}${res.detail ? `: ${res.detail}` : ""}`,
+      });
 
       await prisma.notificationEvent.create({
         data: {
@@ -267,6 +322,12 @@ export async function dispatchNotifyTest(input: DispatchNotifyTestInput): Promis
       url: t.target,
       payload,
       headers: t.headers,
+      metadata: {
+        correlationId: input.observability?.correlationId ?? null,
+        traceId: input.observability?.traceId ?? null,
+        route: input.observability?.route ?? null,
+        method: input.observability?.method ?? null,
+      },
     });
 
     const attempt: DispatchNotifyTestAttempt = {
@@ -280,6 +341,40 @@ export async function dispatchNotifyTest(input: DispatchNotifyTestInput): Promis
       detail: webhookRes.detail,
     };
     attempts.push(attempt);
+    incrementCounter("notify.dispatch.attempt.total", 1, {
+      kind: t.kind,
+      source: t.source,
+      deliveredOk: webhookRes.ok ? "true" : "false",
+    });
+    logEvent(webhookRes.ok ? "info" : "warn", "notify.dispatch.webhook", {
+      correlationId: input.observability?.correlationId ?? null,
+      traceId: input.observability?.traceId ?? null,
+      route: input.observability?.route ?? null,
+      method: input.observability?.method ?? null,
+      userId: input.userId,
+      hostId: input.hostId ?? null,
+    }, {
+      target: t.target,
+      source: t.source,
+      deliveredOk: webhookRes.ok,
+      status: webhookRes.status ?? null,
+      error: webhookRes.ok ? null : webhookRes.error,
+    });
+    recordAlertMetadata({
+      kind: "notify.test.webhook",
+      severity: webhookRes.ok ? "info" : "warn",
+      title,
+      correlationId: input.observability?.correlationId ?? null,
+      traceId: input.observability?.traceId ?? null,
+      route: input.observability?.route ?? null,
+      method: input.observability?.method ?? null,
+      target: t.target,
+      deliveredOk: webhookRes.ok,
+      status: webhookRes.status ?? null,
+      detail: webhookRes.ok
+        ? webhookRes.detail ?? "delivered"
+        : `${webhookRes.error}${webhookRes.detail ? `: ${webhookRes.detail}` : ""}`,
+    });
 
     await prisma.notificationEvent.create({
       data: {

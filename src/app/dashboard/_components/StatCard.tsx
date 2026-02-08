@@ -1,11 +1,16 @@
 // /var/www/vps-sentry-web/src/app/dashboard/_components/StatCard.tsx
 import React from "react";
 import Box from "./Box";
+import NoobTip from "./NoobTip";
 
-export default function StatCard({ label, value }: { label: string; value: number }) {
+export default function StatCard(props: { label: string; value: number; hint?: string }) {
+  const { label, value, hint } = props;
   return (
     <Box style={{ minWidth: 140 }}>
-      <div style={{ opacity: 0.8, fontSize: 12 }}>{label}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--dash-meta)", fontSize: 12 }}>
+        <span>{label}</span>
+        {hint ? <NoobTip text={hint} /> : null}
+      </div>
       <div style={{ fontSize: 28, fontWeight: 800, marginTop: 6 }}>{value}</div>
     </Box>
   );

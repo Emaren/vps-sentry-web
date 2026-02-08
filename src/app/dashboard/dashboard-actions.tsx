@@ -3,6 +3,7 @@
 
 import Link from "next/link";
 import React from "react";
+import { hasRequiredRole, type AppRole } from "@/lib/rbac-policy";
 import { boxStyle, subtleText } from "./_styles";
 
 type JsonResponse = {
@@ -59,7 +60,8 @@ function asErrorMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
-export default function DashboardActions() {
+export default function DashboardActions(props: { userRole: AppRole }) {
+  const canRunOps = hasRequiredRole(props.userRole, "ops");
   const [busy, setBusy] = React.useState<null | "test-email" | "report-now">(null);
   const [notice, setNotice] = React.useState<
     null | { tone: "info" | "ok" | "bad"; title: string; detail: string }
@@ -142,23 +144,31 @@ export default function DashboardActions() {
           ← Back to landing
         </Link>
 
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={sendTestEmail}
-          style={busy !== null ? disabledButtonStyle : buttonStyle}
-        >
-          {busy === "test-email" ? "Working..." : "Send test email"}
-        </button>
+        {canRunOps ? (
+          <>
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={sendTestEmail}
+              style={busy !== null ? disabledButtonStyle : buttonStyle}
+            >
+              {busy === "test-email" ? "Working..." : "Send test email"}
+            </button>
 
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={sendReportNow}
-          style={busy !== null ? disabledButtonStyle : buttonStyle}
-        >
-          {busy === "report-now" ? "Working..." : "Send report now"}
-        </button>
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={sendReportNow}
+              style={busy !== null ? disabledButtonStyle : buttonStyle}
+            >
+              {busy === "report-now" ? "Working..." : "Send report now"}
+            </button>
+          </>
+        ) : (
+          <span style={{ ...subtleText, alignSelf: "center" }}>
+            Ops actions require an ops/admin/owner role.
+          </span>
+        )}
       </div>
 
       {notice ? (

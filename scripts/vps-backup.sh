@@ -16,6 +16,7 @@ VPS_BACKUP_BASE="${VPS_BACKUP_BASE:-/home/tony/_backup/vps-sentry-web}"
 VPS_BACKUP_KEEP_DAYS="${VPS_BACKUP_KEEP_DAYS:-14}"
 VPS_SQLITE_DB_PATH="${VPS_SQLITE_DB_PATH:-$VPS_APP_DIR/prisma/dev.db}"
 VPS_POSTGRES_DATABASE_URL="${VPS_POSTGRES_DATABASE_URL:-}"
+VPS_LOCAL_EXEC="${VPS_LOCAL_EXEC:-0}"
 
 VPS_SSH_CONNECT_TIMEOUT="${VPS_SSH_CONNECT_TIMEOUT:-10}"
 VPS_SSH_CONNECTION_ATTEMPTS="${VPS_SSH_CONNECTION_ATTEMPTS:-2}"
@@ -39,6 +40,7 @@ Creates a VPS backup snapshot under VPS_BACKUP_BASE:
 
 Env:
   VPS_HOST
+  VPS_LOCAL_EXEC               Set to 1 to run directly on current host (no SSH hop)
   VPS_APP_DIR
   VPS_BACKUP_BASE
   VPS_BACKUP_KEEP_DAYS
@@ -72,6 +74,11 @@ sanitize_label() {
 }
 
 remote() {
+  if [[ "${VPS_LOCAL_EXEC}" == "1" ]]; then
+    bash -lc "$*"
+    return $?
+  fi
+
   local attempt=1
   local max_attempts="$VPS_SSH_RETRIES"
   local retry_delay="$VPS_SSH_RETRY_DELAY_SECONDS"
@@ -149,6 +156,7 @@ echo "[backup] app_dir: $VPS_APP_DIR"
 echo "[backup] backup_base: $VPS_BACKUP_BASE"
 echo "[backup] keep_days: $VPS_BACKUP_KEEP_DAYS"
 echo "[backup] mode: $mode"
+echo "[backup] local_exec: $VPS_LOCAL_EXEC"
 
 remote "VPS_APP_DIR=$(printf %q "$VPS_APP_DIR") VPS_SERVICE=$(printf %q "$VPS_SERVICE") VPS_BACKUP_BASE=$(printf %q "$VPS_BACKUP_BASE") VPS_BACKUP_KEEP_DAYS=$(printf %q "$VPS_BACKUP_KEEP_DAYS") VPS_SQLITE_DB_PATH=$(printf %q "$VPS_SQLITE_DB_PATH") VPS_POSTGRES_DATABASE_URL=$(printf %q "$VPS_POSTGRES_DATABASE_URL") VPS_BACKUP_MODE=$(printf %q "$mode") VPS_BACKUP_LABEL=$(printf %q "$label") bash -s" <<'REMOTE_EOF'
 set -euo pipefail
@@ -247,7 +255,35 @@ if [[ "$VPS_BACKUP_MODE" == "apply" ]]; then
   )
 
   date +%s > "$VPS_BACKUP_BASE/last_success_epoch"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$VPS_BACKUP_BASE/last_success_iso"
   printf '%s\n' "$run_dir" > "$VPS_BACKUP_BASE/last_success_path"
+
+  snapshot_bytes="$(du -sb "$run_dir" 2>/dev/null | awk 'NR==1 {print $1}' || true)"
+  if [[ -z "$snapshot_bytes" ]] && command -v python3 >/dev/null 2>&1; then
+    snapshot_bytes="$(python3 - <<PY
+import os
+total = 0
+for root, _, files in os.walk("$run_dir"):
+  for name in files:
+    try:
+      total += os.path.getsize(os.path.join(root, name))
+    except OSError:
+      pass
+print(total)
+PY
+)"
+  fi
+  snapshot_bytes="${snapshot_bytes:-0}"
+  echo "[backup] snapshot_bytes:$snapshot_bytes"
+
+  {
+    printf 'ts=%s ' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'status=PASS '
+    printf 'snapshot=%s ' "$run_dir"
+    printf 'snapshot_bytes=%s ' "$snapshot_bytes"
+    printf 'branch=%s ' "$branch"
+    printf 'commit=%s\n' "$commit"
+  } >> "$VPS_BACKUP_BASE/backup-history.log"
 
   old_dirs="$(find "$VPS_BACKUP_BASE" -mindepth 1 -maxdepth 1 -type d -mtime +"$VPS_BACKUP_KEEP_DAYS" -print | sort || true)"
   if [[ -n "$old_dirs" ]]; then

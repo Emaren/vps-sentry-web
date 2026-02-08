@@ -1,9 +1,9 @@
 // /var/www/vps-sentry-web/src/app/api/billing/portal/route.ts
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { requireOwnerAccess } from "@/lib/rbac";
+import { writeAuditLog } from "@/lib/audit-log";
 
 // Ensure we are NOT running on Edge (we want Node + full Stripe SDK)
 export const runtime = "nodejs";
@@ -107,7 +107,7 @@ async function ensureStripeCustomer(user: {
  * - Creates a Stripe Billing Portal session
  * - Returns { url } for frontend redirect
  */
-export async function POST() {
+export async function POST(req: Request) {
   const rid = requestId();
 
   const appUrl = (process.env.APP_URL || process.env.NEXTAUTH_URL || "").trim();
@@ -140,23 +140,33 @@ export async function POST() {
     "If portal isn’t configured, billingPortal.sessions.create can fail.";
 
   try {
-    // 1) Confirm user is logged in
-    const session = await getServerSession(authOptions);
-    const email = session?.user?.email?.trim();
-    if (!email) {
+    const access = await requireOwnerAccess();
+    if (!access.ok) {
+      await writeAuditLog({
+        req,
+        action: "billing.portal.denied",
+        detail: `status=${access.status} role=${access.role ?? "unknown"} email=${access.email ?? "unknown"}`,
+        meta: {
+          route: "/api/billing/portal",
+          requestId: rid,
+          status: access.status,
+          requiredRole: "owner",
+          email: access.email ?? null,
+          role: access.role ?? null,
+        },
+      });
       return NextResponse.json(
         {
-          error: "Unauthorized",
-          hint: "No session email found. Are you logged in via NextAuth?",
+          error: access.error,
           requestId: rid,
         },
-        { status: 401 }
+        { status: access.status }
       );
     }
 
     // 2) Load minimal user record
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { id: access.identity.userId },
       select: { id: true, email: true, stripeCustomerId: true },
     });
 
@@ -166,7 +176,7 @@ export async function POST() {
           error: "User not found",
           hint:
             "Logged-in email doesn't exist in Prisma User table. Did the NextAuth user record get created?",
-          email,
+          email: access.identity.email,
           requestId: rid,
         },
         { status: 404 }
@@ -196,6 +206,18 @@ export async function POST() {
     const portal = await stripe.billingPortal.sessions.create({
       customer: customerId,
       return_url: returnUrl,
+    });
+
+    await writeAuditLog({
+      req,
+      userId: access.identity.userId,
+      action: "billing.portal.request",
+      detail: "Billing portal session created",
+      meta: {
+        route: "/api/billing/portal",
+        requestId: rid,
+        customerId,
+      },
     });
 
     // 5) Return portal URL

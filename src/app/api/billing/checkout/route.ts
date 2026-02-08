@@ -1,9 +1,9 @@
 // /var/www/vps-sentry-web/src/app/api/billing/checkout/route.ts
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { requireOwnerAccess } from "@/lib/rbac";
+import { writeAuditLog } from "@/lib/audit-log";
 
 type Plan = "BASIC" | "PRO";
 
@@ -125,12 +125,26 @@ export async function POST(req: Request) {
   }
 
   try {
-    const session = await getServerSession(authOptions);
-    const email = session?.user?.email?.trim();
-    if (!email) return NextResponse.json({ error: "Unauthorized", requestId: rid }, { status: 401 });
+    const access = await requireOwnerAccess();
+    if (!access.ok) {
+      await writeAuditLog({
+        req,
+        action: "billing.checkout.denied",
+        detail: `status=${access.status} role=${access.role ?? "unknown"} email=${access.email ?? "unknown"}`,
+        meta: {
+          route: "/api/billing/checkout",
+          requestId: rid,
+          status: access.status,
+          requiredRole: "owner",
+          email: access.email ?? null,
+          role: access.role ?? null,
+        },
+      });
+      return NextResponse.json({ error: access.error, requestId: rid }, { status: access.status });
+    }
 
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { id: access.identity.userId },
       select: { id: true, email: true, stripeCustomerId: true },
     });
 
@@ -192,6 +206,18 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+
+    await writeAuditLog({
+      req,
+      userId: access.identity.userId,
+      action: "billing.checkout.request",
+      detail: `Checkout started for plan=${plan}`,
+      meta: {
+        route: "/api/billing/checkout",
+        requestId: rid,
+        plan,
+      },
+    });
 
     return NextResponse.json({ url: checkout.url, requestId: rid });
   } catch (err: unknown) {

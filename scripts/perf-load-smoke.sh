@@ -11,6 +11,12 @@ fi
 
 VPS_HOST="${VPS_HOST:-hetzner-codex}"
 VPS_WEB_PORT="${VPS_WEB_PORT:-3035}"
+VPS_SSH_CONNECT_TIMEOUT="${VPS_SSH_CONNECT_TIMEOUT:-10}"
+VPS_SSH_CONNECTION_ATTEMPTS="${VPS_SSH_CONNECTION_ATTEMPTS:-2}"
+VPS_SSH_SERVER_ALIVE_INTERVAL="${VPS_SSH_SERVER_ALIVE_INTERVAL:-15}"
+VPS_SSH_SERVER_ALIVE_COUNT_MAX="${VPS_SSH_SERVER_ALIVE_COUNT_MAX:-3}"
+VPS_SSH_RETRIES="${VPS_SSH_RETRIES:-4}"
+VPS_SSH_RETRY_DELAY_SECONDS="${VPS_SSH_RETRY_DELAY_SECONDS:-5}"
 
 url="http://127.0.0.1:${VPS_WEB_PORT}/api/status"
 requests="200"
@@ -40,6 +46,36 @@ require_positive_int() {
     echo "[perf] $name must be a positive integer: $value"
     exit 1
   fi
+}
+
+run_remote() {
+  local attempt=1
+  local max_attempts="$VPS_SSH_RETRIES"
+  local retry_delay="$VPS_SSH_RETRY_DELAY_SECONDS"
+  local exit_code=0
+
+  while true; do
+    if ssh \
+      -o BatchMode=yes \
+      -o LogLevel=ERROR \
+      -o ConnectTimeout="$VPS_SSH_CONNECT_TIMEOUT" \
+      -o ConnectionAttempts="$VPS_SSH_CONNECTION_ATTEMPTS" \
+      -o ServerAliveInterval="$VPS_SSH_SERVER_ALIVE_INTERVAL" \
+      -o ServerAliveCountMax="$VPS_SSH_SERVER_ALIVE_COUNT_MAX" \
+      "$VPS_HOST" "$@"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+
+    if [[ "$exit_code" -ne 255 || "$attempt" -ge "$max_attempts" ]]; then
+      return "$exit_code"
+    fi
+
+    echo "[perf] ssh_retry:$attempt/$max_attempts host=$VPS_HOST delay=${retry_delay}s" >&2
+    sleep "$retry_delay"
+    attempt=$((attempt + 1))
+  done
 }
 
 run_load() {
@@ -137,6 +173,12 @@ done
 
 require_positive_int "requests" "$requests"
 require_positive_int "concurrency" "$concurrency"
+require_positive_int "VPS_SSH_CONNECT_TIMEOUT" "$VPS_SSH_CONNECT_TIMEOUT"
+require_positive_int "VPS_SSH_CONNECTION_ATTEMPTS" "$VPS_SSH_CONNECTION_ATTEMPTS"
+require_positive_int "VPS_SSH_SERVER_ALIVE_INTERVAL" "$VPS_SSH_SERVER_ALIVE_INTERVAL"
+require_positive_int "VPS_SSH_SERVER_ALIVE_COUNT_MAX" "$VPS_SSH_SERVER_ALIVE_COUNT_MAX"
+require_positive_int "VPS_SSH_RETRIES" "$VPS_SSH_RETRIES"
+require_positive_int "VPS_SSH_RETRY_DELAY_SECONDS" "$VPS_SSH_RETRY_DELAY_SECONDS"
 
 if ! [[ "$expected_code" =~ ^[0-9]{3}$ ]]; then
   echo "[perf] --expect must be a 3-digit HTTP code"
@@ -150,7 +192,7 @@ if [[ "$remote_mode" -eq 0 ]]; then
 fi
 
 echo "[perf] remote host: $VPS_HOST"
-ssh "$VPS_HOST" \
+run_remote \
   "TARGET_URL=$(printf %q "$url") REQUESTS=$(printf %q "$requests") CONCURRENCY=$(printf %q "$concurrency") EXPECT_CODE=$(printf %q "$expected_code") bash -s" <<'REMOTE_EOF'
 set -euo pipefail
 

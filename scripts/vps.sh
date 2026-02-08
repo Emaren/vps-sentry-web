@@ -25,6 +25,7 @@ VPS_SSH_SERVER_ALIVE_INTERVAL="${VPS_SSH_SERVER_ALIVE_INTERVAL:-15}"
 VPS_SSH_SERVER_ALIVE_COUNT_MAX="${VPS_SSH_SERVER_ALIVE_COUNT_MAX:-3}"
 VPS_SSH_RETRIES="${VPS_SSH_RETRIES:-4}"
 VPS_SSH_RETRY_DELAY_SECONDS="${VPS_SSH_RETRY_DELAY_SECONDS:-5}"
+VPS_DB_PROVIDER="${VPS_DB_PROVIDER:-sqlite}"
 
 usage() {
   cat <<'EOF'
@@ -59,6 +60,11 @@ SSH reliability knobs:
   VPS_SSH_SERVER_ALIVE_COUNT_MAX=3
   VPS_SSH_RETRIES=4
   VPS_SSH_RETRY_DELAY_SECONDS=5
+
+DB provider knob:
+  VPS_DB_PROVIDER=sqlite|postgres
+    - sqlite (default): generate Prisma client from prisma/schema.prisma
+    - postgres: generate Prisma client from prisma/schema.postgres.prisma
 EOF
 }
 
@@ -85,6 +91,14 @@ validate_runtime_config() {
   require_positive_int "VPS_SSH_SERVER_ALIVE_COUNT_MAX" "$VPS_SSH_SERVER_ALIVE_COUNT_MAX"
   require_positive_int "VPS_SSH_RETRIES" "$VPS_SSH_RETRIES"
   require_positive_int "VPS_SSH_RETRY_DELAY_SECONDS" "$VPS_SSH_RETRY_DELAY_SECONDS"
+
+  case "$VPS_DB_PROVIDER" in
+    sqlite|postgres) ;;
+    *)
+      echo "VPS_DB_PROVIDER must be sqlite or postgres: $VPS_DB_PROVIDER"
+      exit 1
+      ;;
+  esac
 }
 
 require_local_deploy_safety() {
@@ -226,6 +240,10 @@ elif [ -f package-lock.json ]; then
   npm ci
 else
   npm install
+fi
+
+if [ -x ./scripts/db/prisma-generate-provider.sh ]; then
+  ./scripts/db/prisma-generate-provider.sh "${VPS_DB_PROVIDER:-sqlite}"
 fi
 
 if node -e "const p=require(\"./package.json\"); process.exit(p?.scripts?.build ? 0 : 1)"; then
@@ -446,7 +464,7 @@ case "$cmd" in
     require_app_dir
     require_local_deploy_safety
     check_ssh_connectivity
-    remote "VPS_GIT_REF=\"$VPS_GIT_REF\" VPS_DEPLOY_STRATEGY=\"$VPS_DEPLOY_STRATEGY\" VPS_REQUIRE_NONINTERACTIVE_SUDO=\"$VPS_REQUIRE_NONINTERACTIVE_SUDO\" bash -c 'set -euo pipefail; cd \"$VPS_APP_DIR\"; echo branch:\$(git rev-parse --abbrev-ref HEAD); $(git_sync_block); $(install_and_build_block); $(restart_block)'"
+    remote "VPS_GIT_REF=\"$VPS_GIT_REF\" VPS_DEPLOY_STRATEGY=\"$VPS_DEPLOY_STRATEGY\" VPS_REQUIRE_NONINTERACTIVE_SUDO=\"$VPS_REQUIRE_NONINTERACTIVE_SUDO\" VPS_DB_PROVIDER=\"$VPS_DB_PROVIDER\" bash -c 'set -euo pipefail; cd \"$VPS_APP_DIR\"; echo branch:\$(git rev-parse --abbrev-ref HEAD); $(git_sync_block); $(install_and_build_block); $(restart_block)'"
     ;;
 
   restart)
@@ -474,7 +492,7 @@ case "$cmd" in
     target="${arg:-HEAD~1}"
     check_ssh_connectivity
     require_noninteractive_sudo
-    remote "bash -c 'set -euo pipefail; cd \"$VPS_APP_DIR\"; git fetch --all --prune; git rev-parse \"$target\" >/dev/null; echo rollback_to:$target; git reset --hard \"$target\"; $(install_and_build_block)'"
+    remote "VPS_DB_PROVIDER=\"$VPS_DB_PROVIDER\" bash -c 'set -euo pipefail; cd \"$VPS_APP_DIR\"; git fetch --all --prune; git rev-parse \"$target\" >/dev/null; echo rollback_to:$target; git reset --hard \"$target\"; $(install_and_build_block)'"
     restart_target
     ;;
 

@@ -4,6 +4,10 @@ import {
   type CommandGuardPolicy,
 } from "@/lib/remediate/guard";
 import {
+  normalizeApprovalRiskThreshold,
+  normalizeRemediationAutoTier,
+} from "@/lib/remediate/autonomous";
+import {
   applyRemediationPolicyOverrides,
   type RemediationPolicy,
   type RemediationPolicyOverrides,
@@ -28,9 +32,13 @@ const PROFILE_POLICY_OVERRIDES: Record<RemediationPolicyProfile, RemediationPoli
     maxQueuePerHost: 2,
     maxQueueTotal: 100,
     queueTtlMinutes: 60,
+    maxRetryAttempts: 2,
+    retryBackoffSeconds: 30,
+    retryBackoffMaxSeconds: 10 * 60,
     commandTimeoutMs: 15_000,
     maxBufferBytes: 256_000,
     queueAutoDrain: false,
+    autonomousEnabled: false,
   },
   balanced: {},
   rapid: {
@@ -41,8 +49,19 @@ const PROFILE_POLICY_OVERRIDES: Record<RemediationPolicyProfile, RemediationPoli
     maxQueuePerHost: 10,
     maxQueueTotal: 800,
     queueTtlMinutes: 240,
+    maxRetryAttempts: 5,
+    retryBackoffSeconds: 10,
+    retryBackoffMaxSeconds: 5 * 60,
     commandTimeoutMs: 30_000,
     maxBufferBytes: 1_000_000,
+    autonomousEnabled: true,
+    autonomousMaxTier: "guarded_auto",
+    autonomousMaxQueuedPerCycle: 2,
+    autonomousMaxQueuedPerHour: 30,
+    approvalRiskThreshold: "high",
+    canaryRolloutPercent: 75,
+    canaryRequireChecks: true,
+    autoRollback: true,
   },
 };
 
@@ -96,6 +115,18 @@ function parseBoolMaybe(v: unknown): boolean | undefined {
   return undefined;
 }
 
+function parseTierMaybe(v: unknown): RemediationPolicyOverrides["autonomousMaxTier"] {
+  if (v === undefined || v === null) return undefined;
+  return normalizeRemediationAutoTier(v);
+}
+
+function parseApprovalThresholdMaybe(
+  v: unknown
+): RemediationPolicyOverrides["approvalRiskThreshold"] {
+  if (v === undefined || v === null) return undefined;
+  return normalizeApprovalRiskThreshold(v, "medium");
+}
+
 export function normalizeRemediationPolicyProfile(v: unknown): RemediationPolicyProfile {
   const t = typeof v === "string" ? v.trim().toLowerCase() : "";
   if (t === "strict" || t === "rapid") return t;
@@ -116,9 +147,20 @@ export function readHostRemediationPolicyConfig(metaJson: string | null | undefi
     maxQueuePerHost: parseIntMaybe(overridesRaw.maxQueuePerHost),
     maxQueueTotal: parseIntMaybe(overridesRaw.maxQueueTotal),
     queueTtlMinutes: parseIntMaybe(overridesRaw.queueTtlMinutes),
+    maxRetryAttempts: parseIntMaybe(overridesRaw.maxRetryAttempts),
+    retryBackoffSeconds: parseIntMaybe(overridesRaw.retryBackoffSeconds),
+    retryBackoffMaxSeconds: parseIntMaybe(overridesRaw.retryBackoffMaxSeconds),
     commandTimeoutMs: parseIntMaybe(overridesRaw.commandTimeoutMs),
     maxBufferBytes: parseIntMaybe(overridesRaw.maxBufferBytes),
     queueAutoDrain: parseBoolMaybe(overridesRaw.queueAutoDrain),
+    autonomousEnabled: parseBoolMaybe(overridesRaw.autonomousEnabled),
+    autonomousMaxTier: parseTierMaybe(overridesRaw.autonomousMaxTier),
+    autonomousMaxQueuedPerCycle: parseIntMaybe(overridesRaw.autonomousMaxQueuedPerCycle),
+    autonomousMaxQueuedPerHour: parseIntMaybe(overridesRaw.autonomousMaxQueuedPerHour),
+    approvalRiskThreshold: parseApprovalThresholdMaybe(overridesRaw.approvalRiskThreshold),
+    canaryRolloutPercent: parseIntMaybe(overridesRaw.canaryRolloutPercent),
+    canaryRequireChecks: parseBoolMaybe(overridesRaw.canaryRequireChecks),
+    autoRollback: parseBoolMaybe(overridesRaw.autoRollback),
   };
 
   const guardOverrides: CommandGuardOverrides = {

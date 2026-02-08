@@ -35,6 +35,7 @@ describe("host remediation policy profiles", () => {
         overrides: {
           maxExecutePerHour: 4,
           queueTtlMinutes: 75,
+          maxRetryAttempts: 4,
         },
         guardOverrides: {
           maxCommandLength: 420,
@@ -52,6 +53,8 @@ describe("host remediation policy profiles", () => {
     expect(resolved.policy.executeCooldownMinutes).toBeGreaterThanOrEqual(10);
     expect(resolved.policy.maxExecutePerHour).toBe(4);
     expect(resolved.policy.queueTtlMinutes).toBe(75);
+    expect(resolved.policy.maxRetryAttempts).toBe(4);
+    expect(resolved.policy.autonomousEnabled).toBe(false);
     expect(resolved.guardPolicy.maxCommandLength).toBe(420);
     expect(resolved.guardPolicy.enforceAllowlist).toBe(true);
   });
@@ -63,6 +66,12 @@ describe("host remediation policy profiles", () => {
       overrides: {
         maxQueuePerHost: 9,
         commandTimeoutMs: 33000,
+        retryBackoffSeconds: 12,
+        autonomousEnabled: true,
+        autonomousMaxTier: "guarded_auto",
+        approvalRiskThreshold: "high",
+        canaryRolloutPercent: 70,
+        autoRollback: true,
       },
       guardOverrides: {
         maxCommandsPerAction: 28,
@@ -73,6 +82,12 @@ describe("host remediation policy profiles", () => {
     expect(config.profile).toBe("rapid");
     expect(config.overrides.maxQueuePerHost).toBe(9);
     expect(config.overrides.commandTimeoutMs).toBe(33000);
+    expect(config.overrides.retryBackoffSeconds).toBe(12);
+    expect(config.overrides.autonomousEnabled).toBe(true);
+    expect(config.overrides.autonomousMaxTier).toBe("guarded_auto");
+    expect(config.overrides.approvalRiskThreshold).toBe("high");
+    expect(config.overrides.canaryRolloutPercent).toBe(70);
+    expect(config.overrides.autoRollback).toBe(true);
     expect(config.guardOverrides.maxCommandsPerAction).toBe(28);
   });
 });

@@ -1,21 +1,22 @@
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import SiteThemeControls from "@/app/_components/SiteThemeControls";
+import { requireAdminAccess } from "@/lib/rbac";
 import NewHostClient from "./NewHostClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewHostPage() {
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email?.trim();
-  if (!email) redirect("/login");
+  const access = await requireAdminAccess();
+  if (!access.ok) {
+    if (access.status === 401) redirect("/login");
+    redirect("/hosts");
+  }
 
   const user = await prisma.user.findUnique({
-    where: { email },
+    where: { id: access.identity.userId },
     select: {
       id: true,
       hostLimit: true,

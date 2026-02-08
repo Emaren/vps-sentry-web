@@ -1,10 +1,11 @@
-# Production Ops Runbook (Step 6)
+# Production Ops Runbook (Step 6 + Step 16)
 
 This runbook covers:
 
 - monitoring and alert fanout
 - backup automation
-- restore drill verification
+- recurring restore drill verification
+- measured RPO/RTO objective reporting
 
 ## 1) Configure `.vps.env`
 
@@ -26,6 +27,9 @@ Optional but recommended:
 
 - `VPS_POSTGRES_DATABASE_URL` (for postgres dump backup)
 - `VPS_RESTORE_DRILL_POSTGRES_URL` (dedicated scratch DB for restore drill)
+- `VPS_RPO_TARGET_MINUTES`
+- `VPS_RTO_TARGET_MINUTES`
+- `VPS_RESTORE_DRILL_MAX_AGE_HOURS`
 
 ## 2) Monitoring
 
@@ -87,7 +91,9 @@ Artifacts created (when available):
 After successful backup, marker files are updated:
 
 - `$VPS_BACKUP_BASE/last_success_epoch`
+- `$VPS_BACKUP_BASE/last_success_iso`
 - `$VPS_BACKUP_BASE/last_success_path`
+- `$VPS_BACKUP_BASE/backup-history.log`
 
 ## 5) Backup Automation
 
@@ -108,6 +114,11 @@ Remove automation:
 ```bash
 make vps-backup-automation-remove
 ```
+
+Notes:
+
+- Backup automation now runs with `VPS_LOCAL_EXEC=1` on the VPS cron host (no nested SSH hop).
+- If `VPS_BACKUP_REPORT_AFTER_RUN=1`, each backup run also emits a fresh RPO/RTO report.
 
 ## 6) Restore Drill
 
@@ -133,9 +144,66 @@ If `postgres.sql` exists and `VPS_RESTORE_DRILL_POSTGRES_URL` is set, the drill 
 
 Always point drill URL to a dedicated scratch database.
 
-## 7) Suggested cadence
+Restore drill marker outputs:
+
+- `$VPS_BACKUP_BASE/restore_last_run_epoch`
+- `$VPS_BACKUP_BASE/restore_last_run_status`
+- `$VPS_BACKUP_BASE/restore_last_run_rto_seconds`
+- `$VPS_BACKUP_BASE/restore_last_run_rpo_seconds`
+- `$VPS_BACKUP_BASE/restore_last_success_epoch`
+- `$VPS_BACKUP_BASE/restore_last_success_rto_seconds`
+- `$VPS_BACKUP_BASE/restore-drill-history.log` (default path)
+
+## 7) RPO/RTO Report
+
+Generate objective recovery report:
+
+```bash
+make vps-rpo-rto-report
+```
+
+Generate report and alert on objective breach:
+
+```bash
+make vps-rpo-rto-report-alert
+```
+
+Output includes:
+
+- actual backup freshness age (RPO actual)
+- actual restore runtime from last successful drill (RTO actual)
+- restore drill recency age
+- target pass/fail status and overall result
+
+## 8) Recurring Restore Drill Automation
+
+Install weekly restore drill + objective report cron:
+
+```bash
+make vps-restore-drill-automation-install
+```
+
+Check status:
+
+```bash
+make vps-restore-drill-automation-status
+```
+
+Remove:
+
+```bash
+make vps-restore-drill-automation-remove
+```
+
+The scheduled job runs:
+
+1. `./scripts/vps-restore-drill.sh`
+2. `./scripts/vps-rpo-rto-report.sh --alert --soft`
+
+## 9) Suggested cadence
 
 - hourly: backup automation
 - every 5-15 minutes: monitor with alerts
-- weekly: restore drill
+- weekly: restore drill automation
+- daily: objective report check (`make vps-rpo-rto-report`)
 - before release: `make release-gate` + `make vps-monitor`

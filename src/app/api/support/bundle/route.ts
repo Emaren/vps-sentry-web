@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildSupportBundle, SupportBundleError } from "@/lib/support/bundle";
 import { writeAuditLog } from "@/lib/audit-log";
+import { requireOpsAccess } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -27,18 +26,28 @@ function parseLimit(raw: string | null | undefined): number | undefined {
   return Math.max(20, Math.min(500, Math.trunc(n)));
 }
 
-async function requireUser() {
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email?.trim();
-  if (!email) return null;
-  return prisma.user.findUnique({
-    where: { email },
+async function buildAndRespond(req: Request, opts: BundleOptions) {
+  const access = await requireOpsAccess();
+  if (!access.ok) {
+    await writeAuditLog({
+      req,
+      action: "support.bundle.denied",
+      detail: `status=${access.status} role=${access.role ?? "unknown"} email=${access.email ?? "unknown"}`,
+      meta: {
+        route: "/api/support/bundle",
+        status: access.status,
+        requiredRole: "ops",
+        email: access.email ?? null,
+        role: access.role ?? null,
+      },
+    });
+    return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: access.identity.userId },
     select: { id: true, email: true },
   });
-}
-
-async function buildAndRespond(req: Request, opts: BundleOptions) {
-  const user = await requireUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   try {

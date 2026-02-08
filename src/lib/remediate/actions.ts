@@ -1,5 +1,6 @@
 import type { IncidentSignal } from "@/lib/incident-signals";
 import type { RemediationContext } from "./context";
+import type { RemediationAutoTier } from "./autonomous";
 
 export type RemediationPriority = "P0" | "P1" | "P2";
 export type RemediationRisk = "low" | "medium" | "high";
@@ -8,11 +9,14 @@ export type RemediationAction = {
   id: string;
   priority: RemediationPriority;
   risk: RemediationRisk;
+  autoTier: RemediationAutoTier;
   title: string;
   why: string;
   sourceCodes: string[];
   commands: string[];
+  canaryChecks?: string[];
   rollbackNotes?: string[];
+  rollbackCommands?: string[];
   requiresConfirm: boolean;
   confirmPhrase: string;
 };
@@ -48,6 +52,7 @@ function firewallAndAccessActions(signals: IncidentSignal[]): RemediationAction[
       id: "lockdown-access-surface",
       priority: "P0",
       risk: "medium",
+      autoTier: "guarded_auto",
       title: "Lock Down SSH + Firewall Surface",
       why: "Critical config drift was detected in sensitive access-control paths.",
       sourceCodes: ["config_tamper", "firewall_drift"],
@@ -59,9 +64,18 @@ function firewallAndAccessActions(signals: IncidentSignal[]): RemediationAction[
         "sudo ufw status verbose",
         "sudo nft list ruleset | sed -n '1,220p'",
       ],
+      canaryChecks: [
+        "sudo systemctl is-active ssh >/dev/null 2>&1 || sudo systemctl is-active sshd >/dev/null 2>&1",
+        "sudo ufw status verbose",
+      ],
       rollbackNotes: [
         "Restore backed up sshd/sudoers files if hardening changes break access.",
         "Use a second SSH session before reloading sshd so you cannot lock yourself out.",
+      ],
+      rollbackCommands: [
+        "sudo bash -lc 'latest=$(ls -1t /root/sshd_config.backup.* 2>/dev/null | head -n 1); [ -n \"$latest\" ] && sudo cp -a \"$latest\" /etc/ssh/sshd_config || true'",
+        "sudo bash -lc 'latest=$(ls -1t /root/sudoers.backup.* 2>/dev/null | head -n 1); [ -n \"$latest\" ] && sudo cp -a \"$latest\" /etc/sudoers || true'",
+        "sudo systemctl reload ssh || sudo systemctl reload sshd",
       ],
     }),
   ];
@@ -82,12 +96,16 @@ function unexpectedPortActions(signals: IncidentSignal[], context: RemediationCo
   const blockRules = candidates.length
     ? candidates.map((p) => `sudo ufw deny ${p.port}/${p.proto}`)
     : ["# No concrete port values in latest snapshot; identify first, then deny explicitly."];
+  const rollbackRules = candidates.length
+    ? candidates.map((p) => `sudo ufw delete deny ${p.port}/${p.proto} || true`)
+    : ["# Remove deny rules manually once the service is validated as safe."];
 
   return [
     withConfirm({
       id: "quarantine-unexpected-listener",
       priority: "P0",
       risk: "high",
+      autoTier: "risky_manual",
       title: "Quarantine Unexpected Public Listener",
       why: `Unexpected public exposure detected: ${targets}.`,
       sourceCodes: ["unexpected_public_ports"],
@@ -98,9 +116,13 @@ function unexpectedPortActions(signals: IncidentSignal[], context: RemediationCo
         `sudo ss -lntup | grep -E ':(?:${grepPattern})\\\\b' || true`,
         "sudo journalctl -u vps-sentry.service -n 120 --no-pager",
       ],
+      canaryChecks: [
+        `sudo ss -lntup | grep -E ':(?:${grepPattern})\\\\b' || true`,
+      ],
       rollbackNotes: [
         "If legitimate traffic breaks, remove the deny rule with `sudo ufw delete deny <PORT>/<PROTO>`.",
       ],
+      rollbackCommands: rollbackRules,
     }),
   ];
 }
@@ -113,6 +135,7 @@ function sshNoiseActions(signals: IncidentSignal[]): RemediationAction[] {
       id: "harden-ssh-auth",
       priority: "P1",
       risk: "medium",
+      autoTier: "guarded_auto",
       title: "Harden SSH Authentication",
       why: "SSH brute-force or invalid-user probes were detected.",
       sourceCodes: ["ssh_failed_password", "ssh_invalid_user"],
@@ -122,9 +145,14 @@ function sshNoiseActions(signals: IncidentSignal[]): RemediationAction[] {
         "sudo ufw limit 22/tcp",
         "sudo systemctl reload ssh || sudo systemctl reload sshd",
       ],
+      canaryChecks: [
+        "sudo systemctl is-active ssh >/dev/null 2>&1 || sudo systemctl is-active sshd >/dev/null 2>&1",
+        "sudo ufw status verbose",
+      ],
       rollbackNotes: [
         "Confirm key-based login works from another terminal before disabling password auth.",
       ],
+      rollbackCommands: ["sudo ufw delete limit 22/tcp || true"],
     }),
   ];
 }
@@ -137,6 +165,7 @@ function driftActions(signals: IncidentSignal[]): RemediationAction[] {
       id: "verify-system-drift",
       priority: "P2",
       risk: "low",
+      autoTier: "safe_auto",
       title: "Verify Package/User Drift Is Expected",
       why: "System state changed and should be confirmed as planned maintenance.",
       sourceCodes: ["package_drift", "account_drift"],
@@ -172,6 +201,7 @@ export function buildRemediationActions(
         id: "collect-forensics-first",
         priority: "P2",
         risk: "low",
+        autoTier: "observe",
         title: "Collect Forensics Snapshot",
         why: "Signals exist but do not map to a known playbook yet.",
         sourceCodes: topSignalCodes(signals),

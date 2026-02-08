@@ -1,9 +1,9 @@
 // /var/www/vps-sentry-web/src/app/api/billing/cancel/route.ts
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { requireOwnerAccess } from "@/lib/rbac";
+import { writeAuditLog } from "@/lib/audit-log";
 
 function requireEnv(name: string): string | null {
   const v = process.env[name];
@@ -18,7 +18,7 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   if (!stripeConfigured()) {
     return NextResponse.json(
       { error: "Stripe is not configured (missing STRIPE_SECRET_KEY)." },
@@ -26,12 +26,25 @@ export async function POST() {
     );
   }
 
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email?.trim();
-  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await requireOwnerAccess();
+  if (!access.ok) {
+    await writeAuditLog({
+      req,
+      action: "billing.cancel.denied",
+      detail: `status=${access.status} role=${access.role ?? "unknown"} email=${access.email ?? "unknown"}`,
+      meta: {
+        route: "/api/billing/cancel",
+        status: access.status,
+        requiredRole: "owner",
+        email: access.email ?? null,
+        role: access.role ?? null,
+      },
+    });
+    return NextResponse.json({ error: access.error }, { status: access.status });
+  }
 
   const user = await prisma.user.findUnique({
-    where: { email },
+    where: { id: access.identity.userId },
     select: {
       id: true,
       stripeCustomerId: true,
@@ -77,6 +90,17 @@ export async function POST() {
     console.warn("[billing.cancel] failed to persist cancel state:", errorMessage(err));
     // ignore schema mismatch
   }
+
+  await writeAuditLog({
+    req,
+    userId: access.identity.userId,
+    action: "billing.cancel.request",
+    detail: `Cancel-at-period-end requested for ${updated.id}`,
+    meta: {
+      route: "/api/billing/cancel",
+      subscriptionId: updated.id,
+    },
+  });
 
   return NextResponse.json({ ok: true, subscriptionId: updated.id });
 }

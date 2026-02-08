@@ -1,10 +1,21 @@
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { requireAdminAccess } from "@/lib/rbac";
+import { requireAdminAccess, requireOwnerAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
 import AdminOpsPanel from "@/app/admin/AdminOpsPanel";
 import { INCIDENT_WORKFLOWS } from "@/lib/ops/workflows";
+import { getRemediationQueueSnapshot } from "@/lib/remediate/queue";
+import { getObservabilitySnapshot } from "@/lib/observability";
+import { buildSloSnapshot } from "@/lib/slo";
+import { getIncidentRunDetail, listIncidentRuns } from "@/lib/ops/incident-engine";
+import {
+  RBAC_ROLE_ORDER,
+  normalizeAppRole,
+  roleLabel,
+  type AppRole,
+} from "@/lib/rbac-policy";
 
 function fmtDate(d?: Date | null) {
   if (!d) return "-";
@@ -71,6 +82,12 @@ function badge(text: string, tone: "ok" | "warn" | "bad" | "neutral" = "neutral"
       {text}
     </span>
   );
+}
+
+function roleTone(role: AppRole): "ok" | "warn" | "bad" | "neutral" {
+  if (role === "owner" || role === "admin") return "ok";
+  if (role === "ops") return "warn";
+  return "neutral";
 }
 
 /**
@@ -153,6 +170,92 @@ function classifyUser(u: {
 }
 
 export default async function AdminPage() {
+  async function updateUserRoleAction(formData: FormData) {
+    "use server";
+
+    const access = await requireOwnerAccess();
+    if (!access.ok) {
+      await writeAuditLog({
+        action: "admin.role.update.denied",
+        detail: `status=${access.status} email=${access.email ?? "unknown"}`,
+        meta: {
+          route: "/admin",
+          status: access.status,
+          requiredRole: "owner",
+        },
+      });
+      return;
+    }
+
+    const targetUserIdRaw = formData.get("targetUserId");
+    const targetRoleRaw = formData.get("targetRole");
+    const targetUserId = typeof targetUserIdRaw === "string" ? targetUserIdRaw.trim() : "";
+    const targetRole = normalizeAppRole(targetRoleRaw);
+    if (!targetUserId || !targetRole) return;
+
+    const targetUser = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, email: true, role: true },
+    });
+    if (!targetUser) return;
+
+    const currentRole = normalizeAppRole(targetUser.role) ?? "viewer";
+
+    if (targetUser.id === access.identity.userId && targetRole !== "owner") {
+      await writeAuditLog({
+        userId: access.identity.userId,
+        action: "admin.role.update.denied",
+        detail: "Owner attempted to remove own owner role",
+        meta: {
+          route: "/admin",
+          targetUserId,
+          targetRole,
+        },
+      });
+      return;
+    }
+
+    if (currentRole === "owner" && targetRole !== "owner") {
+      const ownerCount = await prisma.user.count({ where: { role: "owner" } });
+      if (ownerCount <= 1) {
+        await writeAuditLog({
+          userId: access.identity.userId,
+          action: "admin.role.update.denied",
+          detail: "Refused to demote the last owner",
+          meta: {
+            route: "/admin",
+            targetUserId,
+            targetRole,
+            ownerCount,
+          },
+        });
+        return;
+      }
+    }
+
+    if (currentRole === targetRole) return;
+
+    await prisma.user.update({
+      where: { id: targetUser.id },
+      data: { role: targetRole },
+    });
+
+    await writeAuditLog({
+      userId: access.identity.userId,
+      action: "admin.role.update",
+      detail: `Changed ${targetUser.email ?? targetUser.id} role ${currentRole} -> ${targetRole}`,
+      meta: {
+        route: "/admin",
+        targetUserId: targetUser.id,
+        targetEmail: targetUser.email ?? null,
+        fromRole: currentRole,
+        toRole: targetRole,
+      },
+    });
+
+    revalidatePath("/admin");
+  }
+
   // ---------- 1) Auth ----------
   const access = await requireAdminAccess();
   if (!access.ok) {
@@ -168,6 +271,7 @@ export default async function AdminPage() {
     redirect("/login");
   }
   const email = access.identity.email;
+  const canManageRoles = access.identity.role === "owner";
 
   await writeAuditLog({
     action: "admin.page.view",
@@ -179,16 +283,15 @@ export default async function AdminPage() {
   });
 
   // ---------- 2) Data pull ----------
-  // Your Prisma schema apparently doesn't have createdAt on User, so ordering by id is a pragmatic MVP choice.
-  // (CUIDs are not guaranteed chronological, but usually "good enough" for "recent-ish first".)
   const users = await prisma.user.findMany({
-    orderBy: { id: "desc" },
+    orderBy: { createdAt: "desc" },
     select: {
       id: true,
       name: true,
       email: true,
 
       // Billing-ish fields you added to User
+      role: true,
       plan: true,
       hostLimit: true,
       stripeCustomerId: true,
@@ -202,6 +305,7 @@ export default async function AdminPage() {
   const totals = users.reduce(
     (acc, u) => {
       const info = classifyUser(u);
+      const role = normalizeAppRole(u.role) ?? "viewer";
       acc.total += 1;
       if (info.isActive) acc.active += 1;
       if (info.plan === "PRO") acc.pro += 1;
@@ -210,9 +314,26 @@ export default async function AdminPage() {
       if (info.suspicious) acc.suspicious += 1;
       if (u.stripeCustomerId) acc.customers += 1;
       if (u.subscriptionId) acc.subs += 1;
+      if (role === "owner") acc.owners += 1;
+      if (role === "admin") acc.admins += 1;
+      if (role === "ops") acc.ops += 1;
+      if (role === "viewer") acc.viewers += 1;
       return acc;
     },
-    { total: 0, active: 0, free: 0, pro: 0, elite: 0, customers: 0, subs: 0, suspicious: 0 }
+    {
+      total: 0,
+      active: 0,
+      free: 0,
+      pro: 0,
+      elite: 0,
+      customers: 0,
+      subs: 0,
+      suspicious: 0,
+      owners: 0,
+      admins: 0,
+      ops: 0,
+      viewers: 0,
+    }
   );
 
   const recentOpsRaw = await prisma.auditLog.findMany({
@@ -245,6 +366,38 @@ export default async function AdminPage() {
     userEmail: entry.user?.email ?? null,
   }));
 
+  const queueSnapshot = await getRemediationQueueSnapshot({ limit: 30 });
+  const observabilitySnapshot = getObservabilitySnapshot({
+    logsLimit: 80,
+    tracesLimit: 80,
+    alertsLimit: 80,
+    countersLimit: 350,
+    timingsLimit: 350,
+  });
+  const sloSnapshot = await buildSloSnapshot();
+  const incidentSnapshot = await listIncidentRuns({
+    limit: 30,
+    state: "active",
+  });
+  const initialIncidentId = incidentSnapshot.incidents[0]?.id ?? null;
+  const initialIncidentDetail = initialIncidentId
+    ? await getIncidentRunDetail(initialIncidentId, { timelineLimit: 120 })
+    : null;
+  const incidentAssignees = users
+    .map((u) => ({
+      id: u.id,
+      email: u.email,
+      name: u.name ?? null,
+      role: normalizeAppRole(u.role) ?? "viewer",
+    }))
+    .filter(
+      (
+        u
+      ): u is { id: string; email: string; name: string | null; role: AppRole } =>
+        Boolean(u.email) &&
+        (u.role === "owner" || u.role === "admin" || u.role === "ops")
+    );
+
   // ---------- 4) UI ----------
   return (
     <main className="dashboard-shell dashboard-main" style={{ maxWidth: 1200 }}>
@@ -252,7 +405,7 @@ export default async function AdminPage() {
         <div>
           <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0 }}>Admin</h1>
           <p style={{ opacity: 0.75, marginTop: 6, marginBottom: 0 }}>
-            Logged in as <b>{email}</b>
+            Logged in as <b>{email}</b> · role <b>{roleLabel(access.identity.role)}</b>
           </p>
           <p style={{ opacity: 0.7, marginTop: 10, marginBottom: 0, maxWidth: 900 }}>
             This page is your “truth panel”: it shows who exists in your database, what plan they’re on, whether Stripe is
@@ -304,6 +457,10 @@ export default async function AdminPage() {
       >
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {badge(`Users: ${totals.total}`, "neutral")}
+          {badge(`Owners: ${totals.owners}`, totals.owners > 0 ? "ok" : "warn")}
+          {badge(`Admins: ${totals.admins}`, totals.admins > 0 ? "ok" : "neutral")}
+          {badge(`Ops: ${totals.ops}`, totals.ops > 0 ? "ok" : "neutral")}
+          {badge(`Viewers: ${totals.viewers}`, "neutral")}
           {badge(`Active subs: ${totals.active}`, totals.active > 0 ? "ok" : "neutral")}
           {badge(`FREE: ${totals.free}`, "neutral")}
           {badge(`PRO: ${totals.pro}`, totals.pro > 0 ? "ok" : "neutral")}
@@ -333,7 +490,7 @@ export default async function AdminPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1.4fr 2.2fr 0.9fr 0.8fr 1.4fr 2.3fr",
+            gridTemplateColumns: "1.2fr 2fr 1.4fr 0.9fr 0.8fr 1.3fr 2.2fr",
             padding: "12px 14px",
             borderBottom: "1px solid rgba(255,255,255,0.10)",
             fontWeight: 700,
@@ -343,6 +500,7 @@ export default async function AdminPage() {
         >
           <div>Name</div>
           <div>Email</div>
+          <div>Role</div>
           <div>Plan</div>
           <div>Hosts</div>
           <div>Period End</div>
@@ -352,6 +510,7 @@ export default async function AdminPage() {
         {/* Rows */}
         {users.map((u) => {
           const info = classifyUser(u);
+          const userRole = normalizeAppRole(u.role) ?? "viewer";
           const rowBg = info.suspicious ? "rgba(239,68,68,0.06)" : "rgba(255,255,255,0.00)";
 
           return (
@@ -359,7 +518,7 @@ export default async function AdminPage() {
               key={u.id}
               style={{
                 display: "grid",
-                gridTemplateColumns: "1.4fr 2.2fr 0.9fr 0.8fr 1.4fr 2.3fr",
+                gridTemplateColumns: "1.2fr 2fr 1.4fr 0.9fr 0.8fr 1.3fr 2.2fr",
                 padding: "12px 14px",
                 borderBottom: "1px solid rgba(255,255,255,0.06)",
                 background: rowBg,
@@ -372,6 +531,50 @@ export default async function AdminPage() {
 
               <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {u.email ?? "-"}
+              </div>
+
+              <div style={{ display: "grid", gap: 6 }}>
+                <div>{badge(roleLabel(userRole), roleTone(userRole))}</div>
+                {canManageRoles ? (
+                  <form action={updateUserRoleAction} style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <input type="hidden" name="targetUserId" value={u.id} />
+                    <select
+                      name="targetRole"
+                      defaultValue={userRole}
+                      style={{
+                        background: "rgba(255,255,255,0.05)",
+                        color: "inherit",
+                        border: "1px solid rgba(255,255,255,0.15)",
+                        borderRadius: 8,
+                        padding: "4px 6px",
+                        fontSize: 12,
+                      }}
+                    >
+                      {RBAC_ROLE_ORDER
+                        .slice()
+                        .reverse()
+                        .map((r) => (
+                          <option key={r} value={r}>
+                            {roleLabel(r)}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="submit"
+                      style={{
+                        background: "rgba(255,255,255,0.05)",
+                        color: "inherit",
+                        border: "1px solid rgba(255,255,255,0.15)",
+                        borderRadius: 8,
+                        padding: "4px 8px",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Save
+                    </button>
+                  </form>
+                ) : null}
               </div>
 
               <div>{badge(info.plan, info.plan === "FREE" ? "neutral" : "ok")}</div>
@@ -392,19 +595,28 @@ export default async function AdminPage() {
         {users.length === 0 && <div style={{ padding: 14, opacity: 0.7 }}>No users yet.</div>}
       </section>
 
-      <AdminOpsPanel workflows={INCIDENT_WORKFLOWS} recentOps={recentOps} />
+      <AdminOpsPanel
+        workflows={INCIDENT_WORKFLOWS}
+        recentOps={recentOps}
+        queueSnapshot={queueSnapshot}
+        observabilitySnapshot={observabilitySnapshot}
+        sloSnapshot={sloSnapshot}
+        incidentSnapshot={incidentSnapshot}
+        initialIncidentDetail={initialIncidentDetail}
+        incidentAssignees={incidentAssignees}
+        currentIdentity={{
+          userId: access.identity.userId,
+          email: access.identity.email,
+          role: access.identity.role,
+        }}
+      />
 
       {/* Footer notes */}
       <footer style={{ marginTop: 16, opacity: 0.7, fontSize: 13, lineHeight: "18px" }}>
         <p style={{ margin: 0 }}>Notes:</p>
         <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 18 }}>
           <li>
-            Admin access is currently hardcoded to <b>tonyblumdev@gmail.com</b>. Later you can move this to a DB role or an
-            allowlist env var.
-          </li>
-          <li>
-            Ordering is by <b>id desc</b> because your schema doesn’t have <code>createdAt</code> on <code>User</code>. If
-            you add <code>createdAt</code>, switch back to that.
+            RBAC is now role-based (<b>owner/admin/ops/viewer</b>). Owner can change roles in the table above.
           </li>
           <li>
             Stripe “truth” is: <b>customerId</b> must exist to open the Billing Portal; <b>subscriptionStatus</b> and{" "}

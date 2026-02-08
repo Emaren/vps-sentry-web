@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 BACKUP_DIR="${BACKUP_DIR:-$ROOT_DIR/.db-migration-backups}"
 TS="$(date +%Y%m%d-%H%M%S)"
-RUN_DIR="$BACKUP_DIR/$TS"
+RUN_DIR="${MIGRATION_RUN_DIR:-$BACKUP_DIR/$TS}"
 mkdir -p "$RUN_DIR"
 
 POSTGRES_DATABASE_URL="${POSTGRES_DATABASE_URL:-${PG_URL:-}}"

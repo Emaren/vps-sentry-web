@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildRemediationPlanFromSnapshots } from "@/lib/remediate";
 import type { RemediationAction } from "@/lib/remediate/actions";
@@ -14,7 +12,12 @@ import {
   type RemediationPolicyProfile,
 } from "@/lib/remediate/host-policy";
 import { drainRemediationQueue } from "@/lib/remediate/queue";
-import { requireAdminAccess } from "@/lib/rbac";
+import {
+  serializeExecuteRunPayload,
+  type ExecuteRunPayload,
+} from "@/lib/remediate/queue-runtime";
+import { requireViewerAccess } from "@/lib/rbac";
+import { hasRequiredRole } from "@/lib/rbac-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +87,9 @@ type PolicyPreview = {
   maxQueuePerHost: number;
   maxQueueTotal: number;
   queueTtlMinutes: number;
+  maxRetryAttempts: number;
+  retryBackoffSeconds: number;
+  retryBackoffMaxSeconds: number;
   commandTimeoutMs: number;
   maxBufferBytes: number;
   enforceAllowlist: boolean;
@@ -104,6 +110,9 @@ function toPolicyPreview(input: {
     maxQueuePerHost: input.policy.maxQueuePerHost,
     maxQueueTotal: input.policy.maxQueueTotal,
     queueTtlMinutes: input.policy.queueTtlMinutes,
+    maxRetryAttempts: input.policy.maxRetryAttempts,
+    retryBackoffSeconds: input.policy.retryBackoffSeconds,
+    retryBackoffMaxSeconds: input.policy.retryBackoffMaxSeconds,
     commandTimeoutMs: input.policy.commandTimeoutMs,
     maxBufferBytes: input.policy.maxBufferBytes,
     enforceAllowlist: input.guardPolicy.enforceAllowlist,
@@ -113,25 +122,32 @@ function toPolicyPreview(input: {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email?.trim();
-  if (!email) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true },
-  });
-  if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const access = await requireViewerAccess();
+  if (!access.ok) {
+    return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+  }
 
   const body = await req.json().catch(() => ({}));
   const mode = normalizeMode(body?.mode);
+  const requiresOps = mode !== "plan";
+  if (requiresOps && !hasRequiredRole(access.identity.role, "ops")) {
+    await prisma.auditLog.create({
+      data: {
+        userId: access.identity.userId,
+        action: "remediate.denied",
+        detail: `Denied mode=${mode} for role=${access.identity.role}`,
+        metaJson: JSON.stringify({
+          mode,
+          requiredRole: "ops",
+          role: access.identity.role,
+          route: "/api/remediate",
+        }),
+      },
+    });
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  }
 
   if (mode === "drain-queue") {
-    const access = await requireAdminAccess();
-    if (!access.ok) {
-      return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
-    }
-
     const limitRaw = Number(body?.limit ?? 5);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 50)) : 5;
     const drained = await drainRemediationQueue({ limit });
@@ -167,7 +183,7 @@ export async function POST(req: Request) {
   }
 
   const host = await prisma.host.findFirst({
-    where: { id: hostId, userId: user.id },
+    where: { id: hostId, userId: access.identity.userId },
     select: {
       id: true,
       name: true,
@@ -427,22 +443,78 @@ export async function POST(req: Request) {
       );
     }
 
+    const canaryChecks = (action.canaryChecks ?? [])
+      .filter((x): x is string => typeof x === "string")
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0)
+      .slice(0, 20);
+    const rollbackCommands = (action.rollbackCommands ?? [])
+      .filter((x): x is string => typeof x === "string")
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0)
+      .slice(0, 20);
+    const rollbackEnabled =
+      resolvedPolicy.policy.autoRollback && rollbackCommands.length > 0;
+
+    const executePayload: ExecuteRunPayload = {
+      mode: "execute",
+      actionId: action.id,
+      profile: resolvedPolicy.profile,
+      sourceCodes: action.sourceCodes,
+      commands: action.commands,
+      rollbackNotes: action.rollbackNotes ?? [],
+      queue: {
+        version: 1,
+        attempts: 0,
+        maxAttempts: resolvedPolicy.policy.maxRetryAttempts,
+        nextAttemptAt: null,
+        lastAttemptAt: null,
+        lastError: null,
+        dlq: false,
+        dlqReason: null,
+        replayOfRunId: null,
+        approval: {
+          required: false,
+          status: "none",
+          reason: null,
+          requestedAt: null,
+          requestedByUserId: null,
+          approvedAt: null,
+          approvedByUserId: null,
+        },
+        canary: {
+          enabled: canaryChecks.length > 0,
+          rolloutPercent: 100,
+          bucket: 0,
+          selected: true,
+          checks: canaryChecks,
+          lastCheckedAt: null,
+          passed: null,
+          error: null,
+        },
+        rollback: {
+          enabled: rollbackEnabled,
+          attempted: false,
+          succeeded: null,
+          commands: rollbackEnabled ? rollbackCommands : [],
+          lastRunAt: null,
+          error: null,
+        },
+        autoQueued: false,
+        autoReason: null,
+        autoTier: action.autoTier,
+      },
+    };
+
     const queuedRun = await prisma.remediationRun.create({
       data: {
         hostId: host.id,
         actionId: actionRow.id,
-        requestedByUserId: user.id,
+        requestedByUserId: access.identity.userId,
         state: "queued",
         startedAt: null,
         finishedAt: null,
-        paramsJson: JSON.stringify({
-          mode,
-          actionId: action.id,
-          profile: resolvedPolicy.profile,
-          sourceCodes: action.sourceCodes,
-          commands: action.commands,
-          rollbackNotes: action.rollbackNotes ?? [],
-        }),
+        paramsJson: serializeExecuteRunPayload(executePayload),
         output: null,
       },
       select: {
@@ -458,7 +530,7 @@ export async function POST(req: Request) {
 
     await prisma.auditLog.create({
       data: {
-        userId: user.id,
+        userId: access.identity.userId,
         hostId: host.id,
         action: "remediate.execute.queued",
         detail: `Queued execute action ${action.id}`,
@@ -467,6 +539,9 @@ export async function POST(req: Request) {
           actionId: action.id,
           profile: resolvedPolicy.profile,
           queueAutoDrain: resolvedPolicy.policy.queueAutoDrain,
+          maxRetryAttempts: resolvedPolicy.policy.maxRetryAttempts,
+          retryBackoffSeconds: resolvedPolicy.policy.retryBackoffSeconds,
+          retryBackoffMaxSeconds: resolvedPolicy.policy.retryBackoffMaxSeconds,
         }),
       },
     });
@@ -497,7 +572,7 @@ export async function POST(req: Request) {
     data: {
       hostId: host.id,
       actionId: actionRow.id,
-      requestedByUserId: user.id,
+      requestedByUserId: access.identity.userId,
       state: "succeeded",
       startedAt: new Date(),
       finishedAt: new Date(),
@@ -524,7 +599,7 @@ export async function POST(req: Request) {
 
   await prisma.auditLog.create({
     data: {
-      userId: user.id,
+      userId: access.identity.userId,
       hostId: host.id,
       action: "remediate.dry_run",
       detail: `Dry-run action ${action.id}`,

@@ -1,4 +1,8 @@
 export { default as TopArea } from "./TopArea";
+export { default as MissionControlSection } from "./MissionControlSection";
+export { default as CommandCenterSection } from "./CommandCenterSection";
+export { default as CoachSection } from "./CoachSection";
+export { default as AdaptiveSection } from "./AdaptiveSection";
 export { default as AlertsSection } from "./AlertsSection";
 export { default as PortsSection } from "./PortsSection";
 export { default as ThreatSection } from "./ThreatSection";

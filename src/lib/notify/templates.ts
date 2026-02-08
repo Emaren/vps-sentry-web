@@ -291,9 +291,32 @@ export function buildNotifyTestEmailBodies(params: {
   title: string;
   detail: string;
   payload: unknown;
+  observability?: {
+    correlationId?: string | null;
+    traceId?: string | null;
+    route?: string | null;
+    method?: string | null;
+  };
 }) {
   const payloadPretty = JSON.stringify(params.payload, null, 2);
-  const text = `${params.title}\n\n${params.detail}\n\n${payloadPretty}`;
+  const obsLines = [
+    params.observability?.correlationId ? `Correlation ID: ${params.observability.correlationId}` : "",
+    params.observability?.traceId ? `Trace ID: ${params.observability.traceId}` : "",
+    params.observability?.route
+      ? `Route: ${params.observability.route}${params.observability?.method ? ` [${params.observability.method}]` : ""}`
+      : "",
+  ].filter(Boolean);
+  const text = [
+    params.title,
+    "",
+    params.detail,
+    obsLines.length ? "" : null,
+    ...obsLines,
+    "",
+    payloadPretty,
+  ]
+    .filter((line): line is string => typeof line === "string")
+    .join("\n");
   const html = `<!doctype html>
 <html>
   <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
@@ -305,6 +328,13 @@ export function buildNotifyTestEmailBodies(params: {
         </div>
         <div style="padding:16px 18px;color:#111827;font-size:14px;line-height:1.7;">
           <p style="margin:0 0 12px 0;">${esc(params.detail)}</p>
+          ${
+            obsLines.length
+              ? `<div style="margin-bottom:10px;padding:10px;border:1px solid #d1d5db;border-radius:8px;background:#f8fafc;color:#111827;font-size:12px;line-height:1.5;">
+                  ${obsLines.map((line) => `<div>${esc(line)}</div>`).join("")}
+                </div>`
+              : ""
+          }
           <div style="font-size:12px;color:#4b5563;margin-bottom:6px;">Payload</div>
           <pre style="margin:0;padding:12px;border-radius:8px;background:#0f172a;color:#e5e7eb;overflow:auto;font-size:12px;line-height:1.5;">${esc(payloadPretty)}</pre>
         </div>

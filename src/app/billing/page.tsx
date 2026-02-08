@@ -1,19 +1,19 @@
 import Link from "next/link";
 import Image from "next/image";
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import SiteThemeControls from "@/app/_components/SiteThemeControls";
+import { requireViewerAccess } from "@/lib/rbac";
+import { hasRequiredRole, roleLabel } from "@/lib/rbac-policy";
 import BillingActions from "./ui/BillingActions";
 
 export default async function BillingPage() {
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email;
-  if (!email) redirect("/login");
+  const access = await requireViewerAccess();
+  if (!access.ok) redirect("/login");
+  const canManageBilling = hasRequiredRole(access.identity.role, "owner");
 
   const user = await prisma.user.findUnique({
-    where: { email },
+    where: { id: access.identity.userId },
     select: {
       email: true,
       name: true,
@@ -46,6 +46,7 @@ export default async function BillingPage() {
               Signed in as <span className="font-medium">{user.email}</span>
             </p>
             <p className="app-header-meta">Manage plan, limits, and Stripe subscription settings.</p>
+            <p className="app-header-meta">Role: {roleLabel(access.identity.role)}</p>
           </div>
         </div>
         <div className="app-header-actions app-header-actions-with-theme">
@@ -90,7 +91,7 @@ export default async function BillingPage() {
         </div>
 
         <div className="mt-4">
-          <BillingActions mode="portal" />
+          <BillingActions mode="portal" canManageBilling={canManageBilling} />
         </div>
       </div>
 
@@ -105,7 +106,7 @@ export default async function BillingPage() {
             <li>Baseline + diffs</li>
           </ul>
           <div className="mt-4">
-            <BillingActions mode="upgrade" defaultPlan="BASIC" />
+            <BillingActions mode="upgrade" defaultPlan="BASIC" canManageBilling={canManageBilling} />
           </div>
         </div>
 
@@ -118,10 +119,16 @@ export default async function BillingPage() {
             <li>More headroom</li>
           </ul>
           <div className="mt-4">
-            <BillingActions mode="upgrade" defaultPlan="PRO" />
+            <BillingActions mode="upgrade" defaultPlan="PRO" canManageBilling={canManageBilling} />
           </div>
         </div>
       </div>
+
+      {!canManageBilling ? (
+        <p className="mt-4 text-xs opacity-70">
+          Billing changes require owner role.
+        </p>
+      ) : null}
 
       <p className="mt-8 text-xs opacity-70">
         If you already subscribed, use “Manage subscription” to update/cancel in Stripe.

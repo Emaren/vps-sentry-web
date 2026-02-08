@@ -1,6 +1,7 @@
 // /var/www/vps-sentry-web/src/app/api/status/route.ts
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
+import { incrementCounter, logEvent, runObservedRoute } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -69,81 +70,101 @@ function writeStatusCache(entry: StatusCacheEntry) {
   g.__vpsStatusApiCache = entry;
 }
 
-export async function GET() {
-  const cached = readStatusCache();
-  if (cached) {
-    return noStoreJson(cached.body, { status: cached.status });
-  }
+export async function GET(req: Request) {
+  return runObservedRoute(req, { route: "/api/status", source: "status-api" }, async (obsCtx) => {
+    const cached = readStatusCache();
+    if (cached) {
+      incrementCounter("status.api.cache.hit.total", 1);
+      logEvent("debug", "status.api.cache.hit", obsCtx, {
+        status: cached.status,
+      });
+      return noStoreJson(cached.body, { status: cached.status });
+    }
 
-  const ts = new Date().toISOString();
+    incrementCounter("status.api.cache.miss.total", 1);
+    const ts = new Date().toISOString();
 
-  // Prefer the canonical "published status" file (single source of truth)
-  const [statusR, lastR, diffR] = await Promise.all([
-    readJsonSafe(STATUS_PATH),
-    readJsonSafe(LAST_PATH),
-    readJsonSafe(DIFF_PATH),
-  ]);
+    // Prefer the canonical "published status" file (single source of truth)
+    const [statusR, lastR, diffR] = await Promise.all([
+      readJsonSafe(STATUS_PATH),
+      readJsonSafe(LAST_PATH),
+      readJsonSafe(DIFF_PATH),
+    ]);
 
-  const status = statusR.ok ? statusR.data : null;
-  const last = lastR.ok ? lastR.data : null;
-  const diff = diffR.ok ? diffR.data : null;
+    const status = statusR.ok ? statusR.data : null;
+    const last = lastR.ok ? lastR.data : null;
+    const diff = diffR.ok ? diffR.data : null;
 
-  // If literally everything is missing/unreadable, return a hard 500.
-  if (!status && !last && !diff) {
+    // If literally everything is missing/unreadable, return a hard 500.
+    if (!status && !last && !diff) {
+      incrementCounter("status.api.unavailable.total", 1);
+      const body = {
+        ok: false,
+        error: "No readable status files found",
+        ts,
+        paths: {
+          status: STATUS_PATH,
+          last: LAST_PATH,
+          diff: DIFF_PATH,
+        },
+        details: {
+          status: statusR.ok ? null : statusR.error,
+          last: lastR.ok ? null : lastR.error,
+          diff: diffR.ok ? null : diffR.error,
+        },
+      };
+      writeStatusCache({
+        body,
+        status: 500,
+        expiresAt: Date.now() + STATUS_CACHE_TTL_MS,
+      });
+      logEvent("error", "status.api.no_files", obsCtx, {
+        details: body.details,
+      });
+      return noStoreJson(body, { status: 500 });
+    }
+
+    // Otherwise: OK (even if some are missing) + include warnings so UI/debug can show it.
+    const warnings: string[] = [];
+    if (!status) warnings.push(`status_unavailable: ${statusR.ok ? "n/a" : statusR.error}`);
+    if (!last) warnings.push(`last_unavailable: ${lastR.ok ? "n/a" : lastR.error}`);
+    if (!diff) warnings.push(`diff_unavailable: ${diffR.ok ? "n/a" : diffR.error}`);
+
     const body = {
-      ok: false,
-      error: "No readable status files found",
+      ok: true,
+
+      // Canonical payload (what your dashboard should increasingly rely on)
+      status,
+
+      // Back-compat payloads (what your dashboard already understands)
+      last,
+      diff,
+
+      // Meta/debug
       ts,
       paths: {
         status: STATUS_PATH,
         last: LAST_PATH,
         diff: DIFF_PATH,
       },
-      details: {
-        status: statusR.ok ? null : statusR.error,
-        last: lastR.ok ? null : lastR.error,
-        diff: diffR.ok ? null : diffR.error,
-      },
+      warnings: warnings.length ? warnings : undefined,
     };
+
     writeStatusCache({
       body,
-      status: 500,
+      status: 200,
       expiresAt: Date.now() + STATUS_CACHE_TTL_MS,
     });
-    return noStoreJson(body, { status: 500 });
-  }
 
-  // Otherwise: OK (even if some are missing) + include warnings so UI/debug can show it.
-  const warnings: string[] = [];
-  if (!status) warnings.push(`status_unavailable: ${statusR.ok ? "n/a" : statusR.error}`);
-  if (!last) warnings.push(`last_unavailable: ${lastR.ok ? "n/a" : lastR.error}`);
-  if (!diff) warnings.push(`diff_unavailable: ${diffR.ok ? "n/a" : diffR.error}`);
+    if (warnings.length) {
+      incrementCounter("status.api.partial.total", 1);
+      logEvent("warn", "status.api.partial", obsCtx, {
+        warnings,
+      });
+    } else {
+      incrementCounter("status.api.ok.total", 1);
+    }
 
-  const body = {
-    ok: true,
-
-    // Canonical payload (what your dashboard should increasingly rely on)
-    status,
-
-    // Back-compat payloads (what your dashboard already understands)
-    last,
-    diff,
-
-    // Meta/debug
-    ts,
-    paths: {
-      status: STATUS_PATH,
-      last: LAST_PATH,
-      diff: DIFF_PATH,
-    },
-    warnings: warnings.length ? warnings : undefined,
-  };
-
-  writeStatusCache({
-    body,
-    status: 200,
-    expiresAt: Date.now() + STATUS_CACHE_TTL_MS,
+    return noStoreJson(body);
   });
-
-  return noStoreJson(body);
 }

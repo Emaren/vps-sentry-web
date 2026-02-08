@@ -1,8 +1,16 @@
+import { incrementCounter, logEvent, observeTiming } from "@/lib/observability";
+
 type SendEmailInput = {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  metadata?: {
+    correlationId?: string | null;
+    traceId?: string | null;
+    route?: string | null;
+    method?: string | null;
+  };
 };
 
 export type SendEmailResult =
@@ -120,8 +128,28 @@ function getSmtpConfig():
 }
 
 export async function sendEmailNotification(input: SendEmailInput): Promise<SendEmailResult> {
+  const started = Date.now();
+  const obsCtx = {
+    correlationId: input.metadata?.correlationId ?? null,
+    traceId: input.metadata?.traceId ?? null,
+    spanId: null,
+    route: input.metadata?.route ?? null,
+    method: input.metadata?.method ?? null,
+    userId: null,
+    hostId: null,
+  };
+  incrementCounter("notify.email.send.attempt.total", 1);
+
   const smtp = getSmtpConfig();
   if (smtp.kind === "missing") {
+    incrementCounter("notify.email.send.failure.total", 1, { reason: "smtp_missing" });
+    observeTiming("notify.email.send.duration_ms", Date.now() - started, {
+      ok: "false",
+      reason: "smtp_missing",
+    });
+    logEvent("warn", "notify.email.smtp_missing", obsCtx, {
+      error: smtp.error,
+    });
     return { ok: false, error: smtp.error };
   }
 
@@ -129,6 +157,14 @@ export async function sendEmailNotification(input: SendEmailInput): Promise<Send
   try {
     nodemailer = await import("nodemailer");
   } catch (err: unknown) {
+    incrementCounter("notify.email.send.failure.total", 1, { reason: "nodemailer_missing" });
+    observeTiming("notify.email.send.duration_ms", Date.now() - started, {
+      ok: "false",
+      reason: "nodemailer_missing",
+    });
+    logEvent("error", "notify.email.nodemailer_missing", obsCtx, {
+      error: errorMessage(err),
+    });
     return {
       ok: false,
       error: "nodemailer is not available",
@@ -165,10 +201,33 @@ export async function sendEmailNotification(input: SendEmailInput): Promise<Send
       }),
       timeoutPromise,
     ]);
+    incrementCounter("notify.email.send.success.total", 1);
+    observeTiming("notify.email.send.duration_ms", Date.now() - started, {
+      ok: "true",
+    });
+    logEvent("info", "notify.email.sent", obsCtx, {
+      to: input.to,
+      subject: input.subject,
+    });
     return { ok: true };
   } catch (err: unknown) {
     const msg = errorMessage(err);
     const code = errorCode(err);
+    const reason =
+      code === "ETIMEDOUT" || msg.toLowerCase().includes("timeout")
+        ? "timeout"
+        : "send_failed";
+    incrementCounter("notify.email.send.failure.total", 1, { reason });
+    observeTiming("notify.email.send.duration_ms", Date.now() - started, {
+      ok: "false",
+      reason,
+    });
+    logEvent("warn", "notify.email.failed", obsCtx, {
+      to: input.to,
+      code: code ?? null,
+      reason,
+      detail: msg,
+    });
     return {
       ok: false,
       error: code === "ETIMEDOUT" || msg.toLowerCase().includes("timeout")

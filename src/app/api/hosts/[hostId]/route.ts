@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildUniqueSlug, slugifyHostName } from "@/lib/host-onboarding";
 import {
@@ -8,18 +6,18 @@ import {
   normalizeRemediationPolicyProfile,
   readHostRemediationPolicyConfig,
 } from "@/lib/remediate/host-policy";
+import {
+  mergeHostFleetPolicyMeta,
+  readHostFleetPolicyConfig,
+} from "@/lib/remediate/fleet-policy";
+import type {
+  RemediationApprovalRiskThreshold,
+  RemediationAutoTier,
+} from "@/lib/remediate/autonomous";
+import { requireAdminAccess, requireViewerAccess } from "@/lib/rbac";
+import { writeAuditLog } from "@/lib/audit-log";
 
 export const dynamic = "force-dynamic";
-
-async function requireUser() {
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email?.trim();
-  if (!email) return null;
-  return prisma.user.findUnique({
-    where: { email },
-    select: { id: true, email: true },
-  });
-}
 
 function toName(input: unknown): string | null {
   if (typeof input !== "string") return null;
@@ -61,6 +59,60 @@ function toBoolMaybe(v: unknown): boolean | undefined {
   return undefined;
 }
 
+function toStringArrayMaybe(v: unknown): string[] | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of v) {
+    if (typeof raw !== "string") continue;
+    const cleaned = raw
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._:-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64);
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
+function toFleetGroupMaybe(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v !== "string") return undefined;
+  const cleaned = v
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._:-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return cleaned || null;
+}
+
+function toAutoTierMaybe(v: unknown): RemediationAutoTier | undefined {
+  if (typeof v !== "string") return undefined;
+  const t = v.trim().toLowerCase();
+  if (t === "observe" || t === "safe_auto" || t === "guarded_auto" || t === "risky_manual") {
+    return t;
+  }
+  return undefined;
+}
+
+function toApprovalRiskThresholdMaybe(
+  v: unknown
+): RemediationApprovalRiskThreshold | undefined {
+  if (typeof v !== "string") return undefined;
+  const t = v.trim().toLowerCase();
+  if (t === "none" || t === "low" || t === "medium" || t === "high") return t;
+  return undefined;
+}
+
 async function findUniqueSlug(userId: string, hostId: string, preferredBase: string): Promise<string> {
   const base = slugifyHostName(preferredBase);
   for (let i = 0; i < 50; i++) {
@@ -82,14 +134,14 @@ export async function GET(
   _req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
-  const user = await requireUser();
-  if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const access = await requireViewerAccess();
+  if (!access.ok) return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
 
   const { hostId } = await ctx.params;
   const host = await prisma.host.findFirst({
     where: {
       id: hostId,
-      userId: user.id,
+      userId: access.identity.userId,
     },
     select: {
       id: true,
@@ -102,14 +154,20 @@ export async function GET(
       createdAt: true,
       updatedAt: true,
       apiKeys: {
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ version: "desc" }, { createdAt: "desc" }],
         take: 20,
         select: {
           id: true,
           prefix: true,
+          version: true,
+          label: true,
+          scopeJson: true,
           createdAt: true,
           lastUsedAt: true,
           revokedAt: true,
+          revokedReason: true,
+          expiresAt: true,
+          rotatedFromKeyId: true,
         },
       },
       snapshots: {
@@ -154,6 +212,7 @@ export async function GET(
     ok: true,
     host,
     remediationPolicy: readHostRemediationPolicyConfig(host.metaJson),
+    fleetPolicy: readHostFleetPolicyConfig(host.metaJson),
   });
 }
 
@@ -161,14 +220,29 @@ export async function PUT(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
-  const user = await requireUser();
-  if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const access = await requireAdminAccess();
+  if (!access.ok) {
+    await writeAuditLog({
+      req,
+      action: "host.update.denied",
+      detail: `status=${access.status} role=${access.role ?? "unknown"} email=${access.email ?? "unknown"}`,
+      meta: {
+        route: "/api/hosts/[hostId]",
+        method: "PUT",
+        requiredRole: "admin",
+        status: access.status,
+        email: access.email ?? null,
+        role: access.role ?? null,
+      },
+    });
+    return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+  }
 
   const { hostId } = await ctx.params;
   const existing = await prisma.host.findFirst({
     where: {
       id: hostId,
-      userId: user.id,
+      userId: access.identity.userId,
     },
     select: { id: true, name: true, slug: true, enabled: true, metaJson: true },
   });
@@ -183,6 +257,11 @@ export async function PUT(
     typeof body?.remediationPolicyProfile === "string"
       ? normalizeRemediationPolicyProfile(body.remediationPolicyProfile)
       : null;
+  const fleetGroup = toFleetGroupMaybe(body?.fleetGroup);
+  const fleetTags = toStringArrayMaybe(body?.fleetTags);
+  const fleetScopes = toStringArrayMaybe(body?.fleetScopes);
+  const fleetRolloutPaused = toBoolMaybe(body?.fleetRolloutPaused);
+  const fleetRolloutPriority = toIntMaybe(body?.fleetRolloutPriority);
 
   const policyOverridesRaw = asRecord(body?.remediationPolicyOverrides);
   const guardOverridesRaw = asRecord(body?.remediationGuardOverrides);
@@ -196,9 +275,26 @@ export async function PUT(
         maxQueuePerHost: toIntMaybe(policyOverridesRaw.maxQueuePerHost),
         maxQueueTotal: toIntMaybe(policyOverridesRaw.maxQueueTotal),
         queueTtlMinutes: toIntMaybe(policyOverridesRaw.queueTtlMinutes),
+        maxRetryAttempts: toIntMaybe(policyOverridesRaw.maxRetryAttempts),
+        retryBackoffSeconds: toIntMaybe(policyOverridesRaw.retryBackoffSeconds),
+        retryBackoffMaxSeconds: toIntMaybe(policyOverridesRaw.retryBackoffMaxSeconds),
         commandTimeoutMs: toIntMaybe(policyOverridesRaw.commandTimeoutMs),
         maxBufferBytes: toIntMaybe(policyOverridesRaw.maxBufferBytes),
         queueAutoDrain: toBoolMaybe(policyOverridesRaw.queueAutoDrain),
+        autonomousEnabled: toBoolMaybe(policyOverridesRaw.autonomousEnabled),
+        autonomousMaxTier: toAutoTierMaybe(policyOverridesRaw.autonomousMaxTier),
+        autonomousMaxQueuedPerCycle: toIntMaybe(
+          policyOverridesRaw.autonomousMaxQueuedPerCycle
+        ),
+        autonomousMaxQueuedPerHour: toIntMaybe(
+          policyOverridesRaw.autonomousMaxQueuedPerHour
+        ),
+        approvalRiskThreshold: toApprovalRiskThresholdMaybe(
+          policyOverridesRaw.approvalRiskThreshold
+        ),
+        canaryRolloutPercent: toIntMaybe(policyOverridesRaw.canaryRolloutPercent),
+        canaryRequireChecks: toBoolMaybe(policyOverridesRaw.canaryRequireChecks),
+        autoRollback: toBoolMaybe(policyOverridesRaw.autoRollback),
       }
     : undefined;
 
@@ -212,22 +308,41 @@ export async function PUT(
 
   const shouldUpdateRemediationPolicy =
     requestedProfile !== null || Boolean(policyOverridesRaw) || Boolean(guardOverridesRaw);
+  const shouldUpdateFleetPolicy =
+    fleetGroup !== undefined ||
+    fleetTags !== undefined ||
+    fleetScopes !== undefined ||
+    fleetRolloutPaused !== undefined ||
+    fleetRolloutPriority !== undefined;
 
   let resolvedSlug: string | null | undefined = undefined;
   if (requestedSlug === null && body?.slug === null) {
     resolvedSlug = null;
   } else if (requestedSlug) {
-    resolvedSlug = await findUniqueSlug(user.id, existing.id, requestedSlug);
+    resolvedSlug = await findUniqueSlug(access.identity.userId, existing.id, requestedSlug);
   }
 
-  const nextMetaJson = shouldUpdateRemediationPolicy
-    ? mergeHostRemediationPolicyMeta({
-        currentMetaJson: existing.metaJson,
-        profile: requestedProfile ?? undefined,
-        overrides: remediationPolicyOverrides,
-        guardOverrides: remediationGuardOverrides,
-      })
-    : undefined;
+  let nextMetaJson = existing.metaJson ?? null;
+  if (shouldUpdateRemediationPolicy) {
+    nextMetaJson = mergeHostRemediationPolicyMeta({
+      currentMetaJson: nextMetaJson,
+      profile: requestedProfile ?? undefined,
+      overrides: remediationPolicyOverrides,
+      guardOverrides: remediationGuardOverrides,
+    });
+  }
+  if (shouldUpdateFleetPolicy) {
+    nextMetaJson = mergeHostFleetPolicyMeta({
+      currentMetaJson: nextMetaJson,
+      patch: {
+        group: fleetGroup,
+        tags: fleetTags,
+        scopes: fleetScopes,
+        rolloutPaused: fleetRolloutPaused,
+        rolloutPriority: fleetRolloutPriority,
+      },
+    });
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     const host = await tx.host.update({
@@ -236,7 +351,10 @@ export async function PUT(
         name: nextName ?? undefined,
         enabled: nextEnabled === null ? undefined : nextEnabled,
         slug: resolvedSlug,
-        metaJson: nextMetaJson,
+        metaJson:
+          shouldUpdateRemediationPolicy || shouldUpdateFleetPolicy
+            ? nextMetaJson
+            : undefined,
       },
       select: {
         id: true,
@@ -250,11 +368,11 @@ export async function PUT(
 
     await tx.auditLog.create({
       data: {
-        userId: user.id,
+        userId: access.identity.userId,
         hostId: existing.id,
         action: "host.update",
-        detail: shouldUpdateRemediationPolicy
-          ? `Updated host '${host.name}' (including remediation policy)`
+        detail: shouldUpdateRemediationPolicy || shouldUpdateFleetPolicy
+          ? `Updated host '${host.name}' (including remediation/fleet policy)`
           : `Updated host '${host.name}'`,
       },
     });
@@ -266,21 +384,37 @@ export async function PUT(
     ok: true,
     host: updated,
     remediationPolicy: readHostRemediationPolicyConfig(updated.metaJson),
+    fleetPolicy: readHostFleetPolicyConfig(updated.metaJson),
   });
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
-  const user = await requireUser();
-  if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const access = await requireAdminAccess();
+  if (!access.ok) {
+    await writeAuditLog({
+      req,
+      action: "host.delete.denied",
+      detail: `status=${access.status} role=${access.role ?? "unknown"} email=${access.email ?? "unknown"}`,
+      meta: {
+        route: "/api/hosts/[hostId]",
+        method: "DELETE",
+        requiredRole: "admin",
+        status: access.status,
+        email: access.email ?? null,
+        role: access.role ?? null,
+      },
+    });
+    return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+  }
 
   const { hostId } = await ctx.params;
   const existing = await prisma.host.findFirst({
     where: {
       id: hostId,
-      userId: user.id,
+      userId: access.identity.userId,
     },
     select: { id: true, name: true },
   });
@@ -290,7 +424,7 @@ export async function DELETE(
   await prisma.$transaction(async (tx) => {
     await tx.auditLog.create({
       data: {
-        userId: user.id,
+        userId: access.identity.userId,
         hostId: existing.id,
         action: "host.delete",
         detail: `Deleted host '${existing.name}'`,

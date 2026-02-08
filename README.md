@@ -279,6 +279,109 @@ Runbook:
 
 - `/Users/tonyblum/projects/vps-sentry-web/docs/production-ops-runbook.md`
 
+## v4.0 Step 20 (Supply-Chain Security + Chaos Certification + Sentinel Prime Scorecard)
+
+Step 20 adds final readiness controls:
+
+- supply-chain policy gate:
+  - frozen lockfile verification
+  - production vuln threshold enforcement
+  - license policy scan
+  - SBOM + provenance artifacts
+- chaos certification:
+  - baseline smoke
+  - controlled service restart drill
+  - measured recovery-time objective
+  - post-restart load smoke
+- Sentinel Prime scorecard:
+  - weighted pass/fail scoring across release, security, recovery, and chaos dimensions
+  - JSON + Markdown artifacts for operator evidence
+
+New commands:
+
+```bash
+make supply-chain-check
+make supply-chain-check-strict
+make chaos-certify
+make chaos-certify-fast
+make sentinel-scorecard
+make sentinel-scorecard-fast
+make sentinel-scorecard-strict
+```
+
+NPM equivalents:
+
+```bash
+npm run supplychain:check
+npm run supplychain:check:strict
+npm run chaos:certify
+npm run chaos:certify:fast
+npm run sentinel:scorecard
+npm run sentinel:scorecard:fast
+npm run sentinel:scorecard:strict
+```
+
+Artifacts:
+
+- `.artifacts/supply-chain/*`
+- `.artifacts/chaos/*`
+- `.artifacts/sentinel-prime/<run-id>/scorecard.{json,md}`
+- `.artifacts/sentinel-prime/latest.{json,md}`
+
+Step 20 runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/sentinel-prime-runbook.md`
+
+## v3.5 Step 19 (Fleet Policy Management + Staged Rollout + Blast-Radius Safeguards)
+
+Step 19 adds fleet-wide remediation controls:
+
+- host fleet metadata in `Host.metaJson.fleetPolicy`:
+  - `group`
+  - `tags[]`
+  - `scopes[]`
+  - `rolloutPaused`
+  - `rolloutPriority`
+- fleet policy inventory + bulk patch API
+- staged fleet remediation rollout API with:
+  - selector filtering (group/tag/scope/hostId)
+  - strategy (`group_canary` or `sequential`)
+  - blast-radius controls (`max hosts`, `% enabled fleet`, `max per group`)
+  - stage confirmation phrase requirement
+
+New APIs:
+
+- `GET|POST /api/ops/fleet-policy` (admin)
+- `POST /api/ops/remediate-fleet` (ops/admin)
+
+Per-host API updates:
+
+- `GET /api/hosts`
+- `GET /api/hosts/:hostId`
+- `PUT /api/hosts/:hostId`
+- `POST /api/hosts`
+
+Now support fleet fields:
+
+- `fleetGroup`
+- `fleetTags`
+- `fleetScopes`
+- `fleetRolloutPaused`
+- `fleetRolloutPriority`
+
+Step 19 env knobs (in `.vps.env`):
+
+- `VPS_REMEDIATE_FLEET_MAX_HOSTS`
+- `VPS_REMEDIATE_FLEET_MAX_PER_GROUP`
+- `VPS_REMEDIATE_FLEET_MAX_PERCENT_ENABLED`
+- `VPS_REMEDIATE_FLEET_DEFAULT_STAGE_SIZE`
+- `VPS_REMEDIATE_FLEET_REQUIRE_SELECTOR`
+- `VPS_REMEDIATE_FLEET_POLICY_MAX_HOST_UPDATES`
+
+Runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/fleet-rollout-runbook.md`
+
 Make targets:
 
 ```bash
@@ -353,6 +456,9 @@ Step 7 env knobs:
 - `VPS_REMEDIATE_MAX_QUEUE_PER_HOST`
 - `VPS_REMEDIATE_MAX_QUEUE_TOTAL`
 - `VPS_REMEDIATE_QUEUE_TTL_MINUTES`
+- `VPS_REMEDIATE_MAX_RETRY_ATTEMPTS`
+- `VPS_REMEDIATE_RETRY_BACKOFF_SECONDS`
+- `VPS_REMEDIATE_RETRY_BACKOFF_MAX_SECONDS`
 - `VPS_REMEDIATE_COMMAND_TIMEOUT_MS`
 - `VPS_REMEDIATE_MAX_BUFFER_BYTES`
 - `VPS_REMEDIATE_QUEUE_AUTODRAIN`
@@ -441,7 +547,7 @@ Incident workflow API:
 - `GET /api/ops/incident-workflow`
   - Returns workflow catalog for admin responders.
 - `POST /api/ops/incident-workflow`
-  - Executes API-safe workflow step actions (`status-snapshot`, `drain-queue`, `notify-test`).
+  - Executes API-safe workflow step actions (`status-snapshot`, `drain-queue`, `replay-dlq`, `notify-test`).
   - Manual-only steps are intentionally blocked from API execution.
   - Step failures are surfaced as `ok: false` and written to audit logs.
 
@@ -461,3 +567,244 @@ npm test
 npx tsc --noEmit
 npm run lint -- --max-warnings=0
 ```
+
+## v2.7 Step 10 (Production Postgres Cutover + Shadow Reads + Rollback)
+
+Step 10 adds production cutover controls:
+
+- deploy-time Prisma provider switch (`VPS_DB_PROVIDER=sqlite|postgres`)
+- shadow-read parity checks (`make db-pg-shadow`)
+- acceptance artifact generation (`make db-pg-acceptance`)
+- one-command orchestrated cutover (`make db-pg-cutover`)
+- one-command rollback to pre-cutover SQLite snapshot (`make db-pg-rollback`)
+
+New DB commands:
+
+```bash
+make db-generate-sqlite
+make db-generate-postgres
+make db-pg-shadow
+make db-pg-acceptance
+make db-pg-cutover
+make db-pg-rollback
+```
+
+Recommended cutover flow:
+
+```bash
+cd /Users/tonyblum/projects/vps-sentry-web
+export POSTGRES_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/vps_sentry_web?schema=public"
+export SQLITE_DB_PATH="/Users/tonyblum/projects/vps-sentry-web/prisma/dev.db"
+CUTOVER_CONFIRM=I_UNDERSTAND_PRODUCTION_CUTOVER make db-pg-cutover
+make release
+make smoke
+```
+
+Rollback flow (if needed):
+
+```bash
+cd /Users/tonyblum/projects/vps-sentry-web
+source .db-cutover-runs/<timestamp>/rollback.env
+ROLLBACK_SQLITE_BACKUP="$ROLLBACK_SQLITE_BACKUP" \
+SQLITE_DB_PATH="$SQLITE_DB_PATH" \
+VPS_ENV_FILE="$VPS_ENV_FILE" \
+make db-pg-rollback
+make deploy
+make smoke
+```
+
+Cutover runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/sqlite-postgres-migration.md`
+
+## v2.8 Step 11 (Durable Remediation Worker + Retries + DLQ + Replay)
+
+Step 11 upgrades remediation queue operations with durable worker semantics:
+
+- retry scheduling with exponential backoff
+- dead-letter queue tagging on max-attempt or non-retryable failures
+- replay APIs for single run and DLQ batch replay
+- operator queue visibility APIs + admin console UI
+- durable worker runtime script for continuous queue draining
+
+New ops APIs:
+
+- `GET /api/ops/remediate-queue` (queue snapshot / DLQ view)
+- `POST /api/ops/remediate-replay` (single replay or DLQ batch replay)
+
+Worker runtime:
+
+```bash
+make ops-worker
+make ops-worker-once
+```
+
+Or npm:
+
+```bash
+npm run ops:worker
+npm run ops:worker:once
+```
+
+Step 11 env knobs:
+
+- `VPS_REMEDIATE_MAX_RETRY_ATTEMPTS`
+- `VPS_REMEDIATE_RETRY_BACKOFF_SECONDS`
+- `VPS_REMEDIATE_RETRY_BACKOFF_MAX_SECONDS`
+- `OPS_WORKER_BASE_URL`
+- `OPS_WORKER_TOKEN` (or `VPS_REMEDIATE_QUEUE_TOKEN`)
+- `OPS_WORKER_DRAIN_LIMIT`
+- `OPS_WORKER_INTERVAL_SECONDS`
+- `OPS_WORKER_IDLE_INTERVAL_SECONDS`
+- `OPS_WORKER_MAX_BACKOFF_SECONDS`
+
+Step 11 runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/remediation-queue-runbook.md`
+
+## v2.9 Step 13 (Key/Secret Lifecycle Hardening)
+
+Step 13 upgrades host API key handling with lifecycle controls:
+
+- scoped host keys (`host.status.write`, `host.status.read`, `host.history.read`)
+- monotonic key versioning per host
+- explicit rotation lineage (`rotatedFromKeyId`)
+- revocation reason tracking
+- optional key expiry timestamps
+- token verification API + CLI tooling
+
+New/updated endpoints:
+
+- `POST /api/hosts/:hostId/keys`
+  - actions: `create`, `rotate`, `revoke`, `verify`
+- `GET /api/hosts/:hostId/keys/verify`
+  - bearer-token verification endpoint (optional `scope`, optional `touch=1`)
+- `POST /api/hosts/:hostId/keys/verify`
+  - bearer-token verification endpoint (body `scope`/`requiredScope`)
+
+Verification tooling:
+
+```bash
+./scripts/host-key-verify.sh --host-id <host-id> --token <token> --scope host.status.write
+make host-key-verify HOST_ID=<host-id> HOST_TOKEN=<token> HOST_KEY_SCOPE=host.status.read BASE_URL=https://vps-sentry.example.com
+```
+
+Runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/key-lifecycle-runbook.md`
+
+## v3.0 Step 14 (Full Observability: Logs, Metrics, Traces, Correlation IDs)
+
+Step 14 adds platform-wide observability:
+
+- middleware-level correlation + trace headers (`x-correlation-id`, `x-trace-id`, `x-span-id`)
+- structured JSON logging with request/user/host context
+- in-memory counters and timing metrics for API, notify, queue, and audit flows
+- trace span capture with duration + status
+- alert metadata capture for notify/email/webhook delivery attempts
+- admin observability dashboard panel
+
+New observability APIs:
+
+- `GET /api/ops/observability` (admin-only snapshot JSON)
+- `GET /api/ops/metrics` (ops/admin Prometheus text)
+
+Admin UX:
+
+- `/admin` now includes a live Observability section (refreshable logs/metrics/traces/alerts).
+
+Runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/observability-runbook.md`
+
+## v3.1 Step 15 (SLOs + Burn-Rate Alerting + MTTD/MTTR Goals)
+
+Step 15 adds objective reliability targets with routing-aware burn-rate alerting:
+
+- SLO objectives for:
+  - `/api/status` availability
+  - notification delivery success
+  - ingest freshness (heartbeat health)
+  - MTTD and MTTR duration goals
+- burn-rate severity evaluation (`ok/warn/critical`) with route selection (`none/webhook/email/both`)
+- automation-safe endpoint with ops RBAC or token auth
+- ops scripts + Make targets for non-interactive checks and alerting
+
+New API:
+
+- `GET /api/ops/slo` (ops/admin, or `x-slo-token` when `VPS_SLO_TOKEN` is configured)
+
+New scripts/targets:
+
+```bash
+make vps-slo-check
+make vps-slo-alert
+
+# or npm
+npm run ops:slo:check
+npm run ops:slo:alert
+```
+
+New env knobs (in `.vps.env`):
+
+- `VPS_SLO_WINDOW_HOURS`
+- `VPS_SLO_BURN_SHORT_WINDOW_MINUTES`
+- `VPS_SLO_BURN_LONG_WINDOW_MINUTES`
+- `VPS_SLO_BURN_WARN`
+- `VPS_SLO_BURN_CRITICAL`
+- `VPS_SLO_AVAILABILITY_TARGET_PCT`
+- `VPS_SLO_NOTIFY_DELIVERY_TARGET_PCT`
+- `VPS_SLO_INGEST_FRESH_TARGET_PCT`
+- `VPS_SLO_MTTD_TARGET_MINUTES`
+- `VPS_SLO_MTTR_TARGET_MINUTES`
+- `VPS_SLO_ROUTE_WARN`
+- `VPS_SLO_ROUTE_CRITICAL`
+- `VPS_SLO_TOKEN` (optional token auth for automation)
+
+Runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/slo-burn-rate-runbook.md`
+
+## v3.2 Step 16 (Backup/Restore Hardening + Recurring Verified Drills + RPO/RTO Reports)
+
+Step 16 hardens recovery operations with objective measurement and recurring verification:
+
+- backup automation now supports direct local mode execution on VPS cron (`VPS_LOCAL_EXEC=1`)
+- restore drill now writes durable run/success telemetry markers and history records
+- objective recovery report script computes RPO/RTO and drill recency against targets
+- recurring restore-drill automation installs weekly verified drills with breach alerts
+
+New scripts:
+
+- `/Users/tonyblum/projects/vps-sentry-web/scripts/vps-rpo-rto-report.sh`
+- `/Users/tonyblum/projects/vps-sentry-web/scripts/vps-restore-drill-automation.sh`
+
+Updated scripts:
+
+- `/Users/tonyblum/projects/vps-sentry-web/scripts/vps-backup.sh`
+- `/Users/tonyblum/projects/vps-sentry-web/scripts/vps-restore-drill.sh`
+- `/Users/tonyblum/projects/vps-sentry-web/scripts/vps-backup-automation.sh`
+
+Make targets:
+
+```bash
+make vps-rpo-rto-report
+make vps-rpo-rto-report-alert
+make vps-restore-drill-automation-status
+make vps-restore-drill-automation-install
+make vps-restore-drill-automation-remove
+```
+
+Step 16 env knobs:
+
+- `VPS_BACKUP_REPORT_AFTER_RUN`
+- `VPS_RESTORE_DRILL_CRON`
+- `VPS_RESTORE_DRILL_LOG_PATH`
+- `VPS_RESTORE_DRILL_HISTORY_FILE`
+- `VPS_RPO_TARGET_MINUTES`
+- `VPS_RTO_TARGET_MINUTES`
+- `VPS_RESTORE_DRILL_MAX_AGE_HOURS`
+
+Runbook:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/production-ops-runbook.md`

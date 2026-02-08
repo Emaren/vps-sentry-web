@@ -3,16 +3,21 @@ import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import SiteThemeControls from "@/app/_components/SiteThemeControls";
+import { hasRequiredRole, type AppRole } from "@/lib/rbac-policy";
 
-import type { DashboardBilling, DashboardEnv } from "../_lib/types";
+import type { DashboardBilling, DashboardEnv, DashboardOpsSnapshot } from "../_lib/types";
 
 import { deriveDashboard, type DerivedDashboard } from "../_lib/derive";
 
 import {
+  AdaptiveSection,
   AlertsSection,
   BreachesSection,
+  CoachSection,
+  CommandCenterSection,
   ChangesDebugSection,
   DashboardFooter,
+  MissionControlSection,
   PortsSection,
   RemediationsSection,
   ShippingSection,
@@ -20,16 +25,31 @@ import {
   TopArea,
 } from "./sections";
 import DashboardLogoutButton from "./DashboardLogoutButton";
+import LivePulseStrip from "./LivePulseStrip";
 
 export default function DashboardView(props: {
   env: DashboardEnv;
   billing: DashboardBilling;
+  ops: DashboardOpsSnapshot;
   signedInAs: string;
+  userRole: AppRole;
 }) {
-  const { env, billing, signedInAs } = props;
+  const { env, billing, ops, signedInAs, userRole } = props;
   const s = env.last;
 
   const d: DerivedDashboard = deriveDashboard(env);
+  const canOpenAdmin = hasRequiredRole(userRole, "admin");
+  const livePulse = {
+    ts: new Date().toISOString(),
+    snapshotTs: d.snapshotTs,
+    alertsCount: d.alertsCount,
+    unexpectedPorts: d.publicPortsCount,
+    openBreaches: ops.breaches?.counts.open ?? d.breachesOpen ?? 0,
+    incidentsOpen: ops.incidents?.counts.open ?? 0,
+    queueQueued: ops.queue?.counts.queued ?? ops.remediation?.counts.queued ?? 0,
+    queueDlq: ops.queue?.counts.dlq ?? ops.remediation?.counts.dlq ?? 0,
+    shippingFailed24h: ops.shipping?.counts.failed24h ?? 0,
+  };
 
   return (
     <main className="dashboard-shell dashboard-main">
@@ -62,6 +82,11 @@ export default function DashboardView(props: {
             <Link href="/get-vps-sentry" className="app-header-btn">
               Install guide
             </Link>
+            {canOpenAdmin ? (
+              <Link href="/admin" className="app-header-btn">
+                Admin
+              </Link>
+            ) : null}
             <DashboardLogoutButton />
           </div>
           <div className="app-header-actions-theme-row">
@@ -74,19 +99,27 @@ export default function DashboardView(props: {
         <TopArea
           status={s}
           billing={billing}
+          ops={ops}
           signedInAs={signedInAs}
           derived={d}
+          userRole={userRole}
           showTitle={false}
         />
       </div>
+
+      <MissionControlSection ops={ops} snapshotTs={d.snapshotTs} />
+      <LivePulseStrip initial={livePulse} />
+      <CommandCenterSection ops={ops} snapshotTs={d.snapshotTs} />
+      <CoachSection derived={d} ops={ops} snapshotTs={d.snapshotTs} />
+      <AdaptiveSection ops={ops} snapshotTs={d.snapshotTs} />
 
       <AlertsSection derived={d} snapshotTs={d.snapshotTs} />
       <PortsSection derived={d} snapshotTs={d.snapshotTs} />
       <ThreatSection status={s} snapshotTs={d.snapshotTs} />
 
-      <BreachesSection derived={d} snapshotTs={d.snapshotTs} />
-      <ShippingSection derived={d} snapshotTs={d.snapshotTs} />
-      <RemediationsSection snapshotTs={d.snapshotTs} />
+      <BreachesSection derived={d} ops={ops} snapshotTs={d.snapshotTs} />
+      <ShippingSection derived={d} ops={ops} snapshotTs={d.snapshotTs} />
+      <RemediationsSection ops={ops} snapshotTs={d.snapshotTs} />
 
       <ChangesDebugSection
         snapshotTs={d.snapshotTs}

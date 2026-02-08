@@ -1,4 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  applyObservabilityHeaders,
+  ensureObservabilityHeaders,
+  incrementCounter,
+  logEvent,
+  observeTiming,
+} from "@/lib/observability";
 
 type RateLimitPolicy = {
   name: string;
@@ -166,6 +173,12 @@ function getCspValue(): string {
   return directives.join("; ");
 }
 
+function normalizePathForMetric(path: string): string {
+  return path
+    .replace(/\/[0-9a-f]{16,}(?=\/|$)/gi, "/:id")
+    .replace(/\/\d+(?=\/|$)/g, "/:n");
+}
+
 function applySecurityHeaders(req: NextRequest, res: NextResponse): void {
   res.headers.set("X-Content-Type-Options", "nosniff");
   res.headers.set("X-Frame-Options", "DENY");
@@ -218,6 +231,21 @@ function buildRateLimitedResponse(rate: RateLimitState): NextResponse {
 }
 
 export function middleware(req: NextRequest) {
+  const started = Date.now();
+  const routePath = req.nextUrl.pathname;
+  const pathMetric = normalizePathForMetric(routePath);
+  const method = req.method.toUpperCase();
+  const obs = ensureObservabilityHeaders(req.headers, {
+    route: routePath,
+    method,
+    source: "middleware",
+  });
+
+  incrementCounter("middleware.requests.total", 1, {
+    method,
+    path: pathMetric,
+  });
+
   const policy = selectRateLimitPolicy(req);
 
   if (policy) {
@@ -226,17 +254,63 @@ export function middleware(req: NextRequest) {
       const limited = buildRateLimitedResponse(rate);
       applyRateHeaders(limited, rate);
       applySecurityHeaders(req, limited);
+      applyObservabilityHeaders(limited, obs.context, {
+        durationMs: Date.now() - started,
+      });
+      incrementCounter("middleware.ratelimit.total", 1, {
+        policy: policy.name,
+        limited: "true",
+      });
+      observeTiming("middleware.duration_ms", Date.now() - started, {
+        method,
+        path: pathMetric,
+        limited: "true",
+      });
+      logEvent("warn", "middleware.rate_limited", obs.context, {
+        path: routePath,
+        policy: policy.name,
+        count: rate.count,
+        remaining: rate.remaining,
+      });
       return limited;
     }
 
-    const res = NextResponse.next();
+    const res = NextResponse.next({
+      request: {
+        headers: obs.headers,
+      },
+    });
     applyRateHeaders(res, rate);
     applySecurityHeaders(req, res);
+    applyObservabilityHeaders(res, obs.context, {
+      durationMs: Date.now() - started,
+    });
+    incrementCounter("middleware.ratelimit.total", 1, {
+      policy: policy.name,
+      limited: "false",
+    });
+    observeTiming("middleware.duration_ms", Date.now() - started, {
+      method,
+      path: pathMetric,
+      limited: "false",
+    });
     return res;
   }
 
-  const res = NextResponse.next();
+  const res = NextResponse.next({
+    request: {
+      headers: obs.headers,
+    },
+  });
   applySecurityHeaders(req, res);
+  applyObservabilityHeaders(res, obs.context, {
+    durationMs: Date.now() - started,
+  });
+  observeTiming("middleware.duration_ms", Date.now() - started, {
+    method,
+    path: pathMetric,
+    limited: "n/a",
+  });
   return res;
 }
 

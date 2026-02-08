@@ -7,6 +7,7 @@ const baseAction: RemediationAction = {
   id: "lockdown-access-surface",
   priority: "P0",
   risk: "medium",
+  autoTier: "guarded_auto",
   title: "Lock Down SSH + Firewall Surface",
   why: "Critical config drift was detected.",
   sourceCodes: ["config_tamper"],

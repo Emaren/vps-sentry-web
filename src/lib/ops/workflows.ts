@@ -5,7 +5,7 @@ export type IncidentWorkflowStep = {
   title: string;
   description: string;
   kind: "api" | "manual";
-  action?: "status-snapshot" | "drain-queue" | "notify-test";
+  action?: "status-snapshot" | "drain-queue" | "notify-test" | "replay-dlq";
   defaultPayload?: Record<string, unknown>;
 };
 
@@ -47,6 +47,14 @@ export const INCIDENT_WORKFLOWS: IncidentWorkflow[] = [
         kind: "api",
         action: "drain-queue",
         defaultPayload: { limit: 8 },
+      },
+      {
+        id: "replay-dlq",
+        title: "Replay DLQ Runs",
+        description: "Requeue dead-lettered runs after operators fix root causes.",
+        kind: "api",
+        action: "replay-dlq",
+        defaultPayload: { limit: 3 },
       },
       {
         id: "notify-test",

@@ -5,6 +5,9 @@ CREATE SCHEMA IF NOT EXISTS "public";
 CREATE TYPE "Plan" AS ENUM ('FREE', 'BASIC', 'PRO');
 
 -- CreateEnum
+CREATE TYPE "UserRole" AS ENUM ('owner', 'admin', 'ops', 'viewer');
+
+-- CreateEnum
 CREATE TYPE "BreachSeverity" AS ENUM ('info', 'warn', 'critical');
 
 -- CreateEnum
@@ -21,6 +24,7 @@ CREATE TABLE "User" (
     "id" TEXT NOT NULL,
     "name" TEXT,
     "email" TEXT,
+    "role" "UserRole" NOT NULL DEFAULT 'viewer',
     "emailVerified" TIMESTAMP(3),
     "image" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -72,9 +76,15 @@ CREATE TABLE "HostApiKey" (
     "hostId" TEXT NOT NULL,
     "tokenHash" TEXT NOT NULL,
     "prefix" TEXT NOT NULL,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "label" TEXT,
+    "scopeJson" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "lastUsedAt" TIMESTAMP(3),
     "revokedAt" TIMESTAMP(3),
+    "revokedReason" TEXT,
+    "expiresAt" TIMESTAMP(3),
+    "rotatedFromKeyId" TEXT,
 
     CONSTRAINT "HostApiKey_pkey" PRIMARY KEY ("id")
 );
@@ -256,6 +266,12 @@ CREATE INDEX "HostApiKey_hostId_idx" ON "HostApiKey"("hostId");
 CREATE INDEX "HostApiKey_hostId_revokedAt_idx" ON "HostApiKey"("hostId", "revokedAt");
 
 -- CreateIndex
+CREATE INDEX "HostApiKey_hostId_version_idx" ON "HostApiKey"("hostId", "version");
+
+-- CreateIndex
+CREATE INDEX "HostApiKey_hostId_expiresAt_idx" ON "HostApiKey"("hostId", "expiresAt");
+
+-- CreateIndex
 CREATE INDEX "HostSnapshot_hostId_ts_idx" ON "HostSnapshot"("hostId", "ts");
 
 -- CreateIndex
@@ -362,4 +378,3 @@ ALTER TABLE "Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId"
 
 -- AddForeignKey
 ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
