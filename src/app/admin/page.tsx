@@ -3,6 +3,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireAdminAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
+import AdminOpsPanel from "@/app/admin/AdminOpsPanel";
+import { INCIDENT_WORKFLOWS } from "@/lib/ops/workflows";
 
 function fmtDate(d?: Date | null) {
   if (!d) return "-";
@@ -213,6 +215,36 @@ export default async function AdminPage() {
     { total: 0, active: 0, free: 0, pro: 0, elite: 0, customers: 0, subs: 0, suspicious: 0 }
   );
 
+  const recentOpsRaw = await prisma.auditLog.findMany({
+    where: {
+      OR: [
+        { action: { startsWith: "ops." } },
+        { action: { startsWith: "remediate." } },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+    take: 25,
+    select: {
+      id: true,
+      action: true,
+      detail: true,
+      createdAt: true,
+      user: {
+        select: {
+          email: true,
+        },
+      },
+    },
+  });
+
+  const recentOps = recentOpsRaw.map((entry) => ({
+    id: entry.id,
+    action: entry.action,
+    detail: entry.detail,
+    createdAtIso: fmtDate(entry.createdAt),
+    userEmail: entry.user?.email ?? null,
+  }));
+
   // ---------- 4) UI ----------
   return (
     <main style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
@@ -359,6 +391,8 @@ export default async function AdminPage() {
 
         {users.length === 0 && <div style={{ padding: 14, opacity: 0.7 }}>No users yet.</div>}
       </section>
+
+      <AdminOpsPanel workflows={INCIDENT_WORKFLOWS} recentOps={recentOps} />
 
       {/* Footer notes */}
       <footer style={{ marginTop: 16, opacity: 0.7, fontSize: 13, lineHeight: "18px" }}>

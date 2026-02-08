@@ -428,3 +428,36 @@ Optional env knobs in `.vps.env`:
 
 - `VPS_ARCHIVE_BASE=/home/tony/_archive/vps-sentry`
 - `VPS_ARCHIVE_KEEP_DAYS=30`
+
+## v2.6 Step 9 (Operator Playbooks + Incident Workflows + Admin UX)
+
+New operator docs:
+
+- `/Users/tonyblum/projects/vps-sentry-web/docs/operator-playbooks.md`
+- `/Users/tonyblum/projects/vps-sentry-web/docs/incident-workflows.md`
+
+Incident workflow API:
+
+- `GET /api/ops/incident-workflow`
+  - Returns workflow catalog for admin responders.
+- `POST /api/ops/incident-workflow`
+  - Executes API-safe workflow step actions (`status-snapshot`, `drain-queue`, `notify-test`).
+  - Manual-only steps are intentionally blocked from API execution.
+  - Step failures are surfaced as `ok: false` and written to audit logs.
+
+Admin UX improvements (`/admin`):
+
+- New **Operator Console** panel with:
+  - quick action buttons (drain queue, report-now, notify test, status snapshot)
+  - one-click workflow step runner for API-safe steps
+  - manual-step labels for human-only actions
+  - recent privileged ops timeline (audit log derived)
+  - latest action result preview for operator feedback
+
+Step 9 verification:
+
+```bash
+npm test
+npx tsc --noEmit
+npm run lint -- --max-warnings=0
+```
