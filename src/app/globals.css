@@ -651,7 +651,20 @@ html[data-site-theme="sepia"] .dashboard-shell {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
+}
+
+.dashboard-top-primary {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-status-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
 }
 
 .dashboard-kpi-grid {

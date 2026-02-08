@@ -50,10 +50,10 @@ export default function TopArea(props: {
   return (
     <div className="dashboard-top-stack">
       <div className="dashboard-top-grid">
-        <div>
+        <div className="dashboard-top-primary">
           {showTitle ? <h1 style={{ fontSize: 28, margin: 0 }}>VPS Sentry</h1> : null}
 
-          <Box style={{ marginTop: showTitle ? 12 : 0 }}>
+          <Box className="dashboard-status-card" style={{ marginTop: showTitle ? 12 : 0 }}>
             <StatusActionPopup
               needsAction={d.needsAction}
               headline={d.headline}
