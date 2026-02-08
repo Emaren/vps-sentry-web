@@ -460,6 +460,43 @@ body:has(.dashboard-main) {
     var(--dash-bg);
 }
 
+/* Force the shell to use dark-mode palette/gradient regardless of selected site theme. */
+.dashboard-shell.dashboard-shell-force-dark {
+  --dash-bg: #06090f;
+  --dash-fg: #ecf2ff;
+  --dash-muted: rgba(236, 242, 255, 0.88);
+  --dash-meta: rgba(236, 242, 255, 0.72);
+  --dash-card-bg: rgba(255, 255, 255, 0.03);
+  --dash-card-border: rgba(255, 255, 255, 0.12);
+  --dash-soft-border: rgba(255, 255, 255, 0.08);
+  --dash-card-shadow: 0 12px 30px rgba(2, 7, 20, 0.3);
+  --dash-btn-bg: rgba(255, 255, 255, 0.05);
+  --dash-btn-bg-strong: rgba(255, 255, 255, 0.08);
+  --dash-btn-border: rgba(255, 255, 255, 0.18);
+  --dash-btn-bg-hover: rgba(255, 255, 255, 0.11);
+  --dash-cursor: rgba(255, 255, 255, 0.65);
+  --dash-warn-text: #fcd34d;
+  --dash-sev-critical-bg: rgba(239, 68, 68, 0.14);
+  --dash-sev-critical-border: rgba(239, 68, 68, 0.38);
+  --dash-sev-critical-text: #fecaca;
+  --dash-sev-high-bg: rgba(245, 158, 11, 0.14);
+  --dash-sev-high-border: rgba(245, 158, 11, 0.38);
+  --dash-sev-high-text: #fcd34d;
+  --dash-sev-medium-bg: rgba(59, 130, 246, 0.14);
+  --dash-sev-medium-border: rgba(59, 130, 246, 0.38);
+  --dash-sev-medium-text: #bfdbfe;
+  --dash-sev-low-bg: rgba(156, 163, 175, 0.12);
+  --dash-sev-low-border: rgba(156, 163, 175, 0.35);
+  --dash-sev-low-text: #d1d5db;
+  --dash-sev-ok-bg: rgba(34, 197, 94, 0.14);
+  --dash-sev-ok-border: rgba(34, 197, 94, 0.35);
+  --dash-sev-ok-text: #bbf7d0;
+  background:
+    radial-gradient(85% 120% at 10% -20%, rgba(56, 189, 248, 0.1), transparent 55%),
+    radial-gradient(90% 110% at 95% -10%, rgba(99, 102, 241, 0.08), transparent 60%),
+    var(--dash-bg);
+}
+
 html[data-site-theme="light"] .dashboard-shell {
   background:
     radial-gradient(85% 120% at 10% -20%, rgba(59, 130, 246, 0.12), transparent 56%),
