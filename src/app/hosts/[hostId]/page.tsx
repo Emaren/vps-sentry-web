@@ -335,6 +335,9 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       : "ok";
   const queueBacklog = queueQueuedCount + queueRunningCount;
   const timelineSummary = timelineResult.summary;
+  const timelineTopCodes = Object.entries(timelineSummary.byCode)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
   const remediationRunSummary = host.remediationRuns.reduce(
     (acc, run) => {
       if (run.state === "queued") acc.queued += 1;
@@ -605,6 +608,10 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
             <div style={{ marginTop: 8, color: "var(--dash-meta)", fontSize: 12 }}>
               total keys tracked: <b>{host.apiKeys.length}</b> (latest table window)
             </div>
+            <div style={{ marginTop: 4, color: "var(--dash-meta)", fontSize: 12 }}>
+              rotation pressure: <b>{keyExpiringSoonCount}</b> expiring soon · <b>{keyStaleCount}</b>{" "}
+              stale
+            </div>
           </div>
 
           <div style={subPanelStyle()}>
@@ -638,6 +645,12 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
               <span className={remediationRunSummary.failed > 0 ? "dashboard-chip dashboard-chip-bad" : "dashboard-chip dashboard-chip-ok"}>
                 failed {remediationRunSummary.failed}
               </span>
+            </div>
+            <div style={{ marginTop: 8, color: "var(--dash-meta)", fontSize: 12 }}>
+              top signal codes:{" "}
+              {timelineTopCodes.length > 0
+                ? timelineTopCodes.map(([code, count]) => `${code}(${count})`).join(", ")
+                : "none"}
             </div>
           </div>
         </div>
