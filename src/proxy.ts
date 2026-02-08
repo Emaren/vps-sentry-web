@@ -246,7 +246,7 @@ function buildRateLimitedResponse(rate: RateLimitState): NextResponse {
   );
 }
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const started = Date.now();
   const routePath = req.nextUrl.pathname;
   const pathMetric = normalizePathForMetric(routePath);

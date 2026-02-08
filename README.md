@@ -727,12 +727,12 @@ Step 15 adds objective reliability targets with routing-aware burn-rate alerting
   - ingest freshness (heartbeat health)
   - MTTD and MTTR duration goals
 - burn-rate severity evaluation (`ok/warn/critical`) with route selection (`none/webhook/email/both`)
-- automation-safe endpoint with ops RBAC or token auth
+- automation-safe endpoint with ops RBAC, token auth, or trusted loopback probe auth
 - ops scripts + Make targets for non-interactive checks and alerting
 
 New API:
 
-- `GET /api/ops/slo` (ops/admin, or `x-slo-token` when `VPS_SLO_TOKEN` is configured)
+- `GET /api/ops/slo` (ops/admin, `x-slo-token`, or loopback host probe when `VPS_SLO_ALLOW_LOOPBACK_PROBE=1`)
 
 New scripts/targets:
 
@@ -760,6 +760,7 @@ New env knobs (in `.vps.env`):
 - `VPS_SLO_ROUTE_WARN`
 - `VPS_SLO_ROUTE_CRITICAL`
 - `VPS_SLO_TOKEN` (optional token auth for automation)
+- `VPS_SLO_ALLOW_LOOPBACK_PROBE` (allow non-interactive VPS-host loopback probes)
 
 Runbook:
 

@@ -38,6 +38,7 @@ SLO severity can map to channel route:
 
 - `VPS_SLO_ROUTE_WARN` (`none|webhook|email|both`)
 - `VPS_SLO_ROUTE_CRITICAL` (`none|webhook|email|both`)
+- `VPS_SLO_ALLOW_LOOPBACK_PROBE` (`1|0`, default `1`)
 
 Alert delivery is handled by `scripts/vps-alert.sh` with route support:
 
@@ -57,6 +58,8 @@ Auth:
 
 - ops/admin session OR
 - `x-slo-token` header when `VPS_SLO_TOKEN` is configured server-side
+- trusted loopback probe from the VPS host itself (`Host: 127.0.0.1|localhost`, no proxy headers) when
+  `VPS_SLO_ALLOW_LOOPBACK_PROBE=1`
 
 ## Operator commands
 

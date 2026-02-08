@@ -19,6 +19,7 @@ const skipSecurity = options.flags.has("skip-security");
 const skipPerf = options.flags.has("skip-perf");
 const skipSlo = options.flags.has("skip-slo");
 const skipRpoRto = options.flags.has("skip-rpo-rto");
+const skipRecoveryDrill = options.flags.has("skip-recovery-drill");
 const chaosLocal = options.flags.has("chaos-local");
 
 const minPassPct = Number(
@@ -33,10 +34,30 @@ const checkTimeoutSeconds = Number(
     process.env.VPS_SCORECARD_CHECK_TIMEOUT_SECONDS ??
     "240",
 );
+const sshFailureRetryAttempts = Number(
+  options.values["ssh-failure-retries"] ??
+    envFromFile.VPS_SCORECARD_SSH_FAILURE_RETRIES ??
+    process.env.VPS_SCORECARD_SSH_FAILURE_RETRIES ??
+    "2",
+);
+const sshFailureRetryDelaySeconds = Number(
+  options.values["ssh-failure-retry-delay-seconds"] ??
+    envFromFile.VPS_SCORECARD_SSH_FAILURE_RETRY_DELAY_SECONDS ??
+    process.env.VPS_SCORECARD_SSH_FAILURE_RETRY_DELAY_SECONDS ??
+    "8",
+);
 const commandShell = options.values.shell ?? process.env.SHELL ?? "/bin/bash";
 
 if (!Number.isFinite(checkTimeoutSeconds) || checkTimeoutSeconds <= 0) {
   console.error("[scorecard] check timeout must be a positive number of seconds");
+  process.exit(2);
+}
+if (!Number.isFinite(sshFailureRetryAttempts) || sshFailureRetryAttempts < 1) {
+  console.error("[scorecard] ssh failure retries must be >= 1");
+  process.exit(2);
+}
+if (!Number.isFinite(sshFailureRetryDelaySeconds) || sshFailureRetryDelaySeconds < 0) {
+  console.error("[scorecard] ssh failure retry delay must be >= 0 seconds");
   process.exit(2);
 }
 
@@ -66,6 +87,7 @@ if (!skipSupply) {
     weight: 18,
     required: true,
     cmd: "./scripts/supply-chain-check.sh --no-lock-verify",
+    retryOnSshRefusal: false,
   });
 }
 
@@ -76,6 +98,7 @@ if (!skipReleaseGate) {
     weight: 24,
     required: true,
     cmd: "./scripts/release-gate.sh",
+    retryOnSshRefusal: true,
   });
 }
 
@@ -86,6 +109,7 @@ if (!skipSecurity) {
     weight: 10,
     required: false,
     cmd: "./scripts/security-headers-check.sh --remote",
+    retryOnSshRefusal: true,
   });
 }
 
@@ -96,6 +120,7 @@ if (!skipPerf && !fast) {
     weight: 10,
     required: false,
     cmd: "./scripts/perf-load-smoke.sh --remote --requests 120 --concurrency 20 --expect 200",
+    retryOnSshRefusal: true,
   });
 }
 
@@ -108,6 +133,7 @@ if (!skipChaos) {
     weight: 18,
     required: true,
     cmd: chaosCmd,
+    retryOnSshRefusal: true,
   });
 }
 
@@ -118,22 +144,36 @@ if (!skipSlo) {
     weight: 10,
     required: false,
     cmd: "./scripts/vps-slo-burn-rate.sh --no-alert --soft",
+    retryOnSshRefusal: true,
   });
 }
 
 if (!skipRpoRto) {
+  if (!skipRecoveryDrill) {
+    checks.push({
+      id: "recovery_drill",
+      label: "Backup + restore drill",
+      weight: 8,
+      required: false,
+      cmd: "./scripts/vps-backup.sh --label scorecard && ./scripts/vps-restore-drill.sh",
+      retryOnSshRefusal: true,
+    });
+  }
   checks.push({
     id: "rpo_rto",
     label: "Recovery objectives",
     weight: 10,
     required: false,
     cmd: "./scripts/vps-rpo-rto-report.sh --soft",
+    retryOnSshRefusal: true,
   });
 }
 
 const results = checks.map((check) => runCheck(
   {
     timeoutSeconds: check.timeoutSeconds ?? checkTimeoutSeconds,
+    sshFailureRetryAttempts: check.retryOnSshRefusal ? sshFailureRetryAttempts : 1,
+    sshFailureRetryDelaySeconds,
     ...check,
   },
   runDir,
@@ -141,12 +181,26 @@ const results = checks.map((check) => runCheck(
   rootDir,
 ));
 
-const possibleWeight = sum(results.map((r) => r.weight));
-const earnedWeight = sum(results.filter((r) => r.status === "PASS").map((r) => r.weight));
+const normalizedResults = results.map((result) => {
+  if (result.status === "FAIL" && result.sshTransientFailure && !result.required) {
+    return {
+      ...result,
+      status: "SKIP",
+      skipReason: "ssh_unreachable",
+    };
+  }
+  return result;
+});
+
+const scoredResults = normalizedResults.filter((r) => r.status !== "SKIP");
+const possibleWeight = sum(scoredResults.map((r) => r.weight));
+const earnedWeight = sum(scoredResults.filter((r) => r.status === "PASS").map((r) => r.weight));
 const scorePercent = possibleWeight > 0 ? Number(((earnedWeight / possibleWeight) * 100).toFixed(1)) : 0;
-const requiredFailures = results.filter((r) => r.required && r.status !== "PASS");
+const requiredFailures = normalizedResults.filter((r) => r.required && r.status !== "PASS");
+const skippedChecks = normalizedResults.filter((item) => item.status === "SKIP");
 const overallPass = requiredFailures.length === 0 && scorePercent >= minPassPct;
-const rating = ratingFromScore(scorePercent, overallPass);
+const verificationState = skippedChecks.length > 0 ? "PARTIAL" : "FULL";
+const rating = ratingFromScore(scorePercent, overallPass, skippedChecks.length);
 
 const scorecard = {
   generatedAt: new Date().toISOString(),
@@ -159,16 +213,22 @@ const scorecard = {
   earnedWeight,
   possibleWeight,
   overall: overallPass ? "PASS" : "FAIL",
+  verificationState,
   rating,
   requiredFailures: requiredFailures.map((item) => ({
     id: item.id,
     label: item.label,
     exitCode: item.exitCode,
   })),
-  checks: results,
+  checks: normalizedResults,
+  skippedChecks: skippedChecks.map((item) => ({
+      id: item.id,
+      label: item.label,
+      reason: item.skipReason ?? "not_scored",
+    })),
   artifacts: {
     directory: runDir,
-    logs: results.map((item) => ({ id: item.id, log: item.logPath })),
+    logs: normalizedResults.map((item) => ({ id: item.id, log: item.logPath })),
   },
 };
 
@@ -186,11 +246,12 @@ console.log(`[scorecard] run_id:${runId}`);
 console.log(`[scorecard] shell:${commandShell}`);
 console.log(`[scorecard] score:${scorePercent}% (earned ${earnedWeight}/${possibleWeight})`);
 console.log(`[scorecard] threshold:${minPassPct}% overall=${scorecard.overall}`);
+console.log(`[scorecard] verification:${verificationState}`);
 console.log(`[scorecard] rating:${rating}`);
 console.log(`[scorecard] json:${jsonPath}`);
 console.log(`[scorecard] markdown:${mdPath}`);
 
-for (const result of results) {
+for (const result of normalizedResults) {
   console.log(
     `[scorecard] check:${result.id} status=${result.status} required=${result.required ? "yes" : "no"} duration=${result.durationSeconds}s timeout=${result.timeoutSeconds}s`,
   );
@@ -201,31 +262,81 @@ if (strict && !overallPass) {
 }
 
 function runCheck(check, runDirPath, env, cwd) {
+  const maxAttempts = Math.max(1, Number(check.sshFailureRetryAttempts || 1));
+  const retryDelaySeconds = Math.max(0, Number(check.sshFailureRetryDelaySeconds || 0));
   const startedAt = Date.now();
-  const out = spawnSync(commandShell, ["-lc", check.cmd], {
-    cwd,
-    env,
-    encoding: "utf8",
-    maxBuffer: 16 * 1024 * 1024,
-    timeout: Math.round(check.timeoutSeconds * 1000),
-  });
+  const attempts = [];
+  let finalTimedOut = false;
+  let finalExitCode = -1;
+  let finalCombinedOutput = "";
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const out = spawnSync(commandShell, ["-lc", check.cmd], {
+      cwd,
+      env,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: Math.round(check.timeoutSeconds * 1000),
+    });
+    const timedOut = Boolean(out.error && out.error.code === "ETIMEDOUT");
+    const exitCode = timedOut ? 124 : (typeof out.status === "number" ? out.status : -1);
+    const combinedOutput = `${out.stdout || ""}${out.stderr || ""}`;
+
+    attempts.push({
+      attempt,
+      exitCode,
+      timedOut,
+      output: combinedOutput,
+    });
+
+    finalTimedOut = timedOut;
+    finalExitCode = exitCode;
+    finalCombinedOutput = combinedOutput;
+
+    if (exitCode === 0) break;
+
+    const canRetry = attempt < maxAttempts && isLikelySshTransientFailure(combinedOutput);
+    if (!canRetry) break;
+
+    console.log(
+      `[scorecard] check:${check.id} transient_ssh_failure attempt=${attempt}/${maxAttempts} retry_in=${retryDelaySeconds}s`,
+    );
+    if (retryDelaySeconds > 0) {
+      spawnSync(commandShell, ["-lc", `sleep ${retryDelaySeconds}`], {
+        cwd,
+        env,
+        encoding: "utf8",
+      });
+    }
+  }
+
   const endedAt = Date.now();
   const durationSeconds = Number(((endedAt - startedAt) / 1000).toFixed(2));
-  const timedOut = Boolean(out.error && out.error.code === "ETIMEDOUT");
-  const exitCode = timedOut ? 124 : (typeof out.status === "number" ? out.status : -1);
-  const status = exitCode === 0 ? "PASS" : "FAIL";
-  const combinedOutput = `${out.stdout || ""}${out.stderr || ""}`;
-  const excerptBase = combinedOutput
+  const status = finalExitCode === 0 ? "PASS" : "FAIL";
+  const sshTransientFailure = status === "FAIL" && isLikelySshTransientFailure(finalCombinedOutput);
+
+  const excerptBase = finalCombinedOutput
     .trim()
     .split(/\r?\n/)
     .filter(Boolean)
     .slice(-8)
     .join("\n");
-  const excerpt = timedOut
+  const excerpt = finalTimedOut
     ? `${excerptBase}\n[scorecard] check timed out after ${check.timeoutSeconds}s`
     : excerptBase;
   const logPath = path.join(runDirPath, `${check.id}.log`);
-  fs.writeFileSync(logPath, `${combinedOutput}\n`, "utf8");
+  const attemptLog =
+    attempts.length <= 1
+      ? `${finalCombinedOutput}\n`
+      : `${attempts
+          .map((entry) => {
+            const header = `[attempt ${entry.attempt}/${maxAttempts}] exit=${entry.exitCode} timedOut=${
+              entry.timedOut ? "yes" : "no"
+            }`;
+            return `${header}\n${entry.output}`;
+          })
+          .join("\n\n")}\n`;
+  fs.writeFileSync(logPath, attemptLog, "utf8");
   return {
     id: check.id,
     label: check.label,
@@ -233,12 +344,14 @@ function runCheck(check, runDirPath, env, cwd) {
     weight: check.weight,
     required: check.required,
     status,
-    exitCode,
-    timedOut,
+    exitCode: finalExitCode,
+    timedOut: finalTimedOut,
     timeoutSeconds: check.timeoutSeconds,
     durationSeconds,
     logPath,
     outputExcerpt: excerpt,
+    attempts: attempts.length,
+    sshTransientFailure,
   };
 }
 
@@ -246,7 +359,11 @@ function sum(values) {
   return values.reduce((acc, value) => acc + Number(value || 0), 0);
 }
 
-function ratingFromScore(score, pass) {
+function ratingFromScore(score, pass, skippedCount = 0) {
+  if (pass && skippedCount > 0) {
+    if (score >= 95) return "v3.8 Core-Ready (partial verification)";
+    if (score >= 85) return "v3.6 Core-Pass (partial verification)";
+  }
   if (score >= 95 && pass) return "v4.0 Sentinel Prime Ready";
   if (score >= 90 && pass) return "v3.9 Near-Sentinel";
   if (score >= 85 && pass) return "v3.7 Operator-Grade+";
@@ -273,6 +390,14 @@ function renderMarkdown(scorecardData) {
     lines.push(`| ${item.label} | ${item.weight} | ${item.required ? "Yes" : "No"} | ${item.status} | ${item.durationSeconds} | ${item.timeoutSeconds} |`);
   }
   lines.push("");
+  if (Array.isArray(scorecardData.skippedChecks) && scorecardData.skippedChecks.length > 0) {
+    lines.push("## Skipped Checks");
+    lines.push("");
+    for (const skipped of scorecardData.skippedChecks) {
+      lines.push(`- ${skipped.label} (${skipped.id}) reason=${skipped.reason}`);
+    }
+    lines.push("");
+  }
   if (scorecardData.requiredFailures.length > 0) {
     lines.push("## Required Failures");
     lines.push("");
@@ -306,6 +431,14 @@ function parseArgs(argv) {
     i += 1;
   }
   return { flags, values };
+}
+
+function isLikelySshTransientFailure(output) {
+  const text = String(output || "");
+  if (!text) return false;
+  return /ssh_unreachable|ssh_retry|ssh: connect to host .* port 22: (connection refused|connection timed out|no route to host)|kex_exchange_identification|connection closed by remote host/i.test(
+    text,
+  );
 }
 
 function readSimpleEnv(filePath) {

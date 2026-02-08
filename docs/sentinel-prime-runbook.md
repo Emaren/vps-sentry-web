@@ -57,6 +57,14 @@ Run default scorecard:
 make sentinel-scorecard
 ```
 
+Default scorecard flow includes:
+
+- supply-chain + release + security + chaos checks
+- SLO burn-rate check
+- backup + restore drill proof step before RPO/RTO scoring
+- automatic retry for transient SSH refusal/timeouts on remote checks
+- optional checks that are still SSH-unreachable after retries are marked `SKIP` (not scored)
+
 Run strict/pass-fail scorecard:
 
 ```bash
@@ -67,6 +75,12 @@ Run fast/non-disruptive scorecard:
 
 ```bash
 make sentinel-scorecard-fast
+```
+
+Skip recovery drill explicitly:
+
+```bash
+node ./scripts/sentinel-prime-scorecard.mjs --skip-recovery-drill
 ```
 
 Artifacts:
@@ -93,6 +107,8 @@ Artifacts:
 - `VPS_SCORECARD_MIN_PASS_PERCENT`
 - `VPS_SCORECARD_ARTIFACT_DIR`
 - `VPS_SCORECARD_CHECK_TIMEOUT_SECONDS`
+- `VPS_SCORECARD_SSH_FAILURE_RETRIES`
+- `VPS_SCORECARD_SSH_FAILURE_RETRY_DELAY_SECONDS`
 
 ## 5) Recommended Step 20 Execution Order
 

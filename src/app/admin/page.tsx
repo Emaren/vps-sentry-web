@@ -95,7 +95,8 @@ function toAdminPlanLabel(plan: string): "FREE" | "BASIC" | "PRO" | "UNKNOWN" {
   const normalized = String(plan ?? "UNKNOWN").toUpperCase();
   if (normalized === "FREE") return "FREE";
   if (normalized === "ELITE") return "PRO";
-  if (normalized === "PRO" || normalized === "BASIC") return "BASIC";
+  if (normalized === "PRO") return "PRO";
+  if (normalized === "BASIC") return "BASIC";
   return "UNKNOWN";
 }
 
