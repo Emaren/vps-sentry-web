@@ -335,9 +335,6 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       : "ok";
   const queueBacklog = queueQueuedCount + queueRunningCount;
   const timelineSummary = timelineResult.summary;
-  const timelineTopCodes = Object.entries(timelineSummary.byCode)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3);
   const remediationRunSummary = host.remediationRuns.reduce(
     (acc, run) => {
       if (run.state === "queued") acc.queued += 1;
@@ -422,7 +419,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
       </div>
 
       <section style={topHostCardStyle()}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "grid", gap: 10 }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 800 }}>{host.name}</div>
             <div style={{ marginTop: 4, color: "var(--dash-meta)", fontSize: 12 }}>
@@ -430,15 +427,8 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
             </div>
           </div>
           <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-              rowGap: 8,
-              justifyContent: "flex-end",
-              alignItems: "center",
-              minHeight: 40,
-            }}
+            className="host-status-badge-row"
+            style={{ minHeight: 40 }}
           >
             <span style={statusBadgeStyle(threatTone)}>Threat {posture.score} ({posture.band})</span>
             <span style={statusBadgeStyle(containmentTone)}>
@@ -507,7 +497,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           tip="Operator-grade runtime view: incident workflow timers, remediation queue state, and key lifecycle health."
         />
 
-        <div className="dashboard-mission-grid" style={{ marginTop: 10 }}>
+        <div className="dashboard-mission-grid host-mission-grid" style={{ marginTop: 10 }}>
           <div style={subPanelStyle()}>
             <div className="dashboard-card-title-row">
               <div style={{ fontWeight: 800 }}>
@@ -648,9 +638,6 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
               <span className={remediationRunSummary.failed > 0 ? "dashboard-chip dashboard-chip-bad" : "dashboard-chip dashboard-chip-ok"}>
                 failed {remediationRunSummary.failed}
               </span>
-            </div>
-            <div style={{ marginTop: 8, color: "var(--dash-meta)", fontSize: 12 }}>
-              top signal codes: {timelineTopCodes.length > 0 ? timelineTopCodes.map(([code, count]) => `${code}(${count})`).join(", ") : "none"}
             </div>
           </div>
         </div>

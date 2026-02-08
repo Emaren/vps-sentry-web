@@ -758,6 +758,29 @@ html[data-site-theme="sepia"] .dashboard-shell {
   align-items: start;
 }
 
+.host-status-badge-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  row-gap: 8px;
+  justify-content: flex-start;
+  align-items: center;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.host-status-badge-row > * {
+  flex: 0 0 auto;
+}
+
+.host-mission-grid {
+  align-items: stretch;
+}
+
+.host-mission-grid > * {
+  height: 100%;
+}
+
 .dashboard-chip-row {
   display: flex;
   gap: 8px;
@@ -817,6 +840,11 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
   .dashboard-mission-grid {
     grid-template-columns: 1fr;
+  }
+
+  .host-status-badge-row {
+    flex-wrap: wrap;
+    overflow-x: visible;
   }
 }
 
