@@ -1,14 +1,10 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-// ---------- Admin gate ----------
-function isAdminEmail(email?: string | null) {
-  // Keep this dumb + explicit for MVP. Later: move to DB role, allowlist, etc.
-  return (email ?? "").toLowerCase() === "tonyblumdev@gmail.com";
-}
+import { requireAdminAccess } from "@/lib/rbac";
+import { writeAuditLog } from "@/lib/audit-log";
+import AdminOpsPanel from "@/app/admin/AdminOpsPanel";
+import { INCIDENT_WORKFLOWS } from "@/lib/ops/workflows";
 
 function fmtDate(d?: Date | null) {
   if (!d) return "-";
@@ -88,7 +84,7 @@ function badge(text: string, tone: "ok" | "warn" | "bad" | "neutral" = "neutral"
  * - a suspicious bool that highlights mismatch states (webhook sync issues, partial Stripe link, etc.)
  */
 function classifyUser(u: {
-  plan: any;
+  plan: unknown;
   subscriptionStatus: string | null;
   stripeCustomerId: string | null;
   subscriptionId: string | null;
@@ -158,14 +154,29 @@ function classifyUser(u: {
 
 export default async function AdminPage() {
   // ---------- 1) Auth ----------
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email;
-
-  // If not logged in OR not allowlisted admin => bounce to /login
-  // (You can change this to redirect("/") if your /login is not the entry point.)
-  if (!session?.user || !isAdminEmail(email)) {
+  const access = await requireAdminAccess();
+  if (!access.ok) {
+    await writeAuditLog({
+      action: "admin.page.denied",
+      detail: `status=${access.status} email=${access.email ?? "unknown"}`,
+      meta: {
+        route: "/admin",
+        status: access.status,
+        email: access.email ?? null,
+      },
+    });
     redirect("/login");
   }
+  const email = access.identity.email;
+
+  await writeAuditLog({
+    action: "admin.page.view",
+    userId: access.identity.userId,
+    detail: `Admin page viewed by ${email}`,
+    meta: {
+      route: "/admin",
+    },
+  });
 
   // ---------- 2) Data pull ----------
   // Your Prisma schema apparently doesn't have createdAt on User, so ordering by id is a pragmatic MVP choice.
@@ -204,9 +215,39 @@ export default async function AdminPage() {
     { total: 0, active: 0, free: 0, pro: 0, elite: 0, customers: 0, subs: 0, suspicious: 0 }
   );
 
+  const recentOpsRaw = await prisma.auditLog.findMany({
+    where: {
+      OR: [
+        { action: { startsWith: "ops." } },
+        { action: { startsWith: "remediate." } },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+    take: 25,
+    select: {
+      id: true,
+      action: true,
+      detail: true,
+      createdAt: true,
+      user: {
+        select: {
+          email: true,
+        },
+      },
+    },
+  });
+
+  const recentOps = recentOpsRaw.map((entry) => ({
+    id: entry.id,
+    action: entry.action,
+    detail: entry.detail,
+    createdAtIso: fmtDate(entry.createdAt),
+    userEmail: entry.user?.email ?? null,
+  }));
+
   // ---------- 4) UI ----------
   return (
-    <main style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+    <main className="dashboard-shell dashboard-main" style={{ maxWidth: 1200 }}>
       <header style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0 }}>Admin</h1>
@@ -350,6 +391,8 @@ export default async function AdminPage() {
 
         {users.length === 0 && <div style={{ padding: 14, opacity: 0.7 }}>No users yet.</div>}
       </section>
+
+      <AdminOpsPanel workflows={INCIDENT_WORKFLOWS} recentOps={recentOps} />
 
       {/* Footer notes */}
       <footer style={{ marginTop: 16, opacity: 0.7, fontSize: 13, lineHeight: "18px" }}>

@@ -1,10 +1,16 @@
 // /var/www/vps-sentry-web/src/app/billing/ui/BillingActions.tsx
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 type Plan = "BASIC" | "PRO";
 type Mode = "upgrade" | "portal";
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
 
 export default function BillingActions({
   defaultPlan,
@@ -27,8 +33,8 @@ export default function BillingActions({
       if (!res.ok) throw new Error(data?.error || "Checkout failed");
       if (!data?.url) throw new Error("Checkout missing url");
       window.location.href = data.url;
-    } catch (e: any) {
-      alert(e?.message || "Checkout failed");
+    } catch (e: unknown) {
+      alert(errorMessage(e, "Checkout failed"));
     } finally {
       setLoading(null);
     }
@@ -42,44 +48,38 @@ export default function BillingActions({
       if (!res.ok) throw new Error(data?.error || "Portal failed");
       if (!data?.url) throw new Error("Portal missing url");
       window.location.href = data.url;
-    } catch (e: any) {
-      alert(e?.message || "Portal failed");
+    } catch (e: unknown) {
+      alert(errorMessage(e, "Portal failed"));
     } finally {
       setLoading(null);
     }
   }
 
   async function cancelSubscription() {
-    const ok = window.confirm(
-      "Cancel subscription? (This will cancel at period end unless you change it in Stripe.)"
-    );
-    if (!ok) return;
-
+    if (!confirm("Cancel subscription now?")) return;
     setLoading("cancel");
     try {
       const res = await fetch("/api/billing/cancel", { method: "POST" });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok) throw new Error(data?.error || "Cancel failed");
-      // Keep it simple + raw
-      alert("Cancellation requested. (Usually cancels at period end.)");
+      alert("✅ Cancellation requested. Check status in a moment.");
       window.location.reload();
-    } catch (e: any) {
-      alert(e?.message || "Cancel failed");
+    } catch (e: unknown) {
+      alert(errorMessage(e, "Cancel failed"));
     } finally {
       setLoading(null);
     }
   }
 
-  // Current plan box: Dashboard + Manage + Cancel
   if (mode === "portal") {
     return (
       <div className="flex flex-wrap gap-3">
-        <a
+        <Link
           href="/dashboard"
-          className="rounded-md border px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
+          className="rounded-md border px-4 py-2 text-sm hover:bg-black/5"
         >
           Dashboard
-        </a>
+        </Link>
 
         <button
           onClick={openPortal}
@@ -94,14 +94,14 @@ export default function BillingActions({
           disabled={loading !== null}
           className="rounded-md border px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
         >
-          {loading === "cancel" ? "Canceling…" : "Cancel subscription"}
+          {loading === "cancel" ? "Cancelling…" : "Cancel subscription"}
         </button>
       </div>
     );
   }
 
-  // Plan cards: upgrade ONLY
   const plan = defaultPlan;
+
   return (
     <div className="flex flex-wrap gap-3">
       {plan ? (

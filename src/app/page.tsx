@@ -1,5 +1,6 @@
 // /var/www/vps-sentry-web/src/app/page.tsx
 import Link from "next/link";
+import Image from "next/image";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -9,7 +10,22 @@ export default async function Home() {
   const session = await getServerSession(authOptions);
 
   return (
-    <main style={{ padding: 24, maxWidth: 760, margin: "0 auto" }}>
+    <main className="dashboard-shell dashboard-main" style={{ maxWidth: 760 }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+        <Image
+          src="/vps-sentry-logo.png"
+          alt="VPS Sentry logo"
+          width={560}
+          height={430}
+          priority
+          style={{
+            width: "100%",
+            maxWidth: 560,
+            height: "auto",
+            borderRadius: 12,
+          }}
+        />
+      </div>
       <h1 style={{ fontSize: 34, marginBottom: 10 }}>VPS Sentry</h1>
 
       <p style={{ opacity: 0.85, lineHeight: 1.5 }}>
@@ -17,6 +33,9 @@ export default async function Home() {
       </p>
 
       <div style={{ display: "flex", gap: 12, marginTop: 18, flexWrap: "wrap" }}>
+        <Link href="/get-vps-sentry" style={btn()}>
+          Get VPS Sentry
+        </Link>
         {session ? (
           <Link href="/dashboard" style={btn()}>
             Go to dashboard

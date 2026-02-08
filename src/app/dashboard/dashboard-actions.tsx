@@ -2,13 +2,27 @@
 "use client";
 
 import Link from "next/link";
-import { signOut } from "next-auth/react";
+import React from "react";
+import { boxStyle, subtleText } from "./_styles";
+
+type JsonResponse = {
+  ok?: boolean;
+  message?: string;
+  error?: string;
+  detail?: string;
+  warning?: string;
+  emailed?: boolean;
+  triggered?: boolean;
+  to?: string;
+  subject?: string;
+  code?: string;
+};
 
 const linkStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 12,
-  border: "1px solid rgba(255,255,255,0.15)",
-  background: "rgba(255,255,255,0.04)",
+  border: "1px solid var(--dash-btn-border, rgba(255,255,255,0.15))",
+  background: "var(--dash-btn-bg, rgba(255,255,255,0.04))",
   color: "inherit",
   textDecoration: "none",
   fontWeight: 800,
@@ -17,48 +31,162 @@ const linkStyle: React.CSSProperties = {
 const buttonStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 12,
-  border: "1px solid rgba(255,255,255,0.15)",
-  background: "rgba(255,255,255,0.06)",
+  border: "1px solid var(--dash-btn-border, rgba(255,255,255,0.15))",
+  background: "var(--dash-btn-bg-strong, rgba(255,255,255,0.06))",
   color: "inherit",
   fontWeight: 800,
   cursor: "pointer",
 };
 
-async function openBillingPortal() {
-  try {
-    const res = await fetch("/api/billing/portal", { method: "POST" });
-    const data = (await res.json()) as { url?: string; error?: string };
-    if (!res.ok) throw new Error(data?.error || `portal ${res.status}`);
-    if (!data?.url) throw new Error("Missing portal url");
-    window.location.href = data.url;
-  } catch (e: any) {
-    console.error(e);
-    alert(e?.message ?? "Failed to open billing portal");
+const disabledButtonStyle: React.CSSProperties = {
+  ...buttonStyle,
+  opacity: 0.65,
+  cursor: "not-allowed",
+};
+
+async function postJson(path: string) {
+  const res = await fetch(path, { method: "POST" });
+  const data: JsonResponse = await res.json().catch(() => ({} as JsonResponse));
+  if (!res.ok) {
+    const parts = [data?.error, data?.detail, data?.code].filter(Boolean);
+    throw new Error(parts.length > 0 ? parts.join(" | ") : `${path} ${res.status}`);
   }
+  return data;
+}
+
+function asErrorMessage(err: unknown, fallback: string) {
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
 }
 
 export default function DashboardActions() {
+  const [busy, setBusy] = React.useState<null | "test-email" | "report-now">(null);
+  const [notice, setNotice] = React.useState<
+    null | { tone: "info" | "ok" | "bad"; title: string; detail: string }
+  >(null);
+
+  React.useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4200);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  async function sendTestEmail() {
+    setBusy("test-email");
+    setNotice({
+      tone: "info",
+      title: "Working...",
+      detail: "Sending test email now.",
+    });
+
+    try {
+      await postJson("/api/ops/test-email");
+      setNotice({
+        tone: "ok",
+        title: "Test email sent",
+        detail: "Delivery accepted by SMTP.",
+      });
+    } catch (e: unknown) {
+      console.error(e);
+      setNotice({
+        tone: "bad",
+        title: "Test email failed",
+        detail: asErrorMessage(e, "Failed to send test email"),
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function sendReportNow() {
+    setBusy("report-now");
+    setNotice({
+      tone: "info",
+      title: "Working...",
+      detail: "Triggering scan and sending report email.",
+    });
+
+    try {
+      const data = await postJson("/api/ops/report-now");
+      const subjectPart = data?.subject ? ` Subject: ${data.subject}` : "";
+      const recipientPart = data?.to ? ` To: ${data.to}.` : "";
+      const fallbackDetail = data?.emailed
+        ? `Report sent.${recipientPart}${subjectPart}`
+        : data?.warning
+        ? data.warning
+        : data?.triggered
+        ? "Report trigger accepted."
+        : "Report completed.";
+
+      setNotice({
+        tone: data?.ok === false ? "bad" : "ok",
+        title: data?.ok === false ? "Report failed" : "Report sent",
+        detail: data?.message ?? fallbackDetail,
+      });
+    } catch (e: unknown) {
+      console.error(e);
+      setNotice({
+        tone: "bad",
+        title: "Report failed",
+        detail: asErrorMessage(e, "Failed to trigger report"),
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
-      <Link href="/" style={linkStyle}>
-        ← Back to landing
-      </Link>
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Link href="/" style={linkStyle}>
+          ← Back to landing
+        </Link>
 
-      <Link href="/billing" style={linkStyle}>
-        Billing
-      </Link>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={sendTestEmail}
+          style={busy !== null ? disabledButtonStyle : buttonStyle}
+        >
+          {busy === "test-email" ? "Working..." : "Send test email"}
+        </button>
 
-      <button type="button" onClick={openBillingPortal} style={buttonStyle}>
-        Manage subscription
-      </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={sendReportNow}
+          style={busy !== null ? disabledButtonStyle : buttonStyle}
+        >
+          {busy === "report-now" ? "Working..." : "Send report now"}
+        </button>
+      </div>
 
-      <button
-        type="button"
-        onClick={() => signOut({ callbackUrl: "/" })}
-        style={buttonStyle}
-      >
-        Logout
-      </button>
+      {notice ? (
+        <div
+          style={{
+            ...boxStyle,
+            marginTop: 10,
+            borderColor:
+              notice.tone === "ok"
+                ? "rgba(34,197,94,0.35)"
+                : notice.tone === "bad"
+                ? "rgba(239,68,68,0.35)"
+                : "rgba(59,130,246,0.35)",
+            background:
+              notice.tone === "ok"
+                ? "rgba(34,197,94,0.08)"
+                : notice.tone === "bad"
+                ? "rgba(239,68,68,0.10)"
+                : "rgba(59,130,246,0.08)",
+            padding: 10,
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          <div style={{ fontWeight: 800 }}>{notice.title}</div>
+          <div style={{ marginTop: 4, ...subtleText }}>{notice.detail}</div>
+        </div>
+      ) : null}
     </div>
   );
 }

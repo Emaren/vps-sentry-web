@@ -9,6 +9,25 @@ import { stripe } from "@/lib/stripe";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function errorCode(err: unknown): string | null {
+  const candidate = err as { code?: unknown };
+  return typeof candidate?.code === "string" ? candidate.code : null;
+}
+
+function errorType(err: unknown): string | null {
+  const candidate = err as { type?: unknown };
+  return typeof candidate?.type === "string" ? candidate.type : null;
+}
+
+function errorStatusCode(err: unknown): number | null {
+  const candidate = err as { statusCode?: unknown };
+  return typeof candidate?.statusCode === "number" ? candidate.statusCode : null;
+}
+
 function requestId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 }
@@ -30,16 +49,15 @@ async function ensureStripeCustomer(user: {
   if (existing) {
     try {
       const c = await stripe.customers.retrieve(existing);
-      const anyC = c as any;
-      if (anyC?.deleted) {
+      if ("deleted" in c && c.deleted) {
         throw Object.assign(new Error("Customer is deleted"), {
           code: "resource_missing",
         });
       }
       return existing;
-    } catch (e: any) {
-      const msg = String(e?.message ?? "");
-      const code = String(e?.code ?? "");
+    } catch (e: unknown) {
+      const msg = errorMessage(e);
+      const code = errorCode(e) ?? "";
 
       if (code === "resource_missing" || msg.toLowerCase().includes("no such customer")) {
         // clear stale ID
@@ -159,11 +177,11 @@ export async function POST() {
     let customerId: string;
     try {
       customerId = await ensureStripeCustomer(user);
-    } catch (err: any) {
+    } catch (err: unknown) {
       return NextResponse.json(
         {
           error: "Failed to create/validate Stripe customer",
-          detail: err?.message ?? String(err),
+          detail: errorMessage(err),
           requestId: rid,
           hint: "Verify STRIPE_SECRET_KEY is correct and the Stripe account is in the intended mode (Live vs Test).",
         },
@@ -185,14 +203,14 @@ export async function POST() {
       url: portal.url,
       meta: { requestId: rid, userId: user.id, customerId, returnUrl },
     });
-  } catch (err: any) {
-    const stripeMessage = err?.message ? String(err.message) : null;
-    const stripeType = err?.type ? String(err.type) : null;
-    const stripeCode = err?.code ? String(err.code) : null;
-    const stripeStatusCode = typeof err?.statusCode === "number" ? err.statusCode : null;
+  } catch (err: unknown) {
+    const stripeMessage = errorMessage(err);
+    const stripeType = errorType(err);
+    const stripeCode = errorCode(err);
+    const stripeStatusCode = errorStatusCode(err);
 
     let hint = "Check server logs for details.";
-    const msg = stripeMessage?.toLowerCase() || "";
+    const msg = stripeMessage.toLowerCase();
 
     if (msg.includes("no such customer") || stripeCode === "resource_missing") {
       hint =
@@ -213,7 +231,7 @@ export async function POST() {
           type: stripeType,
           code: stripeCode,
           statusCode: stripeStatusCode,
-          message: stripeMessage,
+          message: stripeMessage || null,
         },
         hint,
       },

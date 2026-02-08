@@ -1,4 +1,6 @@
 // /var/www/vps-sentry-web/src/app/login/page.tsx
+import Link from "next/link";
+import Image from "next/image";
 import LoginClient from "./login-client";
 
 const errorMap: Record<string, string> = {
@@ -41,7 +43,25 @@ export default async function LoginPage({
   );
 
   return (
-    <main style={{ padding: 24, maxWidth: 760, margin: "0 auto" }}>
+    <main className="dashboard-shell dashboard-main" style={{ maxWidth: 760 }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+        <Link href="/" aria-label="VPS Sentry home">
+          <Image
+            src="/vps-sentry-logo.png"
+            alt="VPS Sentry logo"
+            width={560}
+            height={430}
+            priority
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              height: "auto",
+              borderRadius: 12,
+            }}
+          />
+        </Link>
+      </div>
+
       <h1 style={{ fontSize: 34, marginBottom: 10 }}>Sign in</h1>
       <p style={{ opacity: 0.85, lineHeight: 1.5 }}>
         {googleEnabled
@@ -73,7 +93,7 @@ export default async function LoginPage({
       <LoginClient callbackUrl={callbackUrl} error={errorCode} />
 
       <div style={{ marginTop: 18, opacity: 0.6, fontSize: 12 }}>
-        If email doesn’t arrive, check spam. (We’ll also verify SMTP/DNS next.)
+        If email doesn’t arrive, check spam.
       </div>
     </main>
   );

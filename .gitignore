@@ -32,11 +32,14 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+.vps.env
 
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
-prisma/dev.db
+
+prisma/*.db
+prisma/*.db-journal
+vps-sentry-web-*.zip
