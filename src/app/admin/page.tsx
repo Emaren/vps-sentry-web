@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
+import Image from "next/image";
 import { prisma } from "@/lib/prisma";
 import { requireAdminAccess, requireOwnerAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
@@ -430,9 +431,20 @@ export default async function AdminPage() {
 
   // ---------- 4) UI ----------
   return (
-    <main className="dashboard-shell dashboard-main" style={{ maxWidth: 1200 }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div>
+    <main className="dashboard-shell dashboard-main">
+      <header className="app-header">
+        <div className="app-header-brand">
+          <Link href="/" aria-label="VPS Sentry home" className="app-header-logo-link">
+            <Image
+              src="/vps-sentry-logo.png"
+              alt="VPS Sentry logo"
+              width={52}
+              height={52}
+              className="app-header-logo"
+              priority
+            />
+          </Link>
+          <div className="app-header-copy">
           <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0 }}>Admin</h1>
           <p style={{ color: "var(--dash-meta)", marginTop: 6, marginBottom: 0 }}>
             Logged in as <b>{email}</b> · role <b>{roleLabel(access.identity.role)}</b>
@@ -442,33 +454,18 @@ export default async function AdminPage() {
             linked, and whether the subscription state looks sane. If something breaks, this tells you where.
           </p>
         </div>
+        </div>
 
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+        <div className="app-header-actions">
           <Link
             href="/dashboard"
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid var(--dash-btn-border)",
-              background: "var(--dash-btn-bg)",
-              textDecoration: "none",
-              color: "var(--dash-fg)",
-              fontSize: 14,
-            }}
+            className="app-header-btn"
           >
             Back to Dashboard
           </Link>
           <Link
             href="/billing"
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid var(--dash-btn-border)",
-              background: "var(--dash-btn-bg)",
-              textDecoration: "none",
-              color: "var(--dash-fg)",
-              fontSize: 14,
-            }}
+            className="app-header-btn"
           >
             Billing Page
           </Link>

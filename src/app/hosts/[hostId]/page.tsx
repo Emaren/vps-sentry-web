@@ -145,7 +145,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
 
   if (!host) {
     return (
-      <main className="dashboard-shell dashboard-main" style={{ maxWidth: 980 }}>
+      <main className="dashboard-shell dashboard-main">
         <h1 style={{ fontSize: 28, margin: 0 }}>Host not found</h1>
         <div style={{ marginTop: 12 }}>
           <Link href="/hosts" style={btnStyle()}>

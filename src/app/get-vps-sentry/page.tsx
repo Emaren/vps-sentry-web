@@ -13,10 +13,7 @@ export default async function GetVpsSentryPage() {
   const dashboardLabel = signedIn ? "Dashboard" : "Sign in to dashboard";
 
   return (
-    <main
-      className="dashboard-shell dashboard-shell-force-dark dashboard-shell-no-gradient dashboard-main"
-      style={{ maxWidth: 900 }}
-    >
+    <main className="dashboard-shell dashboard-shell-force-dark dashboard-shell-no-gradient dashboard-main">
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10, gap: 10 }}>
         {signedIn ? (
           <Link href="/dashboard" style={btn()}>
