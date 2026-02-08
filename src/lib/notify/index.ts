@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sendEmailNotification } from "@/lib/notify/email";
 import { sendWebhookNotification } from "@/lib/notify/webhook";
+import { buildNotifyTestEmailBodies } from "@/lib/notify/templates";
 
 export type NotifyKind = "EMAIL" | "WEBHOOK";
 
@@ -220,10 +221,16 @@ export async function dispatchNotifyTest(input: DispatchNotifyTestInput): Promis
   for (const t of targets) {
     if (t.kind === "EMAIL") {
       const subject = `[VPS Sentry] ${title}`;
+      const emailBodies = buildNotifyTestEmailBodies({
+        title,
+        detail,
+        payload,
+      });
       const res = await sendEmailNotification({
         to: t.target,
         subject,
-        text: `${detail}\n\n${JSON.stringify(payload, null, 2)}`,
+        text: emailBodies.text,
+        html: emailBodies.html,
       });
 
       const attempt: DispatchNotifyTestAttempt = {

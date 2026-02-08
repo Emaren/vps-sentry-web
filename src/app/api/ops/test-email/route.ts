@@ -1,18 +1,20 @@
 // /var/www/vps-sentry-web/src/app/api/ops/test-email/route.ts
 import { NextResponse } from "next/server";
-import nodemailer from "nodemailer";
 import { requireAdminAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
+import { sendEmailNotification } from "@/lib/notify/email";
+import { buildOpsTestEmailBodies } from "@/lib/notify/templates";
 
 function envTrim(key: string): string | null {
   const v = process.env[key]?.trim();
   return v && v.length ? v : null;
 }
 
-function requireEnv(key: string): string {
-  const v = envTrim(key);
-  if (!v) throw new Error(`Missing env var: ${key}`);
-  return v;
+function getBaseUrl(req: Request) {
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+  const proto = req.headers.get("x-forwarded-proto") || "https";
+  if (!host) return null;
+  return `${proto}://${host}`;
 }
 
 function errorMessage(err: unknown): string {
@@ -49,28 +51,37 @@ export async function POST(req: Request) {
       },
     });
 
-    const host = requireEnv("EMAIL_SERVER_HOST");
-    const port = Number(requireEnv("EMAIL_SERVER_PORT"));
-    const user = requireEnv("EMAIL_SERVER_USER");
-    const pass = requireEnv("EMAIL_SERVER_PASSWORD");
-    const from = requireEnv("EMAIL_FROM");
-
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
+    const nowIso = new Date().toISOString();
+    const { text, html } = buildOpsTestEmailBodies({
+      host: envTrim("HOSTNAME") ?? "unknown",
+      nowIso,
+      baseUrl: getBaseUrl(req),
     });
 
-    await transporter.sendMail({
-      from,
+    const sent = await sendEmailNotification({
       to,
       subject: "VPS Sentry — Test Email",
-      text:
-        "✅ This is a test email from VPS Sentry.\n\n" +
-        `Time: ${new Date().toLocaleString()}\n` +
-        `Host: ${envTrim("HOSTNAME") ?? "unknown"}\n`,
+      text,
+      html,
     });
+
+    if (!sent.ok) {
+      await writeAuditLog({
+        req,
+        userId: access.identity.userId,
+        action: "ops.test_email.failed",
+        detail: sent.error,
+        meta: {
+          route: "/api/ops/test-email",
+          code: sent.code ?? null,
+          providerDetail: sent.detail ?? null,
+        },
+      });
+      return NextResponse.json(
+        { error: sent.error, detail: sent.detail, code: sent.code },
+        { status: 502 }
+      );
+    }
 
     await writeAuditLog({
       req,
