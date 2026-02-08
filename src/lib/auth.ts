@@ -228,6 +228,7 @@ export const authOptions: NextAuthOptions = {
       console.warn("[next-auth][warn]", code);
     },
     debug(code, metadata) {
+      if (!debugEnabled) return;
       console.log("[next-auth][debug]", code, metadata ?? "");
     },
   },
