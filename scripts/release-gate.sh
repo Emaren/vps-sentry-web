@@ -18,6 +18,9 @@ echo "[gate] supply-chain-check"
 echo "[gate] vps-check"
 ./scripts/vps.sh check
 
+echo "[gate] vps-ssh-stability-check"
+./scripts/vps.sh ssh-stability-check
+
 echo "[gate] vps-hygiene-check"
 ./scripts/vps-hygiene-check.sh
 

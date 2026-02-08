@@ -60,6 +60,7 @@ make sentinel-scorecard
 Default scorecard flow includes:
 
 - supply-chain + release + security + chaos checks
+- SSH stability guardrail (burst probe + optional UFW LIMIT detection)
 - SLO burn-rate check
 - backup + restore drill proof step before RPO/RTO scoring
 - automatic retry for transient SSH refusal/timeouts on remote checks

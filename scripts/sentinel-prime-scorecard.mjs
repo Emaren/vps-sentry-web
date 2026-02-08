@@ -20,6 +20,7 @@ const skipPerf = options.flags.has("skip-perf");
 const skipSlo = options.flags.has("skip-slo");
 const skipRpoRto = options.flags.has("skip-rpo-rto");
 const skipRecoveryDrill = options.flags.has("skip-recovery-drill");
+const skipSshGuard = options.flags.has("skip-ssh-guard");
 const chaosLocal = options.flags.has("chaos-local");
 
 const minPassPct = Number(
@@ -169,6 +170,17 @@ if (!skipRpoRto) {
   });
 }
 
+if (!skipSshGuard) {
+  checks.push({
+    id: "ssh_guardrail",
+    label: "SSH stability guardrail",
+    weight: 6,
+    required: false,
+    cmd: "./scripts/vps.sh ssh-stability-check",
+    retryOnSshRefusal: false,
+  });
+}
+
 const results = checks.map((check) => runCheck(
   {
     timeoutSeconds: check.timeoutSeconds ?? checkTimeoutSeconds,
@@ -307,8 +319,8 @@ function runCheck(check, runDirPath, env, cwd) {
         env,
         encoding: "utf8",
       });
-    }
   }
+}
 
   const endedAt = Date.now();
   const durationSeconds = Number(((endedAt - startedAt) / 1000).toFixed(2));

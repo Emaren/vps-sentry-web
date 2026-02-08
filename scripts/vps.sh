@@ -25,6 +25,12 @@ VPS_SSH_SERVER_ALIVE_INTERVAL="${VPS_SSH_SERVER_ALIVE_INTERVAL:-15}"
 VPS_SSH_SERVER_ALIVE_COUNT_MAX="${VPS_SSH_SERVER_ALIVE_COUNT_MAX:-3}"
 VPS_SSH_RETRIES="${VPS_SSH_RETRIES:-4}"
 VPS_SSH_RETRY_DELAY_SECONDS="${VPS_SSH_RETRY_DELAY_SECONDS:-5}"
+VPS_SSH_STABILITY_PROBES="${VPS_SSH_STABILITY_PROBES:-6}"
+VPS_SSH_STABILITY_INTERVAL_SECONDS="${VPS_SSH_STABILITY_INTERVAL_SECONDS:-1}"
+VPS_SSH_STABILITY_MAX_FAILURES="${VPS_SSH_STABILITY_MAX_FAILURES:-0}"
+VPS_SSH_STABILITY_FAIL_ON_UFW_UNKNOWN="${VPS_SSH_STABILITY_FAIL_ON_UFW_UNKNOWN:-0}"
+VPS_DOCTOR_INCLUDE_SSH_STABILITY="${VPS_DOCTOR_INCLUDE_SSH_STABILITY:-1}"
+VPS_DOCTOR_FAIL_ON_SSH_STABILITY="${VPS_DOCTOR_FAIL_ON_SSH_STABILITY:-1}"
 VPS_DB_PROVIDER="${VPS_DB_PROVIDER:-sqlite}"
 VPS_RUN_DB_MIGRATIONS="${VPS_RUN_DB_MIGRATIONS:-1}"
 
@@ -35,6 +41,7 @@ Usage: ./scripts/vps.sh <command> [args]
 Commands:
   check                Validate SSH + app directory + optional service/pm2 target.
   doctor               Run fail-fast readiness checks for SSH/sudo/restart path.
+  ssh-stability-check  Probe repeated SSH connects + guard against OpenSSH LIMIT rules.
   deploy               Pull latest code, install deps, build, then restart app target.
   restart              Restart app target (systemd or pm2).
   logs                 Tail app logs (systemd journal or pm2 logs).
@@ -61,6 +68,12 @@ SSH reliability knobs:
   VPS_SSH_SERVER_ALIVE_COUNT_MAX=3
   VPS_SSH_RETRIES=4
   VPS_SSH_RETRY_DELAY_SECONDS=5
+  VPS_SSH_STABILITY_PROBES=6
+  VPS_SSH_STABILITY_INTERVAL_SECONDS=1
+  VPS_SSH_STABILITY_MAX_FAILURES=0
+  VPS_SSH_STABILITY_FAIL_ON_UFW_UNKNOWN=0
+  VPS_DOCTOR_INCLUDE_SSH_STABILITY=1
+  VPS_DOCTOR_FAIL_ON_SSH_STABILITY=1
 
 DB provider knob:
   VPS_DB_PROVIDER=sqlite|postgres
@@ -87,6 +100,24 @@ require_positive_int() {
   fi
 }
 
+require_nonnegative_int() {
+  local name="$1"
+  local value="$2"
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || [[ "$value" -lt 0 ]]; then
+    echo "$name must be a non-negative integer: $value"
+    exit 1
+  fi
+}
+
+require_bool_flag() {
+  local name="$1"
+  local value="$2"
+  if [[ "$value" != "0" && "$value" != "1" ]]; then
+    echo "$name must be 0 or 1: $value"
+    exit 1
+  fi
+}
+
 validate_runtime_config() {
   require_positive_int "VPS_SSH_CONNECT_TIMEOUT" "$VPS_SSH_CONNECT_TIMEOUT"
   require_positive_int "VPS_SSH_CONNECTION_ATTEMPTS" "$VPS_SSH_CONNECTION_ATTEMPTS"
@@ -94,6 +125,12 @@ validate_runtime_config() {
   require_positive_int "VPS_SSH_SERVER_ALIVE_COUNT_MAX" "$VPS_SSH_SERVER_ALIVE_COUNT_MAX"
   require_positive_int "VPS_SSH_RETRIES" "$VPS_SSH_RETRIES"
   require_positive_int "VPS_SSH_RETRY_DELAY_SECONDS" "$VPS_SSH_RETRY_DELAY_SECONDS"
+  require_positive_int "VPS_SSH_STABILITY_PROBES" "$VPS_SSH_STABILITY_PROBES"
+  require_nonnegative_int "VPS_SSH_STABILITY_INTERVAL_SECONDS" "$VPS_SSH_STABILITY_INTERVAL_SECONDS"
+  require_nonnegative_int "VPS_SSH_STABILITY_MAX_FAILURES" "$VPS_SSH_STABILITY_MAX_FAILURES"
+  require_bool_flag "VPS_SSH_STABILITY_FAIL_ON_UFW_UNKNOWN" "$VPS_SSH_STABILITY_FAIL_ON_UFW_UNKNOWN"
+  require_bool_flag "VPS_DOCTOR_INCLUDE_SSH_STABILITY" "$VPS_DOCTOR_INCLUDE_SSH_STABILITY"
+  require_bool_flag "VPS_DOCTOR_FAIL_ON_SSH_STABILITY" "$VPS_DOCTOR_FAIL_ON_SSH_STABILITY"
 
   case "$VPS_DB_PROVIDER" in
     sqlite|postgres) ;;
@@ -194,6 +231,106 @@ check_ssh_connectivity() {
     fi
     exit 50
   fi
+}
+
+check_ssh_stability() {
+  local prefix="${1:-ssh_stability}"
+  local probe_count="$VPS_SSH_STABILITY_PROBES"
+  local probe_interval="$VPS_SSH_STABILITY_INTERVAL_SECONDS"
+  local max_failures="$VPS_SSH_STABILITY_MAX_FAILURES"
+  local fail_on_ufw_unknown="$VPS_SSH_STABILITY_FAIL_ON_UFW_UNKNOWN"
+
+  echo "${prefix}_host:$VPS_HOST"
+  echo "${prefix}_probes:$probe_count"
+  echo "${prefix}_max_failures:$max_failures"
+
+  local success_count=0
+  local failure_count=0
+  local transport_failure_count=0
+  local first_error=""
+  local i=1
+
+  while [[ "$i" -le "$probe_count" ]]; do
+    local err_file
+    err_file="$(mktemp)"
+    if ssh \
+      -o BatchMode=yes \
+      -o LogLevel=ERROR \
+      -o ConnectTimeout="$VPS_SSH_CONNECT_TIMEOUT" \
+      -o ConnectionAttempts=1 \
+      -o ServerAliveInterval="$VPS_SSH_SERVER_ALIVE_INTERVAL" \
+      -o ServerAliveCountMax="$VPS_SSH_SERVER_ALIVE_COUNT_MAX" \
+      "$VPS_HOST" "echo ssh_probe_ok" >/dev/null 2>"$err_file"; then
+      success_count=$((success_count + 1))
+      echo "${prefix}_probe_${i}:ok"
+    else
+      local rc=$?
+      local err_msg=""
+      err_msg="$(tr '\r\n' ' ' <"$err_file" | sed 's/[[:space:]]\+/ /g' | sed 's/^ //; s/ $//')"
+      if [[ -z "$first_error" ]]; then
+        first_error="$err_msg"
+      fi
+      failure_count=$((failure_count + 1))
+      if [[ "$err_msg" == *"Connection refused"* || "$err_msg" == *"timed out"* || "$err_msg" == *"No route to host"* || "$err_msg" == *"kex_exchange_identification"* || "$err_msg" == *"Connection closed by remote host"* ]]; then
+        transport_failure_count=$((transport_failure_count + 1))
+      fi
+      echo "${prefix}_probe_${i}:fail rc=${rc} msg=${err_msg:-unknown}"
+    fi
+    rm -f "$err_file"
+
+    if [[ "$i" -lt "$probe_count" && "$probe_interval" -gt 0 ]]; then
+      sleep "$probe_interval"
+    fi
+    i=$((i + 1))
+  done
+
+  echo "${prefix}_success:$success_count"
+  echo "${prefix}_failures:$failure_count"
+  echo "${prefix}_transport_failures:$transport_failure_count"
+
+  local ufw_state="missing"
+  local ufw_limit_rule="not_applicable"
+  if remote "command -v ufw >/dev/null 2>&1"; then
+    local ufw_output=""
+    if ufw_output="$(remote "sudo -n ufw status numbered" 2>/dev/null)"; then
+      ufw_state="visible"
+      ufw_limit_rule="absent"
+      if printf '%s\n' "$ufw_output" | grep -Eiq 'OpenSSH.*LIMIT IN|22/tcp.*LIMIT IN'; then
+        ufw_limit_rule="present"
+      fi
+    else
+      ufw_state="hidden"
+      ufw_limit_rule="unknown"
+    fi
+  fi
+
+  echo "${prefix}_ufw_state:$ufw_state"
+  echo "${prefix}_ufw_limit_rule:$ufw_limit_rule"
+
+  local fail_reason=""
+  if [[ "$ufw_limit_rule" == "present" ]]; then
+    fail_reason="ufw_limit_rule_present"
+  elif [[ "$failure_count" -gt "$max_failures" ]]; then
+    fail_reason="ssh_probe_failures_exceeded_threshold"
+  elif [[ "$fail_on_ufw_unknown" == "1" && "$ufw_state" == "hidden" ]]; then
+    fail_reason="ufw_visibility_missing_noninteractive_sudo"
+  fi
+
+  if [[ -n "$fail_reason" ]]; then
+    echo "${prefix}_status:fail"
+    echo "${prefix}_reason:$fail_reason"
+    if [[ -n "$first_error" ]]; then
+      echo "${prefix}_first_error:$first_error"
+    fi
+    echo "${prefix}_hint:remove_ufw_limit_for_openssh_and_keep_allow_22_for_automation"
+    return 1
+  fi
+
+  echo "${prefix}_status:pass"
+  if [[ "$ufw_state" == "hidden" ]]; then
+    echo "${prefix}_note:ufw_status_not_visible_without_sudo_n_for_ufw"
+  fi
+  return 0
 }
 
 require_noninteractive_sudo() {
@@ -473,9 +610,26 @@ case "$cmd" in
       if [ \"\$doctor_ok\" -ne 1 ]; then
         echo doctor_fail:non-interactive sudo is required but unavailable
         exit 51
-      fi
+      fi"
 
-      echo doctor_pass"
+    if [[ "$VPS_DOCTOR_INCLUDE_SSH_STABILITY" == "1" ]]; then
+      if ! check_ssh_stability "doctor_ssh_stability"; then
+        if [[ "$VPS_DOCTOR_FAIL_ON_SSH_STABILITY" == "1" ]]; then
+          echo "doctor_fail:ssh_stability_guard_failed"
+          exit 52
+        fi
+        echo "doctor_warn:ssh_stability_guard_failed"
+      fi
+    else
+      echo "doctor_ssh_stability:skipped"
+    fi
+
+    echo "doctor_pass"
+    ;;
+
+  ssh-stability-check)
+    check_ssh_connectivity
+    check_ssh_stability "ssh_stability"
     ;;
 
   deploy)

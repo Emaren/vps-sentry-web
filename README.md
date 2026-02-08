@@ -38,6 +38,7 @@ Next.js frontend for VPS Sentry.
    cd /Users/tonyblum/projects/vps-sentry-web
    make vps-doctor
    make vps-check
+   make vps-ssh-stability-check
    make vps-hygiene-check
    make deploy
    make vps-prune-archives
@@ -51,6 +52,7 @@ Deploy path now runs in zero-interactive mode:
 
 - SSH uses batch mode + timeout knobs so it fails fast.
 - SSH commands auto-retry on transient connection refusals.
+- SSH stability guardrail detects burst connection refusal patterns (including firewall rate-limit regressions).
 - Service restart uses `sudo -n` and will fail clearly if sudo would prompt.
 - Run `make vps-doctor` before deploys to validate readiness.
 
@@ -508,7 +510,7 @@ Step 8 runbook:
 Release gate commands:
 
 ```bash
-make release-gate   # test + typecheck + vps-check + vps-hygiene-check + smoke
+make release-gate   # test + typecheck + vps-check + vps-ssh-stability-check + vps-hygiene-check + smoke
 make release        # release-gate + deploy + smoke
 ```
 

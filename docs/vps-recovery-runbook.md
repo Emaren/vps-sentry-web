@@ -24,6 +24,7 @@ Expected output includes:
 - `doctor_connected:...`
 - `doctor_app_dir_ok:...`
 - `doctor_sudo_noninteractive:ok` (when using `VPS_SERVICE`)
+- `doctor_ssh_stability_status:pass`
 - `doctor_pass`
 
 ## One-Time Setup: Non-Interactive Sudo for Service Control
@@ -87,6 +88,29 @@ After fix:
 
 ```bash
 ./scripts/vps.sh doctor
+```
+
+## Incident: `doctor_fail:ssh_stability_guard_failed`
+
+Meaning: SSH worked initially but failed under short burst probes (often firewall rate-limit behavior).
+
+Checks:
+
+```bash
+make vps-ssh-stability-check
+ssh hetzner-codex "sudo -n ufw status numbered"
+```
+
+Common root cause:
+
+- `OpenSSH LIMIT IN` (or `22/tcp LIMIT IN`) present in UFW.
+
+Typical fix:
+
+```bash
+ssh hetzner-codex "sudo ufw delete limit OpenSSH"
+ssh hetzner-codex "sudo ufw allow 22/tcp"
+make vps-ssh-stability-check
 ```
 
 ## Incident: `sudo_noninteractive_required`
