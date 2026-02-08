@@ -1,12 +1,27 @@
 import Link from "next/link";
 import Image from "next/image";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import CopyCodeBlock from "./CopyCodeBlock";
 
 export const dynamic = "force-dynamic";
 
-export default function GetVpsSentryPage() {
+export default async function GetVpsSentryPage() {
+  const session = await getServerSession(authOptions);
+  const signedIn = Boolean(session?.user?.email || session?.user?.name);
+  const dashboardHref = signedIn ? "/dashboard" : "/login";
+  const dashboardLabel = signedIn ? "Dashboard" : "Sign in to dashboard";
+
   return (
     <main className="dashboard-shell dashboard-main" style={{ maxWidth: 900 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10, gap: 10 }}>
+        {signedIn ? (
+          <Link href="/dashboard" style={btn()}>
+            Dashboard
+          </Link>
+        ) : null}
+      </div>
+
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
         <Link href="/" aria-label="VPS Sentry home">
           <Image
@@ -77,8 +92,8 @@ git pull
         >
           View GitHub repo
         </Link>
-        <Link href="/login" style={btn()}>
-          Sign in to dashboard
+        <Link href={dashboardHref} style={btn()}>
+          {dashboardLabel}
         </Link>
       </div>
     </main>
