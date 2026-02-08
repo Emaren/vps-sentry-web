@@ -497,6 +497,10 @@ body:has(.dashboard-main) {
     var(--dash-bg);
 }
 
+.dashboard-shell.dashboard-shell-no-gradient {
+  background: var(--dash-bg);
+}
+
 html[data-site-theme="light"] .dashboard-shell {
   background:
     radial-gradient(85% 120% at 10% -20%, rgba(59, 130, 246, 0.12), transparent 56%),
