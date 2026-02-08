@@ -55,7 +55,9 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const plausibleDomain = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN ?? "tokentap.ca";
+  const defaultSiteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://vps-sentry.tokentap.ca";
+  const plausibleDomain =
+    process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN ?? new URL(defaultSiteUrl).hostname;
   const plausibleSrc = process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ?? "https://plausible.io/js/script.js";
 
   return (

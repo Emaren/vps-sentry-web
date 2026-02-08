@@ -151,15 +151,30 @@ function evaluateRateLimit(req: NextRequest, policy: RateLimitPolicy): RateLimit
 }
 
 function getCspValue(): string {
+  const scriptSrc = ["'self'", "'unsafe-inline'"];
+  const connectSrc = ["'self'", "https:", "wss:"];
+
+  const plausibleSrc = process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ?? "https://plausible.io/js/script.js";
+  try {
+    const plausibleUrl = new URL(plausibleSrc);
+    if (plausibleUrl.protocol === "https:" || plausibleUrl.protocol === "http:") {
+      const plausibleOrigin = `${plausibleUrl.protocol}//${plausibleUrl.host}`;
+      if (!scriptSrc.includes(plausibleOrigin)) scriptSrc.push(plausibleOrigin);
+      if (!connectSrc.includes(plausibleOrigin)) connectSrc.push(plausibleOrigin);
+    }
+  } catch {
+    // ignore invalid/relative script src; 'self' already covers local proxy paths
+  }
+
   const directives = [
     "default-src 'self'",
     "base-uri 'self'",
     "font-src 'self' data:",
     "img-src 'self' data: blob: https:",
     "object-src 'none'",
-    "script-src 'self' 'unsafe-inline'",
+    `script-src ${scriptSrc.join(" ")}`,
     "style-src 'self' 'unsafe-inline'",
-    "connect-src 'self' https: wss:",
+    `connect-src ${connectSrc.join(" ")}`,
     "frame-ancestors 'none'",
     "frame-src 'none'",
     "form-action 'self'",
