@@ -192,6 +192,10 @@ summary,
 input[type="button"],
 input[type="submit"],
 input[type="reset"],
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled),
+select:not(:disabled),
+details > summary,
 label[for] {
   cursor: pointer;
 }

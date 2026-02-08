@@ -454,22 +454,6 @@ export default async function AdminPage() {
         </div>
       </header>
 
-      <section
-        style={{
-          marginTop: 18,
-          padding: 14,
-          border: "1px solid var(--dash-card-border)",
-          borderRadius: 12,
-          background: "var(--dash-card-bg)",
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: 18 }}>Noob Coach v2</h2>
-        <div style={{ marginTop: 8, color: "var(--dash-meta)", fontSize: 13 }}>
-          Fast admin order-of-operations: 1) resolve suspicious users, 2) verify queue/DLQ is clean,
-          3) confirm observability + SLO are healthy, 4) review recent ops timeline for drift.
-        </div>
-      </section>
-
       {/* Summary row */}
       <section
         style={{
