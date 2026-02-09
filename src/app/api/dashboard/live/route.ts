@@ -4,6 +4,9 @@ import { getDashboardOpsSnapshot, getStatusEnvelopeSafe } from "@/app/dashboard/
 import { safeRequestUrl } from "@/lib/request-url";
 
 export const dynamic = "force-dynamic";
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
 
 type LivePulsePayload = {
   ts: string;
@@ -62,6 +65,16 @@ function sseComment(comment: string): string {
 }
 
 export async function GET(req: Request) {
+  if (IS_BUILD_TIME) {
+    return new Response(JSON.stringify({ ok: true, skipped: "build" }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
   const access = await requireViewerAccess();
   if (!access.ok) {
     return new Response(JSON.stringify({ ok: false, error: access.error }), {
