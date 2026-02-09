@@ -1,6 +1,3 @@
-import { requireViewerAccess } from "@/lib/rbac";
-import { deriveDashboard } from "@/app/dashboard/_lib/derive";
-import { getDashboardOpsSnapshot, getStatusEnvelopeSafe } from "@/app/dashboard/_lib/fetch";
 import { safeRequestUrl } from "@/lib/request-url";
 
 export const dynamic = "force-dynamic";
@@ -32,16 +29,20 @@ function parseInterval(v: string | null): number {
 async function buildLivePulse(input: {
   userId: string;
   userRole: "viewer" | "ops" | "admin" | "owner";
+}, deps: {
+  deriveDashboard: (typeof import("@/app/dashboard/_lib/derive"))["deriveDashboard"];
+  getDashboardOpsSnapshot: (typeof import("@/app/dashboard/_lib/fetch"))["getDashboardOpsSnapshot"];
+  getStatusEnvelopeSafe: (typeof import("@/app/dashboard/_lib/fetch"))["getStatusEnvelopeSafe"];
 }): Promise<LivePulsePayload> {
   const [env, ops] = await Promise.all([
-    getStatusEnvelopeSafe(),
-    getDashboardOpsSnapshot({
+    deps.getStatusEnvelopeSafe(),
+    deps.getDashboardOpsSnapshot({
       userId: input.userId,
       userRole: input.userRole,
     }),
   ]);
 
-  const derived = deriveDashboard(env);
+  const derived = deps.deriveDashboard(env);
 
   return {
     ts: new Date().toISOString(),
@@ -75,6 +76,13 @@ export async function GET(req: Request) {
     });
   }
 
+  const [{ requireViewerAccess }, { deriveDashboard }, { getDashboardOpsSnapshot, getStatusEnvelopeSafe }] =
+    await Promise.all([
+      import("@/lib/rbac"),
+      import("@/app/dashboard/_lib/derive"),
+      import("@/app/dashboard/_lib/fetch"),
+    ]);
+
   const access = await requireViewerAccess();
   if (!access.ok) {
     return new Response(JSON.stringify({ ok: false, error: access.error }), {
@@ -101,7 +109,7 @@ export async function GET(req: Request) {
           const payload = await buildLivePulse({
             userId: access.identity.userId,
             userRole: access.identity.role,
-          });
+          }, { deriveDashboard, getDashboardOpsSnapshot, getStatusEnvelopeSafe });
           controller.enqueue(encoder.encode(sseEvent("pulse", payload)));
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
