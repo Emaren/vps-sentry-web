@@ -10,6 +10,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      DATABASE_URL: file:./prisma/dev.db
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,6 +29,9 @@ jobs:
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client (SQLite)
+        run: pnpm run generate:sqlite
 
       - name: Run Tests
         run: npm test
