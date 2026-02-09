@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type CSSProperties } from "react";
 import IncidentEnginePanel from "@/app/admin/IncidentEnginePanel";
+import PanelStateBanner from "@/app/dashboard/_components/PanelStateBanner";
 import type {
   IncidentRunDetail,
   IncidentRunListSnapshot,
@@ -19,6 +20,7 @@ import type {
   RemediationQueueSnapshotItem,
 } from "@/lib/remediate/queue";
 import type { SloObjective, SloSnapshot } from "@/lib/slo";
+import type { DashboardPanelHealth } from "@/app/dashboard/_lib/types";
 
 type RecentOp = {
   id: string;
@@ -37,11 +39,21 @@ type ApiResponse = {
 export default function AdminOpsPanel(props: {
   workflows: IncidentWorkflow[];
   recentOps: RecentOp[];
-  queueSnapshot: RemediationQueueSnapshot;
-  observabilitySnapshot: ObservabilitySnapshot;
-  sloSnapshot: SloSnapshot;
-  incidentSnapshot: IncidentRunListSnapshot;
+  queueSnapshot: RemediationQueueSnapshot | null;
+  observabilitySnapshot: ObservabilitySnapshot | null;
+  sloSnapshot: SloSnapshot | null;
+  incidentSnapshot: IncidentRunListSnapshot | null;
   initialIncidentDetail: IncidentRunDetail | null;
+  panelHealth: {
+    users: DashboardPanelHealth;
+    hosts: DashboardPanelHealth;
+    recentOps: DashboardPanelHealth;
+    queue: DashboardPanelHealth;
+    observability: DashboardPanelHealth;
+    slo: DashboardPanelHealth;
+    incidents: DashboardPanelHealth;
+    incidentDetail: DashboardPanelHealth;
+  };
   incidentAssignees: Array<{
     id: string;
     email: string;
@@ -67,12 +79,18 @@ export default function AdminOpsPanel(props: {
   const [notifyKind, setNotifyKind] = useState<"" | "EMAIL" | "WEBHOOK">("");
   const [replayRunId, setReplayRunId] = useState("");
   const [queueSnapshot, setQueueSnapshot] = useState<RemediationQueueSnapshot>(
-    props.queueSnapshot
+    props.queueSnapshot ?? emptyQueueSnapshot()
   );
   const [observability, setObservability] = useState<ObservabilitySnapshot>(
-    props.observabilitySnapshot
+    props.observabilitySnapshot ?? emptyObservabilitySnapshot()
   );
-  const [slo, setSlo] = useState<SloSnapshot>(props.sloSnapshot);
+  const [slo, setSlo] = useState<SloSnapshot>(props.sloSnapshot ?? emptySloSnapshot());
+  const incidentSnapshot = props.incidentSnapshot ?? emptyIncidentSnapshot();
+  const queueBlocked = isPanelBlocked(props.panelHealth.queue);
+  const observabilityBlocked = isPanelBlocked(props.panelHealth.observability);
+  const sloBlocked = isPanelBlocked(props.panelHealth.slo);
+  const incidentsBlocked = isPanelBlocked(props.panelHealth.incidents);
+  const recentOpsBlocked = isPanelBlocked(props.panelHealth.recentOps);
 
   const workflowCount = props.workflows.length;
   const apiStepCount = useMemo(
@@ -384,192 +402,210 @@ export default function AdminOpsPanel(props: {
 
       <section style={blockStyle()}>
         <h3 style={h3Style()}>Queue / DLQ Visibility</h3>
-        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
-          <Pill text={`queued ${queueSnapshot.counts.queued}`} tone="warn" />
-          <Pill text={`running ${queueSnapshot.counts.running}`} tone="ok" />
-          <Pill text={`retry-scheduled ${queueSnapshot.counts.retryScheduled}`} tone="warn" />
-          <Pill
-            text={`approval-pending ${queueSnapshot.counts.approvalPending}`}
-            tone={queueSnapshot.counts.approvalPending > 0 ? "warn" : "ok"}
-          />
-          <Pill text={`dlq ${queueSnapshot.counts.dlq}`} tone={queueSnapshot.counts.dlq > 0 ? "bad" : "ok"} />
-          <Pill text={`failed ${queueSnapshot.counts.failed}`} tone={queueSnapshot.counts.failed > 0 ? "warn" : "ok"} />
-          <Pill text={`canceled ${queueSnapshot.counts.canceled}`} tone="neutral" />
-        </div>
-
-        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <input
-            value={replayRunId}
-            onChange={(e) => setReplayRunId(e.currentTarget.value)}
-            placeholder="run id to replay"
-            style={inputStyle()}
-          />
-          <ActionButton
-            text="Replay Run"
-            busy={Boolean(busyKey && busyKey.startsWith("replay:"))}
-            onClick={() => replaySingleRun(replayRunId)}
-          />
-          <ActionButton
-            text="Show DLQ only"
-            busy={busyKey === "queue:refresh"}
-            onClick={() => refreshQueueSnapshot(30, true)}
-          />
-          <ActionButton
-            text="Show All"
-            busy={busyKey === "queue:refresh"}
-            onClick={() => refreshQueueSnapshot(30, false)}
-          />
-        </div>
-
-        <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-          {queueSnapshot.items.length === 0 ? (
-            <div style={{ color: "var(--dash-meta)" }}>No queue items for selected filter.</div>
-          ) : (
-            queueSnapshot.items.map((item) => (
-              <QueueItemRow
-                key={item.runId}
-                item={item}
-                busyReplay={busyKey === `replay:${item.runId}`}
-                busyApprove={busyKey === `approval:approve:${item.runId}`}
-                busyReject={busyKey === `approval:reject:${item.runId}`}
-                onReplay={() => replaySingleRun(item.runId)}
-                onApprove={() => setQueueApproval(item.runId, "approve")}
-                onReject={() => setQueueApproval(item.runId, "reject")}
+        <PanelStateBanner health={props.panelHealth.queue} />
+        {queueBlocked ? null : (
+          <>
+            <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
+              <Pill text={`queued ${queueSnapshot.counts.queued}`} tone="warn" />
+              <Pill text={`running ${queueSnapshot.counts.running}`} tone="ok" />
+              <Pill text={`retry-scheduled ${queueSnapshot.counts.retryScheduled}`} tone="warn" />
+              <Pill
+                text={`approval-pending ${queueSnapshot.counts.approvalPending}`}
+                tone={queueSnapshot.counts.approvalPending > 0 ? "warn" : "ok"}
               />
-            ))
-          )}
-        </div>
+              <Pill text={`dlq ${queueSnapshot.counts.dlq}`} tone={queueSnapshot.counts.dlq > 0 ? "bad" : "ok"} />
+              <Pill
+                text={`failed ${queueSnapshot.counts.failed}`}
+                tone={queueSnapshot.counts.failed > 0 ? "warn" : "ok"}
+              />
+              <Pill text={`canceled ${queueSnapshot.counts.canceled}`} tone="neutral" />
+            </div>
+
+            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <input
+                value={replayRunId}
+                onChange={(e) => setReplayRunId(e.currentTarget.value)}
+                placeholder="run id to replay"
+                style={inputStyle()}
+              />
+              <ActionButton
+                text="Replay Run"
+                busy={Boolean(busyKey && busyKey.startsWith("replay:"))}
+                onClick={() => replaySingleRun(replayRunId)}
+              />
+              <ActionButton
+                text="Show DLQ only"
+                busy={busyKey === "queue:refresh"}
+                onClick={() => refreshQueueSnapshot(30, true)}
+              />
+              <ActionButton
+                text="Show All"
+                busy={busyKey === "queue:refresh"}
+                onClick={() => refreshQueueSnapshot(30, false)}
+              />
+            </div>
+
+            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+              {queueSnapshot.items.length === 0 ? (
+                <div style={{ color: "var(--dash-meta)" }}>No queue items for selected filter.</div>
+              ) : (
+                queueSnapshot.items.map((item) => (
+                  <QueueItemRow
+                    key={item.runId}
+                    item={item}
+                    busyReplay={busyKey === `replay:${item.runId}`}
+                    busyApprove={busyKey === `approval:approve:${item.runId}`}
+                    busyReject={busyKey === `approval:reject:${item.runId}`}
+                    onReplay={() => replaySingleRun(item.runId)}
+                    onApprove={() => setQueueApproval(item.runId, "approve")}
+                    onReject={() => setQueueApproval(item.runId, "reject")}
+                  />
+                ))
+              )}
+            </div>
+          </>
+        )}
       </section>
 
       <section style={blockStyle()}>
         <h3 style={h3Style()}>Observability</h3>
-        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
-          <Pill text={`uptime ${fmtMs(observability.uptimeMs)}`} tone="neutral" />
-          <Pill text={`api requests ${requestsTotal}`} tone="ok" />
-          <Pill text={`api 5xx ${requests5xx}`} tone={requests5xx > 0 ? "bad" : "ok"} />
-          <Pill text={`rate limited ${rateLimited}`} tone={rateLimited > 0 ? "warn" : "ok"} />
-          <Pill text={`alerts meta ${observability.recentAlerts.length}`} tone="warn" />
-          <Pill text={`traces ${observability.recentTraces.length}`} tone="ok" />
-        </div>
+        <PanelStateBanner health={props.panelHealth.observability} />
+        {observabilityBlocked ? null : (
+          <>
+            <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
+              <Pill text={`uptime ${fmtMs(observability.uptimeMs)}`} tone="neutral" />
+              <Pill text={`api requests ${requestsTotal}`} tone="ok" />
+              <Pill text={`api 5xx ${requests5xx}`} tone={requests5xx > 0 ? "bad" : "ok"} />
+              <Pill text={`rate limited ${rateLimited}`} tone={rateLimited > 0 ? "warn" : "ok"} />
+              <Pill text={`alerts meta ${observability.recentAlerts.length}`} tone="warn" />
+              <Pill text={`traces ${observability.recentTraces.length}`} tone="ok" />
+            </div>
 
-        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <ActionButton
-            text="Refresh Observability"
-            busy={busyKey === "obs:refresh"}
-            onClick={() => refreshObservability()}
-          />
-          <ActionButton
-            text="Open /api/ops/metrics"
-            onClick={() => {
-              window.open("/api/ops/metrics", "_blank", "noopener,noreferrer");
-            }}
-          />
-        </div>
+            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <ActionButton
+                text="Refresh Observability"
+                busy={busyKey === "obs:refresh"}
+                onClick={() => refreshObservability()}
+              />
+              <ActionButton
+                text="Open /api/ops/metrics"
+                onClick={() => {
+                  window.open("/api/ops/metrics", "_blank", "noopener,noreferrer");
+                }}
+              />
+            </div>
 
-        <details style={{ marginTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 700 }}>Top Counters ({topCounters.length})</summary>
-          <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-            {topCounters.map((c, idx) => (
-              <div key={`${c.name}-${idx}`} style={entryRowStyle()}>
-                <div style={{ fontWeight: 700 }}>{c.name}</div>
-                <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>
-                  value={c.value} · {renderLabels(c.labels)}
-                </div>
+            <details style={{ marginTop: 10 }}>
+              <summary style={{ cursor: "pointer", fontWeight: 700 }}>Top Counters ({topCounters.length})</summary>
+              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                {topCounters.map((c, idx) => (
+                  <div key={`${c.name}-${idx}`} style={entryRowStyle()}>
+                    <div style={{ fontWeight: 700 }}>{c.name}</div>
+                    <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>
+                      value={c.value} · {renderLabels(c.labels)}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </details>
+            </details>
 
-        <details style={{ marginTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 700 }}>Top Timings ({topTimings.length})</summary>
-          <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-            {topTimings.map((t, idx) => (
-              <div key={`${t.name}-${idx}`} style={entryRowStyle()}>
-                <div style={{ fontWeight: 700 }}>{t.name}</div>
-                <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>
-                  count={t.count} · p50={fmtMs(t.p50Ms)} · p95={fmtMs(t.p95Ms)} · max={fmtMs(t.maxMs)} ·{" "}
-                  {renderLabels(t.labels)}
-                </div>
+            <details style={{ marginTop: 10 }}>
+              <summary style={{ cursor: "pointer", fontWeight: 700 }}>Top Timings ({topTimings.length})</summary>
+              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                {topTimings.map((t, idx) => (
+                  <div key={`${t.name}-${idx}`} style={entryRowStyle()}>
+                    <div style={{ fontWeight: 700 }}>{t.name}</div>
+                    <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>
+                      count={t.count} · p50={fmtMs(t.p50Ms)} · p95={fmtMs(t.p95Ms)} · max={fmtMs(t.maxMs)} ·{" "}
+                      {renderLabels(t.labels)}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </details>
+            </details>
 
-        <details style={{ marginTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 700 }}>
-            Alert Metadata ({observability.recentAlerts.length})
-          </summary>
-          <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-            {observability.recentAlerts.map((item, idx) => (
-              <AlertRow key={`${item.ts}-${idx}`} item={item} />
-            ))}
-          </div>
-        </details>
+            <details style={{ marginTop: 10 }}>
+              <summary style={{ cursor: "pointer", fontWeight: 700 }}>
+                Alert Metadata ({observability.recentAlerts.length})
+              </summary>
+              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                {observability.recentAlerts.map((item, idx) => (
+                  <AlertRow key={`${item.ts}-${idx}`} item={item} />
+                ))}
+              </div>
+            </details>
 
-        <details style={{ marginTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 700 }}>
-            Recent Traces ({observability.recentTraces.length})
-          </summary>
-          <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-            {observability.recentTraces.map((item, idx) => (
-              <TraceRow key={`${item.ts}-${idx}`} item={item} />
-            ))}
-          </div>
-        </details>
+            <details style={{ marginTop: 10 }}>
+              <summary style={{ cursor: "pointer", fontWeight: 700 }}>
+                Recent Traces ({observability.recentTraces.length})
+              </summary>
+              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                {observability.recentTraces.map((item, idx) => (
+                  <TraceRow key={`${item.ts}-${idx}`} item={item} />
+                ))}
+              </div>
+            </details>
 
-        <details style={{ marginTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 700 }}>
-            Structured Logs ({observability.recentLogs.length})
-          </summary>
-          <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-            {observability.recentLogs.map((item, idx) => (
-              <LogRow key={`${item.ts}-${idx}`} item={item} />
-            ))}
-          </div>
-        </details>
+            <details style={{ marginTop: 10 }}>
+              <summary style={{ cursor: "pointer", fontWeight: 700 }}>
+                Structured Logs ({observability.recentLogs.length})
+              </summary>
+              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                {observability.recentLogs.map((item, idx) => (
+                  <LogRow key={`${item.ts}-${idx}`} item={item} />
+                ))}
+              </div>
+            </details>
+          </>
+        )}
       </section>
 
       <section style={blockStyle()}>
         <h3 style={h3Style()}>SLO / Burn-Rate</h3>
-        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
-          <Pill text={`severity ${slo.burn.severity}`} tone={toneBySloSeverity(slo.burn.severity)} />
-          <Pill text={`route ${slo.burn.route}`} tone="neutral" />
-          <Pill text={`max burn ${slo.burn.maxBurnRate}`} tone={slo.burn.maxBurnRate >= 1 ? "warn" : "ok"} />
-          <Pill
-            text={`open breaches > MTTD ${slo.openBreachesOlderThanMttdTarget}`}
-            tone={slo.openBreachesOlderThanMttdTarget > 0 ? "warn" : "ok"}
-          />
-          <Pill text={`window ${slo.windowHours}h`} tone="neutral" />
-        </div>
+        <PanelStateBanner health={props.panelHealth.slo} />
+        {sloBlocked ? null : (
+          <>
+            <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
+              <Pill text={`severity ${slo.burn.severity}`} tone={toneBySloSeverity(slo.burn.severity)} />
+              <Pill text={`route ${slo.burn.route}`} tone="neutral" />
+              <Pill text={`max burn ${slo.burn.maxBurnRate}`} tone={slo.burn.maxBurnRate >= 1 ? "warn" : "ok"} />
+              <Pill
+                text={`open breaches > MTTD ${slo.openBreachesOlderThanMttdTarget}`}
+                tone={slo.openBreachesOlderThanMttdTarget > 0 ? "warn" : "ok"}
+              />
+              <Pill text={`window ${slo.windowHours}h`} tone="neutral" />
+            </div>
 
-        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <ActionButton
-            text="Refresh SLO"
-            busy={busyKey === "slo:refresh"}
-            onClick={() => refreshSlo()}
-          />
-          <ActionButton
-            text="Open /api/ops/slo"
-            onClick={() => {
-              window.open("/api/ops/slo", "_blank", "noopener,noreferrer");
-            }}
-          />
-        </div>
+            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <ActionButton
+                text="Refresh SLO"
+                busy={busyKey === "slo:refresh"}
+                onClick={() => refreshSlo()}
+              />
+              <ActionButton
+                text="Open /api/ops/slo"
+                onClick={() => {
+                  window.open("/api/ops/slo", "_blank", "noopener,noreferrer");
+                }}
+              />
+            </div>
 
-        <div style={{ marginTop: 8, color: "var(--dash-meta)" }}>
-          {slo.burn.title}: {slo.burn.reason}
-        </div>
+            <div style={{ marginTop: 8, color: "var(--dash-meta)" }}>
+              {slo.burn.title}: {slo.burn.reason}
+            </div>
 
-        <details style={{ marginTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 700 }}>
-            Objectives ({slo.objectives.length})
-          </summary>
-          <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-            {slo.objectives.map((objective) => (
-              <SloObjectiveRow key={objective.key} objective={objective} />
-            ))}
-          </div>
-        </details>
+            <details style={{ marginTop: 10 }}>
+              <summary style={{ cursor: "pointer", fontWeight: 700 }}>
+                Objectives ({slo.objectives.length})
+              </summary>
+              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                {slo.objectives.map((objective) => (
+                  <SloObjectiveRow key={objective.key} objective={objective} />
+                ))}
+              </div>
+            </details>
+          </>
+        )}
       </section>
 
       <section style={blockStyle()}>
@@ -619,32 +655,44 @@ export default function AdminOpsPanel(props: {
         </div>
       </section>
 
-      <IncidentEnginePanel
-        workflows={props.workflows}
-        initialSnapshot={props.incidentSnapshot}
-        initialIncidentDetail={props.initialIncidentDetail}
-        incidentAssignees={props.incidentAssignees}
-        hostOptions={props.hostOptions}
-        currentIdentity={props.currentIdentity}
-      />
+      <section style={blockStyle()}>
+        <h3 style={h3Style()}>Incident Workflow Engine v2</h3>
+        <PanelStateBanner health={props.panelHealth.incidents} />
+        <PanelStateBanner health={props.panelHealth.incidentDetail} />
+        {incidentsBlocked ? null : (
+          <IncidentEnginePanel
+            workflows={props.workflows}
+            initialSnapshot={incidentSnapshot}
+            initialIncidentDetail={props.initialIncidentDetail}
+            incidentAssignees={props.incidentAssignees}
+            hostOptions={props.hostOptions}
+            currentIdentity={props.currentIdentity}
+          />
+        )}
+      </section>
 
       <section style={blockStyle()}>
         <h3 style={h3Style()}>Recent Ops Timeline</h3>
-        {props.recentOps.length === 0 ? (
-          <div style={{ color: "var(--dash-meta)" }}>No recent ops entries.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {props.recentOps.map((entry) => (
-              <div key={entry.id} style={entryRowStyle()}>
-                <div style={{ fontWeight: 700 }}>{entry.action}</div>
-                <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>{entry.createdAtIso}</div>
-                <div style={{ marginTop: 4 }}>{entry.detail ?? "-"}</div>
-                <div style={{ fontSize: 12, color: "var(--dash-meta)", marginTop: 2 }}>
-                  actor: {entry.userEmail ?? "system"}
-                </div>
+        <PanelStateBanner health={props.panelHealth.recentOps} />
+        {recentOpsBlocked ? null : (
+          <>
+            {props.recentOps.length === 0 ? (
+              <div style={{ color: "var(--dash-meta)" }}>No recent ops entries.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {props.recentOps.map((entry) => (
+                  <div key={entry.id} style={entryRowStyle()}>
+                    <div style={{ fontWeight: 700 }}>{entry.action}</div>
+                    <div style={{ fontSize: 12, color: "var(--dash-meta)" }}>{entry.createdAtIso}</div>
+                    <div style={{ marginTop: 4 }}>{entry.detail ?? "-"}</div>
+                    <div style={{ fontSize: 12, color: "var(--dash-meta)", marginTop: 2 }}>
+                      actor: {entry.userEmail ?? "system"}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </section>
 
@@ -660,6 +708,98 @@ export default function AdminOpsPanel(props: {
       ) : null}
     </section>
   );
+}
+
+function isPanelBlocked(health: DashboardPanelHealth): boolean {
+  return health.status === "error" || health.status === "forbidden" || health.status === "loading";
+}
+
+function emptyQueueSnapshot(): RemediationQueueSnapshot {
+  return {
+    limit: 30,
+    dlqOnly: false,
+    counts: {
+      queued: 0,
+      running: 0,
+      succeeded: 0,
+      failed: 0,
+      canceled: 0,
+      dlq: 0,
+      retryScheduled: 0,
+      approvalPending: 0,
+    },
+    items: [],
+  };
+}
+
+function emptyObservabilitySnapshot(): ObservabilitySnapshot {
+  const now = new Date().toISOString();
+  return {
+    generatedAtIso: now,
+    startedAtIso: now,
+    uptimeMs: 0,
+    counters: [],
+    timings: [],
+    recentLogs: [],
+    recentTraces: [],
+    recentAlerts: [],
+  };
+}
+
+function emptySloSnapshot(): SloSnapshot {
+  return {
+    generatedAtIso: new Date().toISOString(),
+    windowHours: 0,
+    burnWindows: {
+      shortMinutes: 0,
+      longMinutes: 0,
+    },
+    goals: {
+      availabilityTargetPct: 0,
+      notifyDeliveryTargetPct: 0,
+      ingestFreshTargetPct: 0,
+      mttdTargetMinutes: 0,
+      mttrTargetMinutes: 0,
+    },
+    measurement: {
+      mttd: "0m",
+      mttr: "0m",
+    },
+    objectives: [],
+    openBreachesOlderThanMttdTarget: 0,
+    burn: {
+      severity: "ok",
+      shouldAlert: false,
+      route: "none",
+      title: "No SLO data",
+      reason: "SLO snapshot unavailable",
+      affectedObjectives: [],
+      maxBurnRate: 0,
+    },
+  };
+}
+
+function emptyIncidentSnapshot(): IncidentRunListSnapshot {
+  return {
+    generatedAt: new Date().toISOString(),
+    limit: 30,
+    filters: {
+      state: "active",
+      hostId: null,
+      assigneeUserId: null,
+      includeClosed: false,
+    },
+    counts: {
+      total: 0,
+      open: 0,
+      acknowledged: 0,
+      resolved: 0,
+      closed: 0,
+      ackOverdue: 0,
+      escalationDue: 0,
+    },
+    incidents: [],
+  };
 }
 
 function renderLabels(labels: Record<string, string>): string {

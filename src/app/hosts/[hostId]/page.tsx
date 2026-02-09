@@ -15,6 +15,9 @@ import { buildContainmentKit, renderContainmentKitScript } from "@/lib/remediate
 import CopyCodeBlock from "@/app/get-vps-sentry/CopyCodeBlock";
 import SiteThemeControls from "@/app/_components/SiteThemeControls";
 import NoobTip from "@/app/dashboard/_components/NoobTip";
+import PanelStateBanner from "@/app/dashboard/_components/PanelStateBanner";
+import type { DashboardPanelHealth } from "@/app/dashboard/_lib/types";
+import { panelEmpty, panelError, panelReady } from "@/app/dashboard/_lib/panel-health";
 import { requireViewerAccess } from "@/lib/rbac";
 import { hasRequiredRole, roleLabel } from "@/lib/rbac-policy";
 import { hostKeyScopeSummary, parseHostKeyScopes } from "@/lib/host-keys";
@@ -338,6 +341,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
   const timelineTopCodes = Object.entries(timelineSummary.byCode)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3);
+  const snapshotParseFailures = Math.max(0, host.snapshots.length - timelineInput.length);
   const remediationRunSummary = host.remediationRuns.reduce(
     (acc, run) => {
       if (run.state === "queued") acc.queued += 1;
@@ -354,6 +358,48 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
     0,
     Math.round((now.getTime() - host.createdAt.getTime()) / (24 * 60 * 60 * 1000))
   );
+  const panelHealth: Record<
+    | "summary"
+    | "fleetPolicy"
+    | "apiKeys"
+    | "snapshots"
+    | "openBreaches"
+    | "timeline"
+    | "incidentRuns"
+    | "remediationRuns",
+    DashboardPanelHealth
+  > = {
+    summary: panelReady("Host summary connected."),
+    fleetPolicy: panelReady("Fleet policy connected."),
+    apiKeys:
+      host.apiKeys.length > 0
+        ? panelReady(`Key ledger connected (${host.apiKeys.length} key records).`)
+        : panelEmpty("Key ledger connected; no keys found."),
+    snapshots:
+      host.snapshots.length > 0
+        ? panelReady(`Snapshot ledger connected (${host.snapshots.length} snapshots).`)
+        : panelEmpty("Snapshot ledger connected; no snapshots ingested yet."),
+    openBreaches:
+      host.breaches.length > 0
+        ? panelReady(`Breach ledger connected (${host.breaches.length} open breach records).`)
+        : panelEmpty("Breach ledger connected; no open breaches."),
+    timeline:
+      timeline.length > 0
+        ? panelReady(`Timeline correlation connected (${timeline.length} events).`)
+        : snapshotParseFailures > 0 && host.snapshots.length > 0
+        ? panelError(
+            `Timeline correlation failed to parse ${snapshotParseFailures} snapshot payload(s).`
+          )
+        : panelEmpty("Timeline correlation connected; no recent incident signals."),
+    incidentRuns:
+      host.incidentRuns.length > 0
+        ? panelReady(`Incident workflow ledger connected (${host.incidentRuns.length} runs).`)
+        : panelEmpty("Incident workflow ledger connected; no runs yet."),
+    remediationRuns:
+      host.remediationRuns.length > 0
+        ? panelReady(`Remediation ledger connected (${host.remediationRuns.length} runs).`)
+        : panelEmpty("Remediation ledger connected; no runs yet."),
+  };
   const sectionLinks = [
     { href: "#summary", label: "Summary" },
     { href: "#security-command-center", label: "Security" },
@@ -661,6 +707,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           title="Summary"
           tip="Core heartbeat and snapshot health for this host."
         />
+        <PanelStateBanner health={panelHealth.summary} />
         <div style={{ marginTop: 8, marginBottom: 4, color: "var(--dash-meta)", fontSize: 12 }}>
           Heartbeat target every {heartbeat.expectedMinutes}m · stale at {heartbeat.staleAfterMinutes}m · missing at{" "}
           {heartbeat.missingAfterMinutes}m
@@ -683,6 +730,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           title="Fleet Policy"
           tip="Group/tag/scope routing and rollout priority controls that decide blast radius."
         />
+        <PanelStateBanner health={panelHealth.fleetPolicy} />
         <div style={{ ...gridStyle(), marginTop: 8 }}>
           <Stat label="Group" value={fleetPolicy.group ?? "—"} />
           <Stat
@@ -722,6 +770,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           title="API Keys"
           tip="Scoped keys for host ingest with rotation, expiry, revocation, and usage tracking."
         />
+        <PanelStateBanner health={panelHealth.apiKeys} />
         <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
           Scoped keys now support rotation, expiry, revocation reason, and explicit versioning.
         </div>
@@ -768,6 +817,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           title="Recent Snapshots"
           tip="Latest status payloads from the agent: alert and exposure history."
         />
+        <PanelStateBanner health={panelHealth.snapshots} />
         {host.snapshots.length === 0 ? (
           <div style={{ color: "var(--dash-meta)" }}>No snapshots ingested yet.</div>
         ) : (
@@ -801,6 +851,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           title="Open Breaches"
           tip="Confirmed breach records that are still unresolved."
         />
+        <PanelStateBanner health={panelHealth.openBreaches} />
         {host.breaches.length === 0 ? (
           <div style={{ color: "var(--dash-meta)" }}>No open breaches.</div>
         ) : (
@@ -899,6 +950,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           title="Incident Timeline"
           tip="Signal history collapsed for duplicates so you can see the highest-value sequence."
         />
+        <PanelStateBanner health={panelHealth.timeline} />
         <div style={{ color: "var(--dash-meta)", marginTop: 6, fontSize: 12 }}>
           Correlated from recent snapshots with duplicate-noise collapsing
           (window {remediationPolicy.timelineDedupeWindowMinutes}m).
@@ -986,6 +1038,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           title="Incident Workflow Runs"
           tip="Workflow-run records for this host, including escalation timing and assignment."
         />
+        <PanelStateBanner health={panelHealth.incidentRuns} />
         {host.incidentRuns.length === 0 ? (
           <div style={{ marginTop: 10, color: "var(--dash-meta)" }}>
             No incident workflow runs yet.
@@ -1041,6 +1094,7 @@ export default async function HostDetailPage(props: { params: Promise<{ hostId: 
           title="Remediation Runs"
           tip="Execution history for manual or autonomous remediation actions on this host."
         />
+        <PanelStateBanner health={panelHealth.remediationRuns} />
         {host.remediationRuns.length === 0 ? (
           <div style={{ marginTop: 10, color: "var(--dash-meta)" }}>No remediation runs yet.</div>
         ) : (

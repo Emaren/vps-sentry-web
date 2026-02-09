@@ -6,6 +6,27 @@ import type { IncidentRunListSnapshot } from "@/lib/ops/incident-engine";
 import type { SloSnapshot } from "@/lib/slo";
 import type { ObservabilitySnapshot } from "@/lib/observability";
 
+export type DashboardPanelStatus = "ready" | "empty" | "error" | "forbidden" | "loading";
+
+export type DashboardPanelHealth = {
+  status: DashboardPanelStatus;
+  message: string;
+  updatedAtIso: string;
+};
+
+export type DashboardOpsPanelHealth = {
+  breaches: DashboardPanelHealth;
+  shipping: DashboardPanelHealth;
+  remediation: DashboardPanelHealth;
+  queue: DashboardPanelHealth;
+  incidents: DashboardPanelHealth;
+  slo: DashboardPanelHealth;
+  observability: DashboardPanelHealth;
+  fleet: DashboardPanelHealth;
+  keyLifecycle: DashboardPanelHealth;
+  adaptive: DashboardPanelHealth;
+};
+
 export type DashboardEnv = {
   ok: boolean;
   ts?: string;
@@ -170,6 +191,7 @@ export type DashboardOpsSnapshot = {
     canOps: boolean;
     canAdmin: boolean;
   };
+  panelHealth: DashboardOpsPanelHealth;
   workflows: IncidentWorkflow[] | null;
   queue: RemediationQueueSnapshot | null;
   incidents: IncidentRunListSnapshot | null;

@@ -11,6 +11,12 @@ import { getRemediationQueueSnapshot } from "@/lib/remediate/queue";
 import { getObservabilitySnapshot } from "@/lib/observability";
 import { buildSloSnapshot } from "@/lib/slo";
 import { getIncidentRunDetail, listIncidentRuns } from "@/lib/ops/incident-engine";
+import type { DashboardPanelHealth } from "@/app/dashboard/_lib/types";
+import {
+  panelEmpty,
+  panelError,
+  panelReady,
+} from "@/app/dashboard/_lib/panel-health";
 import {
   RBAC_ROLE_ORDER,
   normalizeAppRole,
@@ -88,6 +94,13 @@ function badge(text: string, tone: "ok" | "warn" | "bad" | "neutral" = "neutral"
 function roleTone(role: AppRole): "ok" | "warn" | "bad" | "neutral" {
   if (role === "owner" || role === "admin") return "ok";
   if (role === "ops") return "warn";
+  return "neutral";
+}
+
+function panelTone(status: DashboardPanelHealth["status"]): "ok" | "warn" | "bad" | "neutral" {
+  if (status === "ready") return "ok";
+  if (status === "error") return "bad";
+  if (status === "forbidden" || status === "loading") return "warn";
   return "neutral";
 }
 
@@ -178,6 +191,34 @@ function classifyUser(u: {
     (isActive && !hasSub);
 
   return { plan, hasCustomer, hasSub, isActive, suspicious, flags };
+}
+
+async function settlePanel<T>(
+  run: () => Promise<T>,
+  options: {
+    readyMessage: (value: T) => string;
+    emptyMessage: string;
+    isEmpty: (value: T) => boolean;
+  }
+): Promise<{ value: T | null; health: DashboardPanelHealth }> {
+  try {
+    const value = await run();
+    if (options.isEmpty(value)) {
+      return {
+        value,
+        health: panelEmpty(options.emptyMessage),
+      };
+    }
+    return {
+      value,
+      health: panelReady(options.readyMessage(value)),
+    };
+  } catch (err: unknown) {
+    return {
+      value: null,
+      health: panelError(err instanceof Error ? err.message : String(err)),
+    };
+  }
 }
 
 export default async function AdminPage() {
@@ -294,38 +335,55 @@ export default async function AdminPage() {
   });
 
   // ---------- 2) Data pull ----------
-  const users = await prisma.user.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-
-      // Billing-ish fields you added to User
-      role: true,
-      plan: true,
-      hostLimit: true,
-      stripeCustomerId: true,
-      subscriptionStatus: true,
-      subscriptionId: true,
-      currentPeriodEnd: true,
-    },
-  });
-
-  const hostOptionsRaw = await prisma.host.findMany({
-    orderBy: [{ name: "asc" }, { createdAt: "asc" }],
-    take: 300,
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      user: {
+  const usersState = await settlePanel(
+    () =>
+      prisma.user.findMany({
+        orderBy: { createdAt: "desc" },
         select: {
+          id: true,
+          name: true,
           email: true,
+          role: true,
+          plan: true,
+          hostLimit: true,
+          stripeCustomerId: true,
+          subscriptionStatus: true,
+          subscriptionId: true,
+          currentPeriodEnd: true,
         },
-      },
-    },
-  });
+      }),
+    {
+      readyMessage: (rows) => `Loaded ${rows.length} user record(s).`,
+      emptyMessage: "No user records found.",
+      isEmpty: (rows) => rows.length === 0,
+    }
+  );
+  const users = usersState.value ?? [];
+
+  const hostOptionsState = await settlePanel(
+    () =>
+      prisma.host.findMany({
+        orderBy: [{ name: "asc" }, { createdAt: "asc" }],
+        take: 300,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          user: {
+            select: {
+              email: true,
+            },
+          },
+        },
+      }),
+    {
+      readyMessage: (rows) => `Loaded ${rows.length} host option(s).`,
+      emptyMessage: "No host options found.",
+      isEmpty: (rows) => rows.length === 0,
+    }
+  );
+
+  const hostOptionsRaw = hostOptionsState.value ?? [];
   const hostOptions = hostOptionsRaw.map((host) => ({
     id: host.id,
     name: host.name,
@@ -368,27 +426,37 @@ export default async function AdminPage() {
     }
   );
 
-  const recentOpsRaw = await prisma.auditLog.findMany({
-    where: {
-      OR: [
-        { action: { startsWith: "ops." } },
-        { action: { startsWith: "remediate." } },
-      ],
-    },
-    orderBy: { createdAt: "desc" },
-    take: 25,
-    select: {
-      id: true,
-      action: true,
-      detail: true,
-      createdAt: true,
-      user: {
-        select: {
-          email: true,
+  const recentOpsState = await settlePanel(
+    () =>
+      prisma.auditLog.findMany({
+        where: {
+          OR: [
+            { action: { startsWith: "ops." } },
+            { action: { startsWith: "remediate." } },
+          ],
         },
-      },
-    },
-  });
+        orderBy: { createdAt: "desc" },
+        take: 25,
+        select: {
+          id: true,
+          action: true,
+          detail: true,
+          createdAt: true,
+          user: {
+            select: {
+              email: true,
+            },
+          },
+        },
+      }),
+    {
+      readyMessage: (rows) => `Loaded ${rows.length} recent ops timeline event(s).`,
+      emptyMessage: "No recent ops timeline events found.",
+      isEmpty: (rows) => rows.length === 0,
+    }
+  );
+
+  const recentOpsRaw = recentOpsState.value ?? [];
 
   const recentOps = recentOpsRaw.map((entry) => ({
     id: entry.id,
@@ -398,23 +466,94 @@ export default async function AdminPage() {
     userEmail: entry.user?.email ?? null,
   }));
 
-  const queueSnapshot = await getRemediationQueueSnapshot({ limit: 30 });
-  const observabilitySnapshot = getObservabilitySnapshot({
-    logsLimit: 80,
-    tracesLimit: 80,
-    alertsLimit: 80,
-    countersLimit: 350,
-    timingsLimit: 350,
-  });
-  const sloSnapshot = await buildSloSnapshot();
-  const incidentSnapshot = await listIncidentRuns({
-    limit: 30,
-    state: "active",
-  });
-  const initialIncidentId = incidentSnapshot.incidents[0]?.id ?? null;
-  const initialIncidentDetail = initialIncidentId
-    ? await getIncidentRunDetail(initialIncidentId, { timelineLimit: 120 })
-    : null;
+  const queueState = await settlePanel(
+    () => getRemediationQueueSnapshot({ limit: 30 }),
+    {
+      readyMessage: (snapshot) => `Queue snapshot loaded (${snapshot.items.length} item(s)).`,
+      emptyMessage: "Queue snapshot loaded with no items.",
+      isEmpty: (snapshot) => snapshot.items.length === 0,
+    }
+  );
+  const queueSnapshot = queueState.value;
+
+  const observabilityState = await settlePanel(
+    async () =>
+      getObservabilitySnapshot({
+        logsLimit: 80,
+        tracesLimit: 80,
+        alertsLimit: 80,
+        countersLimit: 350,
+        timingsLimit: 350,
+      }),
+    {
+      readyMessage: (snapshot) =>
+        `Observability snapshot loaded (${snapshot.counters.length} counters).`,
+      emptyMessage: "Observability snapshot loaded with no telemetry rows.",
+      isEmpty: (snapshot) =>
+        snapshot.counters.length +
+          snapshot.timings.length +
+          snapshot.recentLogs.length +
+          snapshot.recentTraces.length +
+          snapshot.recentAlerts.length ===
+        0,
+    }
+  );
+  const observabilitySnapshot = observabilityState.value;
+
+  const sloState = await settlePanel(
+    () => buildSloSnapshot(),
+    {
+      readyMessage: (snapshot) => `SLO snapshot loaded (${snapshot.objectives.length} objective(s)).`,
+      emptyMessage: "SLO snapshot loaded with no objectives.",
+      isEmpty: (snapshot) => snapshot.objectives.length === 0,
+    }
+  );
+  const sloSnapshot = sloState.value;
+
+  const incidentsState = await settlePanel(
+    () =>
+      listIncidentRuns({
+        limit: 30,
+        state: "active",
+      }),
+    {
+      readyMessage: (snapshot) => `Incident snapshot loaded (${snapshot.incidents.length} active incident(s)).`,
+      emptyMessage: "Incident snapshot loaded with no active incidents.",
+      isEmpty: (snapshot) => snapshot.incidents.length === 0,
+    }
+  );
+  const incidentSnapshot = incidentsState.value;
+  const initialIncidentId = incidentSnapshot?.incidents[0]?.id ?? null;
+  const incidentDetailState = initialIncidentId
+    ? await settlePanel(
+        () => getIncidentRunDetail(initialIncidentId, { timelineLimit: 120 }),
+        {
+          readyMessage: () => `Incident detail loaded for ${initialIncidentId}.`,
+          emptyMessage: "Incident detail was empty.",
+          isEmpty: (detail) => !detail,
+        }
+      )
+    : incidentsState.health.status === "error"
+      ? {
+          value: null,
+          health: panelError("Incident detail unavailable because incident list failed."),
+        }
+    : {
+        value: null,
+        health: panelEmpty("No active incident selected."),
+      };
+  const initialIncidentDetail = incidentDetailState.value ?? null;
+
+  const adminPanelHealth = {
+    users: usersState.health,
+    hosts: hostOptionsState.health,
+    recentOps: recentOpsState.health,
+    queue: queueState.health,
+    observability: observabilityState.health,
+    slo: sloState.health,
+    incidents: incidentsState.health,
+    incidentDetail: incidentDetailState.health,
+  };
   const incidentAssignees = users
     .map((u) => ({
       id: u.id,
@@ -450,10 +589,6 @@ export default async function AdminPage() {
           <p style={{ color: "var(--dash-meta)", marginTop: 6, marginBottom: 0 }}>
             Logged in as <b>{email}</b> · role <b>{roleLabel(access.identity.role)}</b>
           </p>
-          <p style={{ color: "var(--dash-meta)", marginTop: 10, marginBottom: 0, maxWidth: 900 }}>
-            This page is your “truth panel”: it shows who exists in your database, what plan they’re on, whether Stripe is
-            linked, and whether the subscription state looks sane. If something breaks, this tells you where.
-          </p>
         </div>
         </div>
 
@@ -483,6 +618,17 @@ export default async function AdminPage() {
           background: "var(--dash-card-bg)",
         }}
       >
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          {badge(`users ${adminPanelHealth.users.status}`, panelTone(adminPanelHealth.users.status))}
+          {badge(`hosts ${adminPanelHealth.hosts.status}`, panelTone(adminPanelHealth.hosts.status))}
+          {badge(`queue ${adminPanelHealth.queue.status}`, panelTone(adminPanelHealth.queue.status))}
+          {badge(`incidents ${adminPanelHealth.incidents.status}`, panelTone(adminPanelHealth.incidents.status))}
+          {badge(`slo ${adminPanelHealth.slo.status}`, panelTone(adminPanelHealth.slo.status))}
+          {badge(
+            `observability ${adminPanelHealth.observability.status}`,
+            panelTone(adminPanelHealth.observability.status)
+          )}
+        </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {badge(`Users: ${totals.total}`, "neutral")}
           {badge(`Owners: ${totals.owners}`, totals.owners > 0 ? "ok" : "warn")}
@@ -536,93 +682,101 @@ export default async function AdminPage() {
         </div>
 
         {/* Rows */}
-        {users.map((u) => {
-          const info = classifyUser(u);
-          const userRole = normalizeAppRole(u.role) ?? "viewer";
-          const rowBg = info.suspicious
-            ? "color-mix(in srgb, var(--dash-sev-critical-bg) 85%, transparent 15%)"
-            : "transparent";
+        {adminPanelHealth.users.status === "error" ? (
+          <div style={{ padding: 14, color: "var(--dash-sev-critical-text)" }}>
+            Failed to load users: {adminPanelHealth.users.message}
+          </div>
+        ) : (
+          users.map((u) => {
+            const info = classifyUser(u);
+            const userRole = normalizeAppRole(u.role) ?? "viewer";
+            const rowBg = info.suspicious
+              ? "color-mix(in srgb, var(--dash-sev-critical-bg) 85%, transparent 15%)"
+              : "transparent";
 
-          return (
-            <div
-              key={u.id}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1.2fr 2fr 1.4fr 0.9fr 0.8fr 1.3fr 2.2fr",
-                padding: "12px 14px",
-                borderBottom: "1px solid var(--dash-soft-border)",
-                background: rowBg,
-              }}
-            >
-              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {u.name ?? "-"}
-                {info.suspicious && <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.8 }}>⚠️</span>}
+            return (
+              <div
+                key={u.id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1.2fr 2fr 1.4fr 0.9fr 0.8fr 1.3fr 2.2fr",
+                  padding: "12px 14px",
+                  borderBottom: "1px solid var(--dash-soft-border)",
+                  background: rowBg,
+                }}
+              >
+                <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {u.name ?? "-"}
+                  {info.suspicious && <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.8 }}>⚠️</span>}
+                </div>
+
+                <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {u.email ?? "-"}
+                </div>
+
+                <div style={{ display: "grid", gap: 6 }}>
+                  <div>{badge(roleLabel(userRole), roleTone(userRole))}</div>
+                  {canManageRoles ? (
+                    <form action={updateUserRoleAction} style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <input type="hidden" name="targetUserId" value={u.id} />
+                      <select
+                        name="targetRole"
+                        defaultValue={userRole}
+                        style={{
+                          background: "var(--dash-btn-bg)",
+                          color: "var(--dash-fg)",
+                          border: "1px solid var(--dash-btn-border)",
+                          borderRadius: 8,
+                          padding: "4px 6px",
+                          fontSize: 12,
+                        }}
+                      >
+                        {RBAC_ROLE_ORDER
+                          .slice()
+                          .reverse()
+                          .map((r) => (
+                            <option key={r} value={r}>
+                              {roleLabel(r)}
+                            </option>
+                          ))}
+                      </select>
+                      <button
+                        type="submit"
+                        style={{
+                          background: "var(--dash-btn-bg)",
+                          color: "var(--dash-fg)",
+                          border: "1px solid var(--dash-btn-border)",
+                          borderRadius: 8,
+                          padding: "4px 8px",
+                          fontSize: 12,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Save
+                      </button>
+                    </form>
+                  ) : null}
+                </div>
+
+                <div>{badge(info.plan, info.plan === "FREE" ? "neutral" : "ok")}</div>
+
+                <div style={{ color: "var(--dash-muted)" }}>{u.hostLimit ?? "-"}</div>
+
+                <div style={{ color: "var(--dash-meta)" }}>{fmtDate(u.currentPeriodEnd)}</div>
+
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {info.flags.map((f, idx) => (
+                    <span key={`${u.id}-${idx}`}>{badge(f.text, f.tone)}</span>
+                  ))}
+                </div>
               </div>
+            );
+          })
+        )}
 
-              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {u.email ?? "-"}
-              </div>
-
-              <div style={{ display: "grid", gap: 6 }}>
-                <div>{badge(roleLabel(userRole), roleTone(userRole))}</div>
-                {canManageRoles ? (
-                  <form action={updateUserRoleAction} style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <input type="hidden" name="targetUserId" value={u.id} />
-                    <select
-                      name="targetRole"
-                      defaultValue={userRole}
-                      style={{
-                        background: "var(--dash-btn-bg)",
-                        color: "var(--dash-fg)",
-                        border: "1px solid var(--dash-btn-border)",
-                        borderRadius: 8,
-                        padding: "4px 6px",
-                        fontSize: 12,
-                      }}
-                    >
-                      {RBAC_ROLE_ORDER
-                        .slice()
-                        .reverse()
-                        .map((r) => (
-                          <option key={r} value={r}>
-                            {roleLabel(r)}
-                          </option>
-                        ))}
-                    </select>
-                    <button
-                      type="submit"
-                      style={{
-                        background: "var(--dash-btn-bg)",
-                        color: "var(--dash-fg)",
-                        border: "1px solid var(--dash-btn-border)",
-                        borderRadius: 8,
-                        padding: "4px 8px",
-                        fontSize: 12,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Save
-                    </button>
-                  </form>
-                ) : null}
-              </div>
-
-              <div>{badge(info.plan, info.plan === "FREE" ? "neutral" : "ok")}</div>
-
-              <div style={{ color: "var(--dash-muted)" }}>{u.hostLimit ?? "-"}</div>
-
-              <div style={{ color: "var(--dash-meta)" }}>{fmtDate(u.currentPeriodEnd)}</div>
-
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {info.flags.map((f, idx) => (
-                  <span key={`${u.id}-${idx}`}>{badge(f.text, f.tone)}</span>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-
-        {users.length === 0 && <div style={{ padding: 14, color: "var(--dash-meta)" }}>No users yet.</div>}
+        {adminPanelHealth.users.status !== "error" && users.length === 0 ? (
+          <div style={{ padding: 14, color: "var(--dash-meta)" }}>No users yet.</div>
+        ) : null}
       </section>
 
       <AdminOpsPanel
@@ -633,6 +787,7 @@ export default async function AdminPage() {
         sloSnapshot={sloSnapshot}
         incidentSnapshot={incidentSnapshot}
         initialIncidentDetail={initialIncidentDetail}
+        panelHealth={adminPanelHealth}
         incidentAssignees={incidentAssignees}
         hostOptions={hostOptions}
         currentIdentity={{

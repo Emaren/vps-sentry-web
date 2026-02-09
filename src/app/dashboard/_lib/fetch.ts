@@ -22,11 +22,18 @@ import type {
   DashboardBreachesSnapshot,
   DashboardFleetSummary,
   DashboardKeyLifecycleSummary,
+  DashboardOpsPanelHealth,
   DashboardOpsSnapshot,
   DashboardRemediationRunItem,
   DashboardRemediationSnapshot,
   DashboardShippingSnapshot,
 } from "./types";
+import {
+  panelEmpty,
+  panelError,
+  panelForbidden,
+  panelReady,
+} from "./panel-health";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -799,6 +806,7 @@ export async function getDashboardOpsSnapshot(input: {
 }): Promise<DashboardOpsSnapshot> {
   const canOps = hasRequiredRole(input.userRole, "ops");
   const canAdmin = hasRequiredRole(input.userRole, "admin");
+  const updatedAtIso = new Date().toISOString();
 
   const hostRows = await prisma.host.findMany({
     where: { userId: input.userId },
@@ -821,6 +829,64 @@ export async function getDashboardOpsSnapshot(input: {
   const shipping = shippingRes.status === "fulfilled" ? shippingRes.value : null;
   const remediation = remediationRes.status === "fulfilled" ? remediationRes.value : null;
 
+  const panelHealth: DashboardOpsPanelHealth = {
+    breaches:
+      breachesRes.status === "fulfilled"
+        ? breachesRes.value.counts.total > 0
+          ? panelReady(
+              `Live breach ledger connected (${breachesRes.value.counts.total} records).`,
+              updatedAtIso
+            )
+          : panelEmpty("Breach ledger connected; no breach records found.", updatedAtIso)
+        : panelError(
+            `Breach ledger unavailable: ${errorMessage(breachesRes.reason)}`,
+            updatedAtIso
+          ),
+    shipping:
+      shippingRes.status === "fulfilled"
+        ? shippingRes.value.counts.total > 0
+          ? panelReady(
+              `Live notification ledger connected (${shippingRes.value.counts.total} events).`,
+              updatedAtIso
+            )
+          : panelEmpty("Notification ledger connected; no shipping events found.", updatedAtIso)
+        : panelError(
+            `Notification ledger unavailable: ${errorMessage(shippingRes.reason)}`,
+            updatedAtIso
+          ),
+    remediation:
+      remediationRes.status === "fulfilled"
+        ? remediationRes.value.counts.total > 0
+          ? panelReady(
+              `Remediation runtime connected (${remediationRes.value.counts.total} runs).`,
+              updatedAtIso
+            )
+          : panelEmpty("Remediation runtime connected; no runs recorded yet.", updatedAtIso)
+        : panelError(
+            `Remediation runtime unavailable: ${errorMessage(remediationRes.reason)}`,
+            updatedAtIso
+          ),
+    queue: canOps
+      ? panelEmpty("Queue runtime waiting for backend response.", updatedAtIso)
+      : panelForbidden("Ops role required for queue runtime.", updatedAtIso),
+    incidents: canOps
+      ? panelEmpty("Incident workflow runtime waiting for backend response.", updatedAtIso)
+      : panelForbidden("Ops role required for incident runtime.", updatedAtIso),
+    slo: canOps
+      ? panelEmpty("SLO runtime waiting for backend response.", updatedAtIso)
+      : panelForbidden("Ops role required for SLO runtime.", updatedAtIso),
+    observability: canAdmin
+      ? panelEmpty("Observability runtime waiting for backend response.", updatedAtIso)
+      : panelForbidden("Admin role required for observability runtime.", updatedAtIso),
+    fleet: canAdmin
+      ? panelEmpty("Fleet policy runtime waiting for backend response.", updatedAtIso)
+      : panelForbidden("Admin role required for fleet runtime.", updatedAtIso),
+    keyLifecycle: canAdmin
+      ? panelEmpty("Key lifecycle runtime waiting for backend response.", updatedAtIso)
+      : panelForbidden("Admin role required for key lifecycle runtime.", updatedAtIso),
+    adaptive: panelEmpty("Adaptive correlation runtime waiting for backend response.", updatedAtIso),
+  };
+
   let queue: DashboardOpsSnapshot["queue"] = null;
   let incidents: DashboardOpsSnapshot["incidents"] = null;
   let slo: DashboardOpsSnapshot["slo"] = null;
@@ -834,6 +900,39 @@ export async function getDashboardOpsSnapshot(input: {
     queue = queueRes.status === "fulfilled" ? queueRes.value : null;
     incidents = incidentsRes.status === "fulfilled" ? incidentsRes.value : null;
     slo = sloRes.status === "fulfilled" ? sloRes.value : null;
+
+    panelHealth.queue =
+      queueRes.status === "fulfilled"
+        ? queueRes.value.items.length > 0
+          ? panelReady(
+              `Queue runtime connected (${queueRes.value.items.length} visible items).`,
+              updatedAtIso
+            )
+          : panelEmpty("Queue runtime connected; no queued/running items for current filter.", updatedAtIso)
+        : panelError(`Queue runtime unavailable: ${errorMessage(queueRes.reason)}`, updatedAtIso);
+
+    panelHealth.incidents =
+      incidentsRes.status === "fulfilled"
+        ? incidentsRes.value.counts.total > 0
+          ? panelReady(
+              `Incident runtime connected (${incidentsRes.value.counts.total} incidents).`,
+              updatedAtIso
+            )
+          : panelEmpty("Incident runtime connected; no active incidents.", updatedAtIso)
+        : panelError(
+            `Incident runtime unavailable: ${errorMessage(incidentsRes.reason)}`,
+            updatedAtIso
+          );
+
+    panelHealth.slo =
+      sloRes.status === "fulfilled"
+        ? sloRes.value.objectives.length > 0
+          ? panelReady(
+              `SLO runtime connected (${sloRes.value.objectives.length} objectives).`,
+              updatedAtIso
+            )
+          : panelEmpty("SLO runtime connected; no objectives configured.", updatedAtIso)
+        : panelError(`SLO runtime unavailable: ${errorMessage(sloRes.reason)}`, updatedAtIso);
   }
 
   let observability: DashboardOpsSnapshot["observability"] = null;
@@ -855,26 +954,74 @@ export async function getDashboardOpsSnapshot(input: {
     observability = obsRes.status === "fulfilled" ? obsRes.value : null;
     fleet = fleetRes.status === "fulfilled" ? fleetRes.value : null;
     keyLifecycle = keysRes.status === "fulfilled" ? keysRes.value : null;
+
+    panelHealth.observability =
+      obsRes.status === "fulfilled"
+        ? obsRes.value.counters.length +
+            obsRes.value.timings.length +
+            obsRes.value.recentLogs.length +
+            obsRes.value.recentTraces.length +
+            obsRes.value.recentAlerts.length >
+          0
+          ? panelReady("Observability runtime connected.", updatedAtIso)
+          : panelEmpty("Observability runtime connected; no telemetry samples yet.", updatedAtIso)
+        : panelError(
+            `Observability runtime unavailable: ${errorMessage(obsRes.reason)}`,
+            updatedAtIso
+          );
+
+    panelHealth.fleet =
+      fleetRes.status === "fulfilled"
+        ? fleetRes.value.totalHosts > 0
+          ? panelReady(`Fleet runtime connected (${fleetRes.value.totalHosts} hosts).`, updatedAtIso)
+          : panelEmpty("Fleet runtime connected; no hosts found for this account.", updatedAtIso)
+        : panelError(`Fleet runtime unavailable: ${errorMessage(fleetRes.reason)}`, updatedAtIso);
+
+    panelHealth.keyLifecycle =
+      keysRes.status === "fulfilled"
+        ? keysRes.value.totalKeys > 0
+          ? panelReady(
+              `Key lifecycle runtime connected (${keysRes.value.totalKeys} keys).`,
+              updatedAtIso
+            )
+          : panelEmpty("Key lifecycle runtime connected; no keys found.", updatedAtIso)
+        : panelError(
+            `Key lifecycle runtime unavailable: ${errorMessage(keysRes.reason)}`,
+            updatedAtIso
+          );
   }
 
   let adaptive: DashboardAdaptiveSnapshot | null = null;
+  let adaptiveError: string | null = null;
   try {
     adaptive = await getAdaptiveSnapshotForUser({
       userId: input.userId,
       remediation,
       breaches,
     });
-  } catch {
+  } catch (err: unknown) {
     adaptive = null;
+    adaptiveError = errorMessage(err);
+  }
+
+  if (adaptiveError) {
+    panelHealth.adaptive = panelError(`Adaptive runtime unavailable: ${adaptiveError}`, updatedAtIso);
+  } else if (!adaptive) {
+    panelHealth.adaptive = panelEmpty("Adaptive runtime returned no payload.", updatedAtIso);
+  } else if (adaptive.correlations.length === 0 && adaptive.recommendations.length === 0) {
+    panelHealth.adaptive = panelEmpty("Adaptive runtime connected; no patterns found.", updatedAtIso);
+  } else {
+    panelHealth.adaptive = panelReady("Adaptive runtime connected with live recommendations.", updatedAtIso);
   }
 
   return {
-    generatedAtIso: new Date().toISOString(),
+    generatedAtIso: updatedAtIso,
     access: {
       role: input.userRole,
       canOps,
       canAdmin,
     },
+    panelHealth,
     workflows: canOps ? INCIDENT_WORKFLOWS : null,
     queue,
     incidents,

@@ -3,6 +3,7 @@ import { fmt } from "@/lib/status";
 import type { SloObjective } from "@/lib/slo";
 import Box from "../Box";
 import NoobTip from "../NoobTip";
+import PanelStateBanner from "../PanelStateBanner";
 import type { DashboardOpsSnapshot } from "../../_lib/types";
 
 type ChipTone = "neutral" | "ok" | "warn" | "bad";
@@ -60,6 +61,7 @@ export default function MissionControlSection(props: {
   const observability = ops.observability;
   const fleet = ops.fleet;
   const keyLifecycle = ops.keyLifecycle;
+  const health = ops.panelHealth;
 
   return (
     <section style={{ marginTop: 18 }}>
@@ -85,11 +87,11 @@ export default function MissionControlSection(props: {
             </div>
           </div>
 
-          {!ops.access.canOps || !queue ? (
-            <div style={{ marginTop: 8, color: "var(--dash-meta)" }}>
-              Ops/Admin role required to view queued remediation runtime.
-            </div>
-          ) : (
+          <PanelStateBanner health={health.queue} />
+          {health.queue.status === "error" ||
+          health.queue.status === "loading" ||
+          health.queue.status === "forbidden" ||
+          !queue ? null : (
             <>
               <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
                 <span className={chipToneClass(queue.counts.queued > 0 ? "warn" : "ok")}>
@@ -122,11 +124,11 @@ export default function MissionControlSection(props: {
             </div>
           </div>
 
-          {!ops.access.canOps || !incidents ? (
-            <div style={{ marginTop: 8, color: "var(--dash-meta)" }}>
-              Ops/Admin role required to view incident workflow runtime.
-            </div>
-          ) : (
+          <PanelStateBanner health={health.incidents} />
+          {health.incidents.status === "error" ||
+          health.incidents.status === "loading" ||
+          health.incidents.status === "forbidden" ||
+          !incidents ? null : (
             <>
               <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
                 <span className={chipToneClass(incidents.counts.open > 0 ? "bad" : "ok")}>
@@ -171,11 +173,11 @@ export default function MissionControlSection(props: {
             </div>
           </div>
 
-          {!ops.access.canOps || !slo ? (
-            <div style={{ marginTop: 8, color: "var(--dash-meta)" }}>
-              Ops/Admin role required to view SLO and burn-rate signals.
-            </div>
-          ) : (
+          <PanelStateBanner health={health.slo} />
+          {health.slo.status === "error" ||
+          health.slo.status === "loading" ||
+          health.slo.status === "forbidden" ||
+          !slo ? null : (
             <>
               <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
                 <span className={chipToneClass(statusTone(slo.burn.severity))}>
@@ -212,11 +214,11 @@ export default function MissionControlSection(props: {
             </div>
           </div>
 
-          {!ops.access.canAdmin || !observability ? (
-            <div style={{ marginTop: 8, color: "var(--dash-meta)" }}>
-              Admin/Owner role required to view observability internals.
-            </div>
-          ) : (
+          <PanelStateBanner health={health.observability} />
+          {health.observability.status === "error" ||
+          health.observability.status === "loading" ||
+          health.observability.status === "forbidden" ||
+          !observability ? null : (
             <>
               <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
                 <span className="dashboard-chip">uptime {formatUptime(observability.uptimeMs)}</span>
@@ -244,11 +246,11 @@ export default function MissionControlSection(props: {
             </div>
           </div>
 
-          {!ops.access.canAdmin || !fleet ? (
-            <div style={{ marginTop: 8, color: "var(--dash-meta)" }}>
-              Admin/Owner role required to view fleet policy distribution.
-            </div>
-          ) : (
+          <PanelStateBanner health={health.fleet} />
+          {health.fleet.status === "error" ||
+          health.fleet.status === "loading" ||
+          health.fleet.status === "forbidden" ||
+          !fleet ? null : (
             <>
               <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
                 <span className="dashboard-chip">hosts {fleet.totalHosts}</span>
@@ -290,11 +292,11 @@ export default function MissionControlSection(props: {
             </div>
           </div>
 
-          {!ops.access.canAdmin || !keyLifecycle ? (
-            <div style={{ marginTop: 8, color: "var(--dash-meta)" }}>
-              Admin/Owner role required to view key lifecycle analytics.
-            </div>
-          ) : (
+          <PanelStateBanner health={health.keyLifecycle} />
+          {health.keyLifecycle.status === "error" ||
+          health.keyLifecycle.status === "loading" ||
+          health.keyLifecycle.status === "forbidden" ||
+          !keyLifecycle ? null : (
             <>
               <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
                 <span className={chipToneClass(keyLifecycle.activeKeys > 0 ? "ok" : "warn")}>

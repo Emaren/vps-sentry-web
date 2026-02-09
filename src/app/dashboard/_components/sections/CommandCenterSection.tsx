@@ -2,7 +2,8 @@ import React from "react";
 import { fmt } from "@/lib/status";
 import Box from "../Box";
 import NoobTip from "../NoobTip";
-import type { DashboardOpsSnapshot } from "../../_lib/types";
+import PanelStateBanner from "../PanelStateBanner";
+import type { DashboardOpsSnapshot, DashboardPanelHealth } from "../../_lib/types";
 
 type CenterEntry = {
   id: string;
@@ -30,6 +31,32 @@ export default function CommandCenterSection(props: {
   snapshotTs: string;
 }) {
   const { ops, snapshotTs } = props;
+  const remediationHealth = ops.panelHealth.remediation;
+  const incidentsHealth = ops.panelHealth.incidents;
+  const compositeHealth: DashboardPanelHealth =
+    remediationHealth.status === "error" || incidentsHealth.status === "error"
+      ? {
+          status: "error",
+          message: [incidentsHealth.message, remediationHealth.message].join(" | "),
+          updatedAtIso: snapshotTs,
+        }
+      : remediationHealth.status === "forbidden" || incidentsHealth.status === "forbidden"
+      ? {
+          status: "forbidden",
+          message: "Ops role required to load incident/remediation command-center timeline.",
+          updatedAtIso: snapshotTs,
+        }
+      : remediationHealth.status === "loading" || incidentsHealth.status === "loading"
+      ? {
+          status: "loading",
+          message: "Loading incident/remediation timeline.",
+          updatedAtIso: snapshotTs,
+        }
+      : {
+          status: "ready",
+          message: "Incident/remediation timeline connected.",
+          updatedAtIso: snapshotTs,
+        };
   const entries: CenterEntry[] = [];
 
   for (const incident of ops.incidents?.incidents ?? []) {
@@ -93,8 +120,11 @@ export default function CommandCenterSection(props: {
       <div style={{ color: "var(--dash-meta)", fontSize: 12, marginBottom: 8, marginTop: 8 }}>
         As-of: <b>{fmt(snapshotTs)}</b> · Timeline merges incident state and remediation runtime.
       </div>
+      <PanelStateBanner
+        health={compositeHealth}
+      />
 
-      {visible.length === 0 ? (
+      {compositeHealth.status === "error" || compositeHealth.status === "forbidden" || compositeHealth.status === "loading" ? null : visible.length === 0 ? (
         <Box>No active incident/remediation timeline entries yet.</Box>
       ) : (
         <div style={{ display: "grid", gap: 10 }}>

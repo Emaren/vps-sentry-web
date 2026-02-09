@@ -9,6 +9,7 @@ import Box from "../Box";
 import StatCard from "../StatCard";
 import StatusActionPopup from "../StatusActionPopup";
 import NoobTip from "../NoobTip";
+import PanelStateBanner from "../PanelStateBanner";
 import DashboardActions from "../../dashboard-actions";
 import type { DerivedDashboard } from "../../_lib/derive";
 
@@ -29,6 +30,8 @@ export default function TopArea(props: {
   const expectedPublicPorts = d.expectedPublicPorts ?? null;
   const liveBreaches = ops.breaches;
   const liveShipping = ops.shipping;
+  const breachHealth = ops.panelHealth.breaches;
+  const shippingHealth = ops.panelHealth.shipping;
 
   const showPortsContext =
     typeof totalPublicPorts === "number" &&
@@ -191,46 +194,56 @@ export default function TopArea(props: {
           title="Breach Summary"
           tip="Tracked security incidents with open/fixed state history."
         >
-          <div className="dashboard-support-metrics">
-            <div className="dashboard-support-metric-trio">
-              <SupportMetric label="Open" value={breachOpen} />
-              <SupportMetric label="Fixed" value={breachFixed} />
-              <SupportMetric label="Ignored" value={breachIgnored} />
+          <PanelStateBanner health={breachHealth} />
+          {breachHealth.status === "error" ||
+          breachHealth.status === "forbidden" ||
+          breachHealth.status === "loading" ? null : (
+            <div className="dashboard-support-metrics">
+              <div className="dashboard-support-metric-trio">
+                <SupportMetric label="Open" value={breachOpen} />
+                <SupportMetric label="Fixed" value={breachFixed} />
+                <SupportMetric label="Ignored" value={breachIgnored} />
+              </div>
+              <SupportMetric label="Total breaches tracked" value={breachTotal} />
+              <div className="dashboard-support-note">
+                {liveBreaches
+                  ? "Live breach ledger connected from datastore."
+                  : d.hasBreachSignals
+                  ? "Snapshot breach counts available from latest host status."
+                  : "No breach records have been observed yet."}
+              </div>
             </div>
-            <SupportMetric label="Total breaches tracked" value={breachTotal} />
-            <div className="dashboard-support-note">
-              {liveBreaches
-                ? "Live breach ledger connected from datastore."
-                : d.hasBreachSignals
-                ? "Snapshot breach counts available from latest host status."
-                : "No breach records have been observed yet."}
-            </div>
-          </div>
+          )}
         </SupportTile>
 
         <SupportTile
           title="Shipping / Notifications"
           tip="Email/webhook delivery health for alerts and reports."
         >
-          <div className="dashboard-support-metrics">
-            <div className="dashboard-support-metric-pair">
-              <SupportMetric label="Delivered 24h" value={shippingDelivered24h} />
-              <SupportMetric label="Failed 24h" value={shippingFailed24h} />
+          <PanelStateBanner health={shippingHealth} />
+          {shippingHealth.status === "error" ||
+          shippingHealth.status === "forbidden" ||
+          shippingHealth.status === "loading" ? null : (
+            <div className="dashboard-support-metrics">
+              <div className="dashboard-support-metric-pair">
+                <SupportMetric label="Delivered 24h" value={shippingDelivered24h} />
+                <SupportMetric label="Failed 24h" value={shippingFailed24h} />
+              </div>
+              <SupportMetric label="Pending deliveries" value={shippingPending} />
+              <SupportMetric
+                label="Last delivered"
+                value={fmt(shippingLastTs ?? undefined)}
+              />
+              <SupportMetric label="Last ship error" value={shippingLastError ?? "—"} />
+              <div className="dashboard-support-note">
+                {liveShipping
+                  ? "Live delivery health is connected from notification events."
+                  : d.hasShippingSignals
+                  ? "Snapshot shipping data available from latest host status."
+                  : "No shipping events captured yet."}
+              </div>
             </div>
-            <SupportMetric label="Pending deliveries" value={shippingPending} />
-            <SupportMetric
-              label="Last delivered"
-              value={fmt(shippingLastTs ?? undefined)}
-            />
-            <SupportMetric label="Last ship error" value={shippingLastError ?? "—"} />
-            <div className="dashboard-support-note">
-              {liveShipping
-                ? "Live delivery health is connected from notification events."
-                : d.hasShippingSignals
-                ? "Snapshot shipping data available from latest host status."
-                : "No shipping events captured yet."}
-            </div>
-          </div>
+          )}
         </SupportTile>
 
         <SupportTile
