@@ -1,8 +1,5 @@
 // /var/www/vps-sentry-web/src/app/api/ops/test-email/route.ts
 import { NextResponse } from "next/server";
-import { requireOpsAccess } from "@/lib/rbac";
-import { writeAuditLog } from "@/lib/audit-log";
-import { sendEmailNotification } from "@/lib/notify/email";
 import { buildOpsTestEmailBodies } from "@/lib/notify/templates";
 import { incrementCounter, logEvent, runObservedRoute } from "@/lib/observability";
 
@@ -30,6 +27,12 @@ export async function POST(req: Request) {
   if (IS_BUILD_TIME) {
     return NextResponse.json({ ok: true, skipped: "build" });
   }
+
+  const [{ requireOpsAccess }, { writeAuditLog }, { sendEmailNotification }] = await Promise.all([
+    import("@/lib/rbac"),
+    import("@/lib/audit-log"),
+    import("@/lib/notify/email"),
+  ]);
 
   return runObservedRoute(req, { route: "/api/ops/test-email", source: "ops-test-email" }, async (obsCtx) => {
     const access = await requireOpsAccess();
