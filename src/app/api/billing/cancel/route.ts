@@ -1,9 +1,5 @@
 // /var/www/vps-sentry-web/src/app/api/billing/cancel/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { stripe } from "@/lib/stripe";
-import { requireOwnerAccess } from "@/lib/rbac";
-import { writeAuditLog } from "@/lib/audit-log";
 
 function requireEnv(name: string): string | null {
   const v = process.env[name];
@@ -25,6 +21,13 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+
+  const [{ prisma }, { stripe }, { requireOwnerAccess }, { writeAuditLog }] = await Promise.all([
+    import("@/lib/prisma"),
+    import("@/lib/stripe"),
+    import("@/lib/rbac"),
+    import("@/lib/audit-log"),
+  ]);
 
   const access = await requireOwnerAccess();
   if (!access.ok) {

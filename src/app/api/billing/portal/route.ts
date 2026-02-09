@@ -1,9 +1,5 @@
 // /var/www/vps-sentry-web/src/app/api/billing/portal/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { stripe } from "@/lib/stripe";
-import { requireOwnerAccess } from "@/lib/rbac";
-import { writeAuditLog } from "@/lib/audit-log";
 
 // Ensure we are NOT running on Edge (we want Node + full Stripe SDK)
 export const runtime = "nodejs";
@@ -43,7 +39,11 @@ async function ensureStripeCustomer(user: {
   id: string;
   email: string | null;
   stripeCustomerId: string | null;
+}, deps: {
+  prisma: (typeof import("@/lib/prisma"))["prisma"];
+  stripe: (typeof import("@/lib/stripe"))["stripe"];
 }) {
+  const { prisma, stripe } = deps;
   const existing = user.stripeCustomerId?.trim() || null;
 
   if (existing) {
@@ -140,6 +140,13 @@ export async function POST(req: Request) {
     "If portal isn’t configured, billingPortal.sessions.create can fail.";
 
   try {
+    const [{ prisma }, { stripe }, { requireOwnerAccess }, { writeAuditLog }] = await Promise.all([
+      import("@/lib/prisma"),
+      import("@/lib/stripe"),
+      import("@/lib/rbac"),
+      import("@/lib/audit-log"),
+    ]);
+
     const access = await requireOwnerAccess();
     if (!access.ok) {
       await writeAuditLog({
@@ -186,7 +193,7 @@ export async function POST(req: Request) {
     // 3) Ensure Stripe customer exists (and is valid in current mode)
     let customerId: string;
     try {
-      customerId = await ensureStripeCustomer(user);
+      customerId = await ensureStripeCustomer(user, { prisma, stripe });
     } catch (err: unknown) {
       return NextResponse.json(
         {

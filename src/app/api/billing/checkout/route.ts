@@ -1,9 +1,5 @@
 // /var/www/vps-sentry-web/src/app/api/billing/checkout/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { stripe } from "@/lib/stripe";
-import { requireOwnerAccess } from "@/lib/rbac";
-import { writeAuditLog } from "@/lib/audit-log";
 
 type Plan = "BASIC" | "PRO";
 
@@ -59,7 +55,11 @@ async function ensureStripeCustomer(user: {
   id: string;
   email: string | null;
   stripeCustomerId: string | null;
+}, deps: {
+  prisma: (typeof import("@/lib/prisma"))["prisma"];
+  stripe: (typeof import("@/lib/stripe"))["stripe"];
 }) {
+  const { prisma, stripe } = deps;
   const existing = user.stripeCustomerId?.trim() || null;
 
   if (existing) {
@@ -125,6 +125,13 @@ export async function POST(req: Request) {
   }
 
   try {
+    const [{ prisma }, { stripe }, { requireOwnerAccess }, { writeAuditLog }] = await Promise.all([
+      import("@/lib/prisma"),
+      import("@/lib/stripe"),
+      import("@/lib/rbac"),
+      import("@/lib/audit-log"),
+    ]);
+
     const access = await requireOwnerAccess();
     if (!access.ok) {
       await writeAuditLog({
@@ -182,7 +189,7 @@ export async function POST(req: Request) {
     }
 
     const base = appUrl.replace(/\/$/, "");
-    const customerId = await ensureStripeCustomer(user);
+    const customerId = await ensureStripeCustomer(user, { prisma, stripe });
 
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
