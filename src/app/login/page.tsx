@@ -32,10 +32,11 @@ function safeCallbackUrl(input?: string) {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams?: { callbackUrl?: string; error?: string };
+  searchParams?: Promise<{ callbackUrl?: string; error?: string }>;
 }) {
-  const callbackUrl = safeCallbackUrl(searchParams?.callbackUrl);
-  const errorCode = searchParams?.error;
+  const params = (await searchParams) ?? {};
+  const callbackUrl = safeCallbackUrl(params.callbackUrl);
+  const errorCode = params.error;
   const errorMessage = errorCode ? errorMap[errorCode] ?? errorMap.Default : null;
 
   const googleEnabled = Boolean(
