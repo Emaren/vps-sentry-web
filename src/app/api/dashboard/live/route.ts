@@ -1,6 +1,7 @@
 import { requireViewerAccess } from "@/lib/rbac";
 import { deriveDashboard } from "@/app/dashboard/_lib/derive";
 import { getDashboardOpsSnapshot, getStatusEnvelopeSafe } from "@/app/dashboard/_lib/fetch";
+import { safeRequestUrl } from "@/lib/request-url";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +73,7 @@ export async function GET(req: Request) {
     });
   }
 
-  const url = new URL(req.url);
+  const url = safeRequestUrl(req);
   const intervalMs = parseInterval(url.searchParams.get("intervalMs"));
   const encoder = new TextEncoder();
   let cleanup = () => {};

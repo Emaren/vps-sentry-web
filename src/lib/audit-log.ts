@@ -5,6 +5,7 @@ import {
   logEvent,
   observeTiming,
 } from "@/lib/observability";
+import { safeRequestUrl } from "@/lib/request-url";
 
 const MAX_DETAIL_LEN = 600;
 const MAX_META_LEN = 6000;
@@ -27,7 +28,7 @@ function isRequestLike(value: unknown): value is Request {
 
 function safeRouteFromRequest(req: Request): string {
   try {
-    return new URL(req.url).pathname;
+    return safeRequestUrl(req).pathname;
   } catch {
     if (req.url.startsWith("/")) return req.url;
     return "unknown";

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdminAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
+import { safeRequestUrl } from "@/lib/request-url";
 import {
   generateHostKeyTokenBundle,
   HOST_KEY_DEFAULT_SCOPES,
@@ -113,7 +114,7 @@ export async function GET(
     return NextResponse.json({ ok: false, error: managed.access.error }, { status: managed.access.status });
   }
 
-  const includeRevoked = parseBool(new URL(req.url).searchParams.get("includeRevoked"), true);
+  const includeRevoked = parseBool(safeRequestUrl(req).searchParams.get("includeRevoked"), true);
   const keys = await listHostKeys(hostId, includeRevoked);
   const active = keys.find((k) => k.state === "active") ?? null;
 

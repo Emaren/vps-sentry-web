@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireOpsAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
+import { safeRequestUrl } from "@/lib/request-url";
 import {
   getRemediationQueueSnapshot,
   setRemediationRunApproval,
@@ -74,7 +75,7 @@ export async function GET(req: Request) {
 
     obsCtx.userId = access.identity.userId;
 
-    const url = new URL(req.url);
+    const url = safeRequestUrl(req);
     const limit = parseLimit(url.searchParams.get("limit"), 25);
     const dlqOnly = parseBool(url.searchParams.get("dlq"), false);
     const snapshot = await getRemediationQueueSnapshot({ limit, dlqOnly });

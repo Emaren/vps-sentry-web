@@ -3,6 +3,7 @@ import type { BreachSeverity, BreachState, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit-log";
 import { requireOpsAccess, requireViewerAccess } from "@/lib/rbac";
+import { safeRequestUrl } from "@/lib/request-url";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +70,7 @@ export async function GET(
   const host = await resolveHost(hostId, access.identity.userId);
   if (!host) return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
 
-  const url = new URL(req.url);
+  const url = safeRequestUrl(req);
   const limit = parseLimit(url.searchParams.get("limit"));
   const cursor = trimString(url.searchParams.get("cursor"), 64);
   const q = trimString(url.searchParams.get("q"), 180);

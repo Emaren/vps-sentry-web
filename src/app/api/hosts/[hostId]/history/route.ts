@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { normalizeHostKeyScope } from "@/lib/host-keys";
+import { safeRequestUrl } from "@/lib/request-url";
 import {
   readBearerToken,
   touchHostKeyLastUsed,
@@ -40,7 +41,7 @@ export async function GET(
   }
   await touchHostKeyLastUsed(auth.key.id);
 
-  const url = new URL(req.url);
+  const url = safeRequestUrl(req);
   const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 200);
 
   const snaps = await prisma.hostSnapshot.findMany({

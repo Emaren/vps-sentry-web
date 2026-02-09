@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit-log";
 import { incrementCounter, runObservedRoute } from "@/lib/observability";
+import { safeRequestUrl } from "@/lib/request-url";
 import { requireOpsAccess } from "@/lib/rbac";
 import { buildSloSnapshot, formatSloSummary } from "@/lib/slo";
 
@@ -62,7 +63,7 @@ function isTrustedLoopbackProbe(req: Request): boolean {
 }
 
 function parseWindowHours(req: Request): number | undefined {
-  const url = new URL(req.url);
+  const url = safeRequestUrl(req);
   const raw = url.searchParams.get("windowHours");
   if (!raw) return undefined;
   const n = Number(raw);

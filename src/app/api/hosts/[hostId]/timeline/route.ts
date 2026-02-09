@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { buildIncidentTimeline } from "@/lib/incident-signals";
 import { requireViewerAccess } from "@/lib/rbac";
+import { safeRequestUrl } from "@/lib/request-url";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,7 @@ export async function GET(
   });
   if (!host) return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
 
-  const url = new URL(req.url);
+  const url = safeRequestUrl(req);
   const limitParam = Number(url.searchParams.get("limit") ?? "40");
   const limit = Number.isFinite(limitParam) ? Math.max(10, Math.min(limitParam, 200)) : 40;
 

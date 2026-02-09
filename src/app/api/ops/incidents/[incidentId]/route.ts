@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireOpsAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
 import { incrementCounter, runObservedRoute } from "@/lib/observability";
+import { safeRequestUrl } from "@/lib/request-url";
 import {
   IncidentEngineError,
   acknowledgeIncidentRun,
@@ -62,7 +63,7 @@ export async function GET(
 
       obsCtx.userId = access.identity.userId;
       const { incidentId } = await ctx.params;
-      const timelineLimit = parseLimit(new URL(req.url).searchParams.get("timelineLimit"));
+      const timelineLimit = parseLimit(safeRequestUrl(req).searchParams.get("timelineLimit"));
       const incident = await getIncidentRunDetail(incidentId, { timelineLimit });
       if (!incident) {
         return NextResponse.json({ ok: false, error: "Incident not found" }, { status: 404 });

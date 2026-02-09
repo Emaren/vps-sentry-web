@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { buildSupportBundle, SupportBundleError } from "@/lib/support/bundle";
 import { writeAuditLog } from "@/lib/audit-log";
 import { requireOpsAccess } from "@/lib/rbac";
+import { safeRequestUrl } from "@/lib/request-url";
 
 export const dynamic = "force-dynamic";
 
@@ -93,7 +94,7 @@ async function buildAndRespond(req: Request, opts: BundleOptions) {
 }
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
+  const url = safeRequestUrl(req);
   const opts: BundleOptions = {
     hostId: url.searchParams.get("hostId"),
     includeRaw: parseBool(url.searchParams.get("includeRaw")),

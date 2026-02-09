@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { HOST_KEY_SCOPE_ORDER, normalizeHostKeyScope } from "@/lib/host-keys";
+import { safeRequestUrl } from "@/lib/request-url";
 import {
   readBearerToken,
   touchHostKeyLastUsed,
@@ -90,7 +91,7 @@ export async function GET(
   ctx: { params: Promise<{ hostId: string }> }
 ) {
   const { hostId } = await ctx.params;
-  const url = new URL(req.url);
+  const url = safeRequestUrl(req);
   return runVerify({
     req,
     hostId,
@@ -104,7 +105,7 @@ export async function POST(
   ctx: { params: Promise<{ hostId: string }> }
 ) {
   const { hostId } = await ctx.params;
-  const url = new URL(req.url);
+  const url = safeRequestUrl(req);
   const body = await req.json().catch(() => ({}));
   return runVerify({
     req,

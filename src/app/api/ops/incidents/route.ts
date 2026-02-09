@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireOpsAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
 import { incrementCounter, runObservedRoute } from "@/lib/observability";
+import { safeRequestUrl } from "@/lib/request-url";
 import {
   IncidentEngineError,
   createIncidentRun,
@@ -62,7 +63,7 @@ export async function GET(req: Request) {
 
       obsCtx.userId = access.identity.userId;
 
-      const url = new URL(req.url);
+      const url = safeRequestUrl(req);
       const stateRaw = url.searchParams.get("state");
       const state = normalizeIncidentStateFilter(stateRaw, null);
       if (stateRaw && !state) {

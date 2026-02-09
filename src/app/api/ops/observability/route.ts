@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit-log";
 import { getObservabilitySnapshot, runObservedRoute } from "@/lib/observability";
 import { requireAdminAccess } from "@/lib/rbac";
+import { safeRequestUrl } from "@/lib/request-url";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export async function GET(req: Request) {
 
       obsCtx.userId = access.identity.userId;
 
-      const url = new URL(req.url);
+      const url = safeRequestUrl(req);
       const snapshot = getObservabilitySnapshot({
         logsLimit: parseLimit(url.searchParams.get("logs"), 80, 5, 500),
         tracesLimit: parseLimit(url.searchParams.get("traces"), 80, 5, 500),
