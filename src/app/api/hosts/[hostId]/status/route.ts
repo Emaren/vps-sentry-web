@@ -1,20 +1,69 @@
+// /var/www/vps-sentry-web/src/app/api/hosts/[hostId]/status/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { parseIngestPayload, extractIngestMeta } from "@/lib/host-ingest";
-import { classifyHeartbeat, readHeartbeatConfig } from "@/lib/host-heartbeat";
-import { normalizeHostKeyScope } from "@/lib/host-keys";
-import {
-  readBearerToken,
-  touchHostKeyLastUsed,
-  verifyHostTokenForScope,
-} from "@/lib/host-key-auth";
-import { incrementCounter, runObservedRoute } from "@/lib/observability";
-import { queueAutonomousRemediationForHost } from "@/lib/remediate/autonomous-runtime";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
 const IS_BUILD_TIME =
   process.env.NEXT_PHASE === "phase-production-build" ||
   process.env.npm_lifecycle_event === "build";
+
+// -------- build-worker / weird Request hardening --------
+
+function isLikelyBuildInvocation(req: Request): boolean {
+  if (IS_BUILD_TIME) return true;
+
+  const anyReq = req as any;
+  const rawUrl = anyReq?.url;
+
+  // the failing case you're seeing: URL constructor gets an object -> "[object Object]"
+  if (typeof rawUrl !== "string") return true;
+  if (!rawUrl || rawUrl === "[object Object]") return true;
+
+  return false;
+}
+
+function safeUrlString(req: Request): string {
+  const anyReq = req as any;
+
+  const raw = anyReq?.url;
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (s && s !== "[object Object]" && (s.startsWith("/") || s.startsWith("http://") || s.startsWith("https://"))) {
+      return s;
+    }
+  }
+
+  const href = anyReq?.nextUrl?.href;
+  if (typeof href === "string") {
+    const s = href.trim();
+    if (s && s !== "[object Object]" && (s.startsWith("/") || s.startsWith("http://") || s.startsWith("https://"))) {
+      return s;
+    }
+  }
+
+  // safeRequestUrl("/" ...) will always be valid
+  return "/";
+}
+
+/**
+ * Some of your libs (directly or indirectly) call safeRequestUrl(req) and choke if
+ * req.nextUrl is an object (they pass it into new URL()).
+ *
+ * We pass a minimal Request-like object into auth helpers so:
+ *  - headers work
+ *  - url is always a safe string
+ *  - nextUrl does not exist
+ *
+ * IMPORTANT: we still read the body from the real `req`.
+ */
+function makeAuthReq(req: Request): Request {
+  const url = safeUrlString(req);
+  const method = (req as any)?.method ?? "GET";
+  return { headers: req.headers, url, method } as any as Request;
+}
+
+// -------- helpers (no imports) --------
 
 function safeParse(s: string) {
   try {
@@ -35,12 +84,8 @@ function derivePublicPortsTotalCount(base: Record<string, unknown>): number {
 }
 
 function deriveUnexpectedPublicPortsCount(base: Record<string, unknown>): number | null {
-  if (typeof base.unexpected_public_ports_count === "number") {
-    return base.unexpected_public_ports_count;
-  }
-  if (Array.isArray(base.ports_public_unexpected)) {
-    return base.ports_public_unexpected.length;
-  }
+  if (typeof base.unexpected_public_ports_count === "number") return base.unexpected_public_ports_count;
+  if (Array.isArray(base.ports_public_unexpected)) return base.ports_public_unexpected.length;
   return null;
 }
 
@@ -52,11 +97,50 @@ function deriveExpectedPublicPorts(base: Record<string, unknown>): string[] | nu
   return null;
 }
 
-export async function POST(
-  req: Request,
-  ctx: { params: Promise<{ hostId: string }> }
-) {
-  if (IS_BUILD_TIME) {
+// -------- lazy deps (avoid import-time URL parsing during build) --------
+
+async function loadDeps() {
+  const [
+    prismaMod,
+    ingestMod,
+    heartbeatMod,
+    hostKeysMod,
+    hostKeyAuthMod,
+    remediateMod,
+    obsMod,
+  ] = await Promise.all([
+    import("@/lib/prisma"),
+    import("@/lib/host-ingest"),
+    import("@/lib/host-heartbeat"),
+    import("@/lib/host-keys"),
+    import("@/lib/host-key-auth"),
+    import("@/lib/remediate/autonomous-runtime"),
+    import("@/lib/observability").catch(() => ({} as any)),
+  ]);
+
+  return {
+    prisma: prismaMod.prisma,
+    parseIngestPayload: ingestMod.parseIngestPayload,
+    extractIngestMeta: ingestMod.extractIngestMeta,
+    classifyHeartbeat: heartbeatMod.classifyHeartbeat,
+    readHeartbeatConfig: heartbeatMod.readHeartbeatConfig,
+    normalizeHostKeyScope: hostKeysMod.normalizeHostKeyScope,
+    readBearerToken: hostKeyAuthMod.readBearerToken,
+    touchHostKeyLastUsed: hostKeyAuthMod.touchHostKeyLastUsed,
+    verifyHostTokenForScope: hostKeyAuthMod.verifyHostTokenForScope,
+    queueAutonomousRemediationForHost: remediateMod.queueAutonomousRemediationForHost,
+    // observability (optional)
+    incrementCounter: (obsMod as any).incrementCounter ?? (() => {}),
+    runObservedRoute:
+      (obsMod as any).runObservedRoute ??
+      (async (_req: Request, _meta: any, fn: () => Promise<any>) => fn()),
+  };
+}
+
+// -------- routes --------
+
+export async function POST(req: Request, ctx: { params: Promise<{ hostId: string }> }) {
+  if (isLikelyBuildInvocation(req)) {
     return NextResponse.json({
       ok: true,
       buildPhase: true,
@@ -75,27 +159,29 @@ export async function POST(
   }
 
   const { hostId } = await ctx.params;
-  return runObservedRoute(
+  const deps = await loadDeps();
+
+  return deps.runObservedRoute(
     req,
     { route: "/api/hosts/[hostId]/status", source: "host-status-write", hostId },
     async () => {
-      const token = readBearerToken(req);
+      const reqAuth = makeAuthReq(req);
+
+      const token = deps.readBearerToken(reqAuth);
       if (!token) {
-        incrementCounter("host.status.write.unauthorized.total", 1, { reason: "missing_token" });
-        return NextResponse.json(
-          { ok: false, error: "Missing Authorization: Bearer <token>" },
-          { status: 401 }
-        );
+        deps.incrementCounter("host.status.write.unauthorized.total", 1, { reason: "missing_token" });
+        return NextResponse.json({ ok: false, error: "Missing Authorization: Bearer <token>" }, { status: 401 });
       }
 
-      const requiredScope = normalizeHostKeyScope("host.status.write");
-      const auth = await verifyHostTokenForScope({
+      const requiredScope = deps.normalizeHostKeyScope("host.status.write");
+      const auth = await deps.verifyHostTokenForScope({
         hostId,
         token,
         requiredScope: requiredScope ?? undefined,
       });
+
       if (!auth.ok) {
-        incrementCounter("host.status.write.unauthorized.total", 1, { reason: auth.code });
+        deps.incrementCounter("host.status.write.unauthorized.total", 1, { reason: auth.code });
         return NextResponse.json(
           {
             ok: false,
@@ -108,14 +194,14 @@ export async function POST(
         );
       }
 
+      // READ BODY FROM REAL REQUEST (not the minimal auth object)
       const rawBody = await req.text();
-      const parsed = parseIngestPayload(rawBody);
+      const parsed = deps.parseIngestPayload(rawBody);
       if (!parsed.ok) {
-        incrementCounter("host.status.write.invalid_payload.total", 1, {
-          status: parsed.status,
-        });
+        deps.incrementCounter("host.status.write.invalid_payload.total", 1, { status: String(parsed.status) });
         return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
       }
+
       const host = auth.host;
       const key = auth.key;
 
@@ -141,19 +227,15 @@ export async function POST(
         },
       };
 
-      const latest = await prisma.hostSnapshot.findFirst({
+      const latest = await deps.prisma.hostSnapshot.findFirst({
         where: { hostId },
         orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          ts: true,
-          statusJson: true,
-        },
+        select: { id: true, ts: true, statusJson: true },
       });
 
       let duplicateSnapshotId: string | null = null;
       if (latest) {
-        const latestMeta = extractIngestMeta(safeParse(latest.statusJson));
+        const latestMeta = deps.extractIngestMeta(safeParse(latest.statusJson));
         if (latestMeta?.payloadHash === parsed.payloadHash && latest.ts.getTime() === parsed.ts.getTime()) {
           duplicateSnapshotId = latest.id;
         }
@@ -165,20 +247,18 @@ export async function POST(
           : host.agentVersion;
 
       if (duplicateSnapshotId) {
-        incrementCounter("host.status.write.deduped.total", 1);
-        await prisma.$transaction([
-          prisma.hostApiKey.update({
+        deps.incrementCounter("host.status.write.deduped.total", 1);
+
+        await deps.prisma.$transaction([
+          deps.prisma.hostApiKey.update({
             where: { id: key.id },
             data: { lastUsedAt: new Date() },
           }),
-          prisma.host.update({
+          deps.prisma.host.update({
             where: { id: hostId },
-            data: {
-              lastSeenAt: new Date(),
-              agentVersion: agentVersion ?? undefined,
-            },
+            data: { lastSeenAt: new Date(), agentVersion: agentVersion ?? undefined },
           }),
-          prisma.auditLog.create({
+          deps.prisma.auditLog.create({
             data: {
               hostId,
               action: "host.ingest.duplicate",
@@ -202,19 +282,16 @@ export async function POST(
         });
       }
 
-      await prisma.$transaction([
-        prisma.hostApiKey.update({
+      await deps.prisma.$transaction([
+        deps.prisma.hostApiKey.update({
           where: { id: key.id },
           data: { lastUsedAt: new Date() },
         }),
-        prisma.host.update({
+        deps.prisma.host.update({
           where: { id: hostId },
-          data: {
-            lastSeenAt: new Date(),
-            agentVersion: agentVersion ?? undefined,
-          },
+          data: { lastSeenAt: new Date(), agentVersion: agentVersion ?? undefined },
         }),
-        prisma.hostSnapshot.create({
+        deps.prisma.hostSnapshot.create({
           data: {
             hostId,
             ts: parsed.ts,
@@ -226,7 +303,7 @@ export async function POST(
             publicPortsCount: parsed.publicPortsCount,
           },
         }),
-        prisma.auditLog.create({
+        deps.prisma.auditLog.create({
           data: {
             hostId,
             action: "host.ingest",
@@ -235,25 +312,22 @@ export async function POST(
         }),
       ]);
 
-      let autonomous: Awaited<ReturnType<typeof queueAutonomousRemediationForHost>> | null = null;
+      let autonomous: Awaited<ReturnType<typeof deps.queueAutonomousRemediationForHost>> | null = null;
       try {
-        autonomous = await queueAutonomousRemediationForHost({
-          hostId,
-          reason: "host_status_ingest",
-        });
+        autonomous = await deps.queueAutonomousRemediationForHost({ hostId, reason: "host_status_ingest" });
+
         if (autonomous.queued > 0) {
-          incrementCounter("host.status.autonomous.queued.total", autonomous.queued, {
-            approvalPending:
-              autonomous.approvalPending > 0 ? "true" : "false",
+          deps.incrementCounter("host.status.autonomous.queued.total", autonomous.queued, {
+            approvalPending: autonomous.approvalPending > 0 ? "true" : "false",
           });
         }
         if (autonomous.skipped > 0) {
-          incrementCounter("host.status.autonomous.skipped.total", autonomous.skipped);
+          deps.incrementCounter("host.status.autonomous.skipped.total", autonomous.skipped);
         }
       } catch (err: unknown) {
         const errorText = String(err).slice(0, 500);
-        incrementCounter("host.status.autonomous.error.total", 1);
-        await prisma.auditLog.create({
+        deps.incrementCounter("host.status.autonomous.error.total", 1);
+        await deps.prisma.auditLog.create({
           data: {
             hostId,
             action: "host.ingest.autonomous.error",
@@ -262,9 +336,10 @@ export async function POST(
         });
       }
 
-      incrementCounter("host.status.write.persisted.total", 1, {
+      deps.incrementCounter("host.status.write.persisted.total", 1, {
         warnings: warnings.length > 0 ? "true" : "false",
       });
+
       return NextResponse.json({
         ok: true,
         hostId,
@@ -284,11 +359,8 @@ export async function POST(
   );
 }
 
-export async function GET(
-  req: Request,
-  ctx: { params: Promise<{ hostId: string }> }
-) {
-  if (IS_BUILD_TIME) {
+export async function GET(req: Request, ctx: { params: Promise<{ hostId: string }> }) {
+  if (isLikelyBuildInvocation(req)) {
     return NextResponse.json({
       ok: true,
       buildPhase: true,
@@ -299,27 +371,29 @@ export async function GET(
   }
 
   const { hostId } = await ctx.params;
-  return runObservedRoute(
+  const deps = await loadDeps();
+
+  return deps.runObservedRoute(
     req,
     { route: "/api/hosts/[hostId]/status", source: "host-status-read", hostId },
     async () => {
-      const token = readBearerToken(req);
+      const reqAuth = makeAuthReq(req);
+
+      const token = deps.readBearerToken(reqAuth);
       if (!token) {
-        incrementCounter("host.status.read.unauthorized.total", 1, { reason: "missing_token" });
-        return NextResponse.json(
-          { ok: false, error: "Missing Authorization: Bearer <token>" },
-          { status: 401 }
-        );
+        deps.incrementCounter("host.status.read.unauthorized.total", 1, { reason: "missing_token" });
+        return NextResponse.json({ ok: false, error: "Missing Authorization: Bearer <token>" }, { status: 401 });
       }
 
-      const requiredScope = normalizeHostKeyScope("host.status.read");
-      const auth = await verifyHostTokenForScope({
+      const requiredScope = deps.normalizeHostKeyScope("host.status.read");
+      const auth = await deps.verifyHostTokenForScope({
         hostId,
         token,
         requiredScope: requiredScope ?? undefined,
       });
+
       if (!auth.ok) {
-        incrementCounter("host.status.read.unauthorized.total", 1, { reason: auth.code });
+        deps.incrementCounter("host.status.read.unauthorized.total", 1, { reason: auth.code });
         return NextResponse.json(
           {
             ok: false,
@@ -331,24 +405,20 @@ export async function GET(
           { status: auth.status }
         );
       }
-      const host = auth.host;
-      await touchHostKeyLastUsed(auth.key.id);
 
-      const snap = await prisma.hostSnapshot.findFirst({
+      const host = auth.host;
+      await deps.touchHostKeyLastUsed(auth.key.id);
+
+      const snap = await deps.prisma.hostSnapshot.findFirst({
         where: { hostId },
         orderBy: { ts: "desc" },
       });
 
-      const heartbeat = classifyHeartbeat(host.lastSeenAt, new Date(), readHeartbeatConfig());
+      const heartbeat = deps.classifyHeartbeat(host.lastSeenAt, new Date(), deps.readHeartbeatConfig());
 
       if (!snap) {
-        incrementCounter("host.status.read.empty.total", 1);
-        return NextResponse.json({
-          ok: true,
-          hostId,
-          snapshot: null,
-          heartbeat,
-        });
+        deps.incrementCounter("host.status.read.empty.total", 1);
+        return NextResponse.json({ ok: true, hostId, snapshot: null, heartbeat });
       }
 
       const statusParsed = safeParse(snap.statusJson);
@@ -358,11 +428,12 @@ export async function GET(
       const unexpectedMaybe = deriveUnexpectedPublicPortsCount(base);
       const actionable = unexpectedMaybe ?? publicPortsTotalCount;
       const expectedPublicPorts = deriveExpectedPublicPorts(base);
-      const ingestIntegrity = extractIngestMeta(base);
+      const ingestIntegrity = deps.extractIngestMeta(base);
 
-      incrementCounter("host.status.read.success.total", 1, {
+      deps.incrementCounter("host.status.read.success.total", 1, {
         actionablePorts: actionable > 0 ? "true" : "false",
       });
+
       return NextResponse.json({
         ok: true,
         hostId,

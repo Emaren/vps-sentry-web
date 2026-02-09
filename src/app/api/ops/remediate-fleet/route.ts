@@ -1,24 +1,121 @@
+// /var/www/vps-sentry-web/src/app/api/ops/remediate-fleet/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireOpsAccess } from "@/lib/rbac";
-import { writeAuditLog } from "@/lib/audit-log";
-import {
-  applyFleetBlastRadiusSafeguards,
-  buildFleetRolloutStages,
-  hasFleetSelectorFilter,
-  hostMatchesFleetSelector,
-  normalizeFleetSelector,
-  readFleetBlastRadiusPolicy,
-  readHostFleetPolicyConfig,
-  sortFleetHostsForRollout,
-  type FleetRolloutStrategy,
-} from "@/lib/remediate/fleet-policy";
-import { queueAutonomousRemediationForHost } from "@/lib/remediate/autonomous-runtime";
-import { incrementCounter, runObservedRoute } from "@/lib/observability";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
+
+const FALLBACK_BASE =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.APP_URL ||
+  process.env.NEXTAUTH_URL ||
+  "http://localhost";
+
+// ---------- build-worker / weird Request hardening ----------
+
+function isBadUrlString(v: unknown): boolean {
+  if (typeof v !== "string") return true;
+  const s = v.trim();
+  if (!s) return true;
+  if (s === "[object Object]") return true;
+  return false;
+}
+
+function canParseUrlString(v: unknown): boolean {
+  if (isBadUrlString(v)) return false;
+  const s = String(v).trim();
+  try {
+    // eslint-disable-next-line no-new
+    new URL(s, FALLBACK_BASE);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function canParseNextUrl(nextUrl: unknown): boolean {
+  if (!nextUrl || typeof nextUrl !== "object") return false;
+  const anyNext = nextUrl as any;
+
+  if (!isBadUrlString(anyNext?.href)) return canParseUrlString(anyNext.href);
+
+  if (!isBadUrlString(anyNext?.pathname)) {
+    const pathname = String(anyNext.pathname).trim();
+    const search = typeof anyNext.search === "string" ? anyNext.search : "";
+    return canParseUrlString(`${pathname}${search}`);
+  }
+
+  return false;
+}
+
+function shouldStub(req: Request): boolean {
+  if (IS_BUILD_TIME) return true;
+
+  const anyReq = req as any;
+  const okUrl = canParseUrlString(anyReq?.url);
+
+  const hasNextUrl = anyReq?.nextUrl !== undefined;
+  const okNextUrl = !hasNextUrl ? true : canParseNextUrl(anyReq?.nextUrl);
+
+  return !(okUrl && okNextUrl);
+}
+
+function safeUrlString(req: Request): string {
+  const anyReq = req as any;
+
+  const raw = anyReq?.url;
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (s && s !== "[object Object]") return s;
+  }
+
+  const href = anyReq?.nextUrl?.href;
+  if (typeof href === "string") {
+    const s = href.trim();
+    if (s && s !== "[object Object]") return s;
+  }
+
+  return "/";
+}
+
+function toAbsoluteUrlString(u: string): string {
+  const s = String(u ?? "/").trim() || "/";
+  try {
+    return new URL(s).toString();
+  } catch {
+    return new URL(s, FALLBACK_BASE).toString();
+  }
+}
+
+/**
+ * Minimal Request-like object with safe *absolute* string `url` and no `nextUrl`.
+ * Use this when passing req into helpers that might do new URL(req.url).
+ */
+function makeSafeReq(req: Request): Request {
+  const url = toAbsoluteUrlString(safeUrlString(req));
+  const method = (req as any)?.method ?? "POST";
+  return { headers: req.headers, url, method } as any as Request;
+}
+
+// ---------- stubs ----------
+
+function stubPost() {
+  return NextResponse.json({
+    ok: true,
+    buildPhase: true,
+    preview: null,
+    execution: null,
+    note: "stubbed during build collection",
+  });
+}
+
+// ---------- route helpers (original logic) ----------
+
 type FleetRemediateMode = "preview" | "execute";
+type FleetRolloutStrategy = "group_canary" | "sequential";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
@@ -64,49 +161,135 @@ function parseBool(v: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
+// ---------- lazy deps (avoid import-time surprises during build collection) ----------
+
+async function loadDeps() {
+  const [prismaMod, rbacMod, auditMod, fleetMod, autoMod, obsMod] = await Promise.all([
+    import("@/lib/prisma"),
+    import("@/lib/rbac"),
+    import("@/lib/audit-log").catch(() => ({} as any)),
+    import("@/lib/remediate/fleet-policy"),
+    import("@/lib/remediate/autonomous-runtime"),
+    import("@/lib/observability").catch(() => ({} as any)),
+  ]);
+
+  const prisma = (prismaMod as any).prisma as any;
+
+  const requireOpsAccess = (rbacMod as any).requireOpsAccess as () => Promise<any>;
+
+  const writeAuditLog =
+    (auditMod as any).writeAuditLog ??
+    (async (_input: any) => {
+      /* no-op */
+    });
+
+  const incrementCounter = (obsMod as any).incrementCounter ?? (() => {});
+  const runObservedRoute =
+    (obsMod as any).runObservedRoute ??
+    (async (_req: Request, _meta: any, handler: (ctx: any) => Promise<Response>) => {
+      return handler({
+        correlationId: "fallback",
+        traceId: "fallback",
+        spanId: "fallback",
+        parentSpanId: null,
+        route: _meta?.route ?? null,
+        method: (_req as any)?.method ?? null,
+        userId: null,
+        hostId: null,
+        source: _meta?.source ?? null,
+      });
+    });
+
+  const applyFleetBlastRadiusSafeguards = (fleetMod as any)
+    .applyFleetBlastRadiusSafeguards as (input: any) => any;
+  const buildFleetRolloutStages = (fleetMod as any).buildFleetRolloutStages as (
+    hosts: any[],
+    stageSize: number,
+    strategy: FleetRolloutStrategy
+  ) => any[][];
+  const hasFleetSelectorFilter = (fleetMod as any).hasFleetSelectorFilter as (selector: any) => boolean;
+  const hostMatchesFleetSelector = (fleetMod as any).hostMatchesFleetSelector as (host: any, selector: any) => boolean;
+  const normalizeFleetSelector = (fleetMod as any).normalizeFleetSelector as (selector: any) => any;
+  const readFleetBlastRadiusPolicy = (fleetMod as any).readFleetBlastRadiusPolicy as () => any;
+  const readHostFleetPolicyConfig = (fleetMod as any).readHostFleetPolicyConfig as (metaJson: any) => any;
+  const sortFleetHostsForRollout = (fleetMod as any).sortFleetHostsForRollout as (hosts: any[]) => any[];
+
+  const queueAutonomousRemediationForHost = (autoMod as any)
+    .queueAutonomousRemediationForHost as (input: any) => Promise<any>;
+
+  return {
+    prisma,
+    requireOpsAccess,
+    writeAuditLog,
+    incrementCounter,
+    runObservedRoute,
+    applyFleetBlastRadiusSafeguards,
+    buildFleetRolloutStages,
+    hasFleetSelectorFilter,
+    hostMatchesFleetSelector,
+    normalizeFleetSelector,
+    readFleetBlastRadiusPolicy,
+    readHostFleetPolicyConfig,
+    sortFleetHostsForRollout,
+    queueAutonomousRemediationForHost,
+  };
+}
+
+// ---------- route ----------
+
 export async function POST(req: Request) {
-  return runObservedRoute(
-    req,
+  // MUST be first: Next build worker can invoke route handlers with a weird req.url object
+  if (shouldStub(req)) return stubPost();
+
+  const deps = await loadDeps();
+  const safeReq = makeSafeReq(req);
+
+  return deps.runObservedRoute(
+    safeReq,
     { route: "/api/ops/remediate-fleet", source: "ops-remediate-fleet" },
-    async (obsCtx) => {
-      const access = await requireOpsAccess();
-      if (!access.ok) {
-        incrementCounter("ops.remediate_fleet.denied.total", 1, {
-          status: access.status,
+    async (obsCtx: any) => {
+      const access = await deps.requireOpsAccess();
+      if (!access?.ok) {
+        deps.incrementCounter("ops.remediate_fleet.denied.total", 1, {
+          status: String(access?.status ?? 403),
         });
-        await writeAuditLog({
-          req,
+
+        await deps.writeAuditLog({
+          req: safeReq,
           action: "ops.remediate_fleet.denied",
-          detail: `status=${access.status} email=${access.email ?? "unknown"}`,
+          detail: `status=${access?.status ?? 403} email=${access?.email ?? "unknown"}`,
           meta: {
             route: "/api/ops/remediate-fleet",
-            status: access.status,
+            status: access?.status ?? 403,
             requiredRole: "ops",
-            email: access.email ?? null,
-            role: access.role ?? null,
+            email: access?.email ?? null,
+            role: access?.role ?? null,
           },
         });
-        return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+
+        return NextResponse.json(
+          { ok: false, error: access?.error ?? "Access denied" },
+          { status: typeof access?.status === "number" ? access.status : 403 }
+        );
       }
 
       obsCtx.userId = access.identity.userId;
 
-      const blast = readFleetBlastRadiusPolicy();
-      const body = await req.json().catch(() => ({}));
+      const blast = deps.readFleetBlastRadiusPolicy();
+      const body: any = await req.json().catch(() => ({}));
       const mode = normalizeMode(body?.mode);
-      const selector = normalizeFleetSelector(body?.selector);
+      const selector = deps.normalizeFleetSelector(body?.selector);
       const allowWideSelector = parseBool(body?.allowWideSelector, false);
       const reason =
         typeof body?.reason === "string" && body.reason.trim().length > 0
           ? body.reason.trim().slice(0, 160)
           : "fleet_rollout";
 
-      if (blast.requireSelector && !allowWideSelector && !hasFleetSelectorFilter(selector)) {
+      if (blast?.requireSelector && !allowWideSelector && !deps.hasFleetSelectorFilter(selector)) {
         return NextResponse.json(
           {
             ok: false,
-            error:
-              "Selector is required for fleet remediation (set allowWideSelector=true to override).",
+            error: "Selector is required for fleet remediation (set allowWideSelector=true to override).",
           },
           { status: 400 }
         );
@@ -114,29 +297,36 @@ export async function POST(req: Request) {
 
       const rollout = asRecord(body?.rollout) ?? {};
       const strategy = normalizeRolloutStrategy(rollout.strategy);
+
       const stageSize = clampInt(
-        parseIntMaybe(rollout.stageSize) ?? blast.defaultStageSize,
+        parseIntMaybe(rollout.stageSize) ?? Number(blast?.defaultStageSize ?? 10),
         1,
         100
       );
-      const maxHosts = clampInt(
-        parseIntMaybe(rollout.maxHosts) ?? blast.maxHosts,
+
+      const maxHostsHard = clampInt(Number(blast?.maxHosts ?? 50), 1, Number(blast?.maxHosts ?? 50));
+      const maxPerGroupHard = clampInt(
+        Number(blast?.maxPerGroup ?? 10),
         1,
-        blast.maxHosts
+        Number(blast?.maxPerGroup ?? 10)
       );
-      const maxPerGroup = clampInt(
-        parseIntMaybe(rollout.maxPerGroup) ?? blast.maxPerGroup,
+      const maxPercentHard = clampInt(
+        Number(blast?.maxPercentOfEnabledFleet ?? 25),
         1,
-        blast.maxPerGroup
+        Number(blast?.maxPercentOfEnabledFleet ?? 25)
       );
+
+      const maxHosts = clampInt(parseIntMaybe(rollout.maxHosts) ?? maxHostsHard, 1, maxHostsHard);
+      const maxPerGroup = clampInt(parseIntMaybe(rollout.maxPerGroup) ?? maxPerGroupHard, 1, maxPerGroupHard);
       const maxPercent = clampInt(
-        parseIntMaybe(rollout.maxPercentOfEnabledFleet) ?? blast.maxPercentOfEnabledFleet,
+        parseIntMaybe(rollout.maxPercentOfEnabledFleet) ?? maxPercentHard,
         1,
-        blast.maxPercentOfEnabledFleet
+        maxPercentHard
       );
+
       const stageIndexRequested = clampInt(parseIntMaybe(rollout.stageIndex) ?? 1, 1, 10_000);
 
-      const rows = await prisma.host.findMany({
+      const rows = await deps.prisma.host.findMany({
         where: { userId: access.identity.userId },
         orderBy: [{ updatedAt: "desc" }],
         select: {
@@ -147,24 +337,29 @@ export async function POST(req: Request) {
           metaJson: true,
         },
       });
-      const totalEnabledFleet = rows.filter((x) => x.enabled).length;
-      const withFleet = rows.map((row) => ({
+
+      const totalEnabledFleet = rows.filter((x: any) => x.enabled).length;
+
+      const withFleet = rows.map((row: any) => ({
         ...row,
-        fleet: readHostFleetPolicyConfig(row.metaJson),
+        fleet: deps.readHostFleetPolicyConfig(row.metaJson),
       }));
-      const candidates = withFleet.filter((host) => hostMatchesFleetSelector(host, selector));
-      const sorted = sortFleetHostsForRollout(candidates);
-      const safeguarded = applyFleetBlastRadiusSafeguards({
+
+      const candidates = withFleet.filter((host: any) => deps.hostMatchesFleetSelector(host, selector));
+      const sorted = deps.sortFleetHostsForRollout(candidates);
+
+      const safeguarded = deps.applyFleetBlastRadiusSafeguards({
         hosts: sorted,
         totalEnabledFleet,
         maxHosts,
         maxPerGroup,
         maxPercentOfEnabledFleet: maxPercent,
       });
-      const stages = buildFleetRolloutStages(safeguarded.accepted, stageSize, strategy);
+
+      const stages = deps.buildFleetRolloutStages(safeguarded.accepted, stageSize, strategy);
       const totalStages = stages.length;
-      const stageIndex =
-        totalStages > 0 ? clampInt(stageIndexRequested, 1, totalStages) : 0;
+
+      const stageIndex = totalStages > 0 ? clampInt(stageIndexRequested, 1, totalStages) : 0;
       const selectedStage = stageIndex > 0 ? stages[stageIndex - 1] ?? [] : [];
 
       const preview = {
@@ -179,8 +374,7 @@ export async function POST(req: Request) {
         safeguards: {
           maxHostsEffective: safeguarded.maxHostsEffective,
           maxPerGroupEffective: safeguarded.maxPerGroupEffective,
-          maxPercentOfEnabledFleetEffective:
-            safeguarded.maxPercentOfEnabledFleetEffective,
+          maxPercentOfEnabledFleetEffective: safeguarded.maxPercentOfEnabledFleetEffective,
           allowedByPercent: safeguarded.allowedByPercent,
         },
         stage: {
@@ -189,24 +383,25 @@ export async function POST(req: Request) {
           totalStages,
           hostsInStage: selectedStage.length,
         },
-        stageHosts: selectedStage.map((h) => ({
+        stageHosts: selectedStage.map((h: any) => ({
           id: h.id,
           name: h.name,
           enabled: h.enabled,
-          lastSeenAt: h.lastSeenAt?.toISOString() ?? null,
+          lastSeenAt: h.lastSeenAt?.toISOString?.() ?? null,
           fleet: h.fleet,
         })),
-        rejectedHosts: safeguarded.rejected.slice(0, 100),
+        rejectedHosts: (safeguarded.rejected ?? []).slice(0, 100),
       };
 
       if (mode === "preview") {
-        incrementCounter("ops.remediate_fleet.preview.total", 1, {
+        deps.incrementCounter("ops.remediate_fleet.preview.total", 1, {
           matched: String(candidates.length),
           safeguarded: String(safeguarded.accepted.length),
           stageSize: String(stageSize),
         });
-        await writeAuditLog({
-          req,
+
+        await deps.writeAuditLog({
+          req: safeReq,
           userId: access.identity.userId,
           action: "ops.remediate_fleet.preview",
           detail: `Fleet preview matched=${candidates.length} safeguarded=${safeguarded.accepted.length} stage=${stageIndex}/${totalStages}`,
@@ -215,34 +410,22 @@ export async function POST(req: Request) {
             preview,
           },
         });
-        return NextResponse.json({
-          ok: true,
-          preview,
-        });
+
+        return NextResponse.json({ ok: true, preview });
       }
 
       if (selectedStage.length === 0) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: "No hosts available in selected stage after safeguards.",
-            preview,
-          },
+          { ok: false, error: "No hosts available in selected stage after safeguards.", preview },
           { status: 409 }
         );
       }
 
-      const confirmPhrase =
-        typeof body?.confirmPhrase === "string" ? body.confirmPhrase.trim() : "";
+      const confirmPhrase = typeof body?.confirmPhrase === "string" ? body.confirmPhrase.trim() : "";
       const expectedConfirm = `EXECUTE FLEET STAGE ${stageIndex}`;
       if (confirmPhrase !== expectedConfirm) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: "Confirmation phrase mismatch.",
-            expectedConfirm,
-            preview,
-          },
+          { ok: false, error: "Confirmation phrase mismatch.", expectedConfirm, preview },
           { status: 400 }
         );
       }
@@ -257,20 +440,21 @@ export async function POST(req: Request) {
         error: string | null;
       }> = [];
 
-      for (const host of selectedStage) {
+      for (const host of selectedStage as any[]) {
         try {
-          const queued = await queueAutonomousRemediationForHost({
+          const queued = await deps.queueAutonomousRemediationForHost({
             hostId: host.id,
             reason: `fleet_stage_${stageIndex}:${reason}`,
           });
+
           items.push({
             hostId: host.id,
             hostName: host.name,
-            queued: queued.queued,
-            approvalPending: queued.approvalPending,
-            skipped: queued.skipped,
-            ok: queued.ok,
-            error: queued.error ?? null,
+            queued: Number(queued?.queued ?? 0),
+            approvalPending: Number(queued?.approvalPending ?? 0),
+            skipped: Number(queued?.skipped ?? 0),
+            ok: Boolean(queued?.ok),
+            error: queued?.error ?? null,
           });
         } catch (err: unknown) {
           items.push({
@@ -280,7 +464,7 @@ export async function POST(req: Request) {
             approvalPending: 0,
             skipped: 0,
             ok: false,
-            error: String(err),
+            error: err instanceof Error ? err.message : String(err),
           });
         }
       }
@@ -297,17 +481,16 @@ export async function POST(req: Request) {
         items,
       };
 
-      incrementCounter("ops.remediate_fleet.execute.total", 1, {
+      deps.incrementCounter("ops.remediate_fleet.execute.total", 1, {
         ok: execution.ok ? "true" : "false",
         stageIndex: String(stageIndex),
         queued: String(execution.queued),
       });
-      await writeAuditLog({
-        req,
+
+      await deps.writeAuditLog({
+        req: safeReq,
         userId: access.identity.userId,
-        action: execution.ok
-          ? "ops.remediate_fleet.execute"
-          : "ops.remediate_fleet.execute.failed",
+        action: execution.ok ? "ops.remediate_fleet.execute" : "ops.remediate_fleet.execute.failed",
         detail: `Fleet execute stage=${stageIndex}/${totalStages} hosts=${selectedStage.length} queued=${execution.queued} failedHosts=${execution.failedHosts}`,
         meta: {
           route: "/api/ops/remediate-fleet",
@@ -318,11 +501,7 @@ export async function POST(req: Request) {
       });
 
       return NextResponse.json(
-        {
-          ok: execution.ok,
-          preview,
-          execution,
-        },
+        { ok: execution.ok, preview, execution },
         { status: execution.ok ? 200 : 207 }
       );
     }

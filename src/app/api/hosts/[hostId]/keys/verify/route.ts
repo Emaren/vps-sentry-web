@@ -1,13 +1,9 @@
+// /var/www/vps-sentry-web/src/app/api/hosts/[hostId]/keys/verify/route.ts
 import { NextResponse } from "next/server";
-import { HOST_KEY_SCOPE_ORDER, normalizeHostKeyScope } from "@/lib/host-keys";
-import { safeRequestUrl } from "@/lib/request-url";
-import {
-  readBearerToken,
-  touchHostKeyLastUsed,
-  verifyHostTokenForScope,
-} from "@/lib/host-key-auth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
 const IS_BUILD_TIME =
   process.env.NEXT_PHASE === "phase-production-build" ||
   process.env.npm_lifecycle_event === "build";
@@ -20,30 +16,18 @@ function parseBool(v: string | null, fallback = false): boolean {
   return fallback;
 }
 
-function parseRequiredScope(
-  raw: unknown
-):
-  | { ok: true; requiredScope: ReturnType<typeof normalizeHostKeyScope> }
-  | { ok: false; error: string } {
-  if (raw === undefined || raw === null || raw === "") return { ok: true, requiredScope: null };
-  if (typeof raw !== "string") return { ok: false, error: "scope must be a string" };
-  const normalized = normalizeHostKeyScope(raw);
-  if (!normalized) {
-    return {
-      ok: false,
-      error: `Unsupported scope. Allowed: ${HOST_KEY_SCOPE_ORDER.join(", ")}`,
-    };
-  }
-  return { ok: true, requiredScope: normalized };
-}
-
 async function runVerify(input: {
   req: Request;
   hostId: string;
   requiredScopeRaw: unknown;
   touchRaw: string | null;
 }) {
-  const token = readBearerToken(input.req);
+  const [{ HOST_KEY_SCOPE_ORDER, normalizeHostKeyScope }, keyAuth] = await Promise.all([
+    import("@/lib/host-keys"),
+    import("@/lib/host-key-auth"),
+  ]);
+
+  const token = keyAuth.readBearerToken(input.req);
   if (!token) {
     return NextResponse.json(
       { ok: false, error: "Missing Authorization: Bearer <token>" },
@@ -51,15 +35,26 @@ async function runVerify(input: {
     );
   }
 
-  const parsedScope = parseRequiredScope(input.requiredScopeRaw);
-  if (!parsedScope.ok) {
-    return NextResponse.json({ ok: false, error: parsedScope.error }, { status: 400 });
+  const raw = input.requiredScopeRaw;
+  let requiredScope: ReturnType<typeof normalizeHostKeyScope> | null = null;
+
+  if (raw !== undefined && raw !== null && raw !== "") {
+    if (typeof raw !== "string") {
+      return NextResponse.json({ ok: false, error: "scope must be a string" }, { status: 400 });
+    }
+    requiredScope = normalizeHostKeyScope(raw);
+    if (!requiredScope) {
+      return NextResponse.json(
+        { ok: false, error: `Unsupported scope. Allowed: ${HOST_KEY_SCOPE_ORDER.join(", ")}` },
+        { status: 400 }
+      );
+    }
   }
 
-  const verified = await verifyHostTokenForScope({
+  const verified = await keyAuth.verifyHostTokenForScope({
     hostId: input.hostId,
     token,
-    requiredScope: parsedScope.requiredScope ?? undefined,
+    requiredScope: requiredScope ?? undefined,
   });
 
   if (!verified.ok) {
@@ -70,6 +65,7 @@ async function runVerify(input: {
         code: verified.code,
         requiredScope: verified.requiredScope ?? null,
         key: verified.keySummary ?? null,
+        host: null,
       },
       { status: verified.status }
     );
@@ -77,22 +73,20 @@ async function runVerify(input: {
 
   const touch = parseBool(input.touchRaw, false);
   if (touch) {
-    await touchHostKeyLastUsed(verified.key.id);
+    await keyAuth.touchHostKeyLastUsed(verified.key.id);
   }
 
   return NextResponse.json({
     ok: true,
-    requiredScope: parsedScope.requiredScope ?? null,
+    requiredScope: requiredScope ?? null,
     touched: touch,
     key: verified.keySummary,
     host: verified.host,
   });
 }
 
-export async function GET(
-  req: Request,
-  ctx: { params: Promise<{ hostId: string }> }
-) {
+// Next 16 route checker expects ctx.params to be a Promise (same pattern as pages)
+export async function GET(req: Request, ctx: { params: Promise<{ hostId: string }> }) {
   if (IS_BUILD_TIME) {
     return NextResponse.json({
       ok: true,
@@ -105,7 +99,10 @@ export async function GET(
   }
 
   const { hostId } = await ctx.params;
+
+  const { safeRequestUrl } = await import("@/lib/request-url");
   const url = safeRequestUrl(req);
+
   return runVerify({
     req,
     hostId,
@@ -114,10 +111,7 @@ export async function GET(
   });
 }
 
-export async function POST(
-  req: Request,
-  ctx: { params: Promise<{ hostId: string }> }
-) {
+export async function POST(req: Request, ctx: { params: Promise<{ hostId: string }> }) {
   if (IS_BUILD_TIME) {
     return NextResponse.json({
       ok: true,
@@ -130,8 +124,12 @@ export async function POST(
   }
 
   const { hostId } = await ctx.params;
+
+  const { safeRequestUrl } = await import("@/lib/request-url");
   const url = safeRequestUrl(req);
-  const body = await req.json().catch(() => ({}));
+
+  const body = await req.json().catch(() => ({} as any));
+
   return runVerify({
     req,
     hostId,

@@ -1,12 +1,128 @@
-import { timingSafeEqual } from "node:crypto";
+// /var/www/vps-sentry-web/src/app/api/ops/slo/route.ts
 import { NextResponse } from "next/server";
-import { writeAuditLog } from "@/lib/audit-log";
-import { incrementCounter, runObservedRoute } from "@/lib/observability";
-import { safeRequestUrl } from "@/lib/request-url";
-import { requireOpsAccess } from "@/lib/rbac";
-import { buildSloSnapshot, formatSloSummary } from "@/lib/slo";
+import { timingSafeEqual } from "node:crypto";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
+
+const FALLBACK_BASE =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.APP_URL ||
+  process.env.NEXTAUTH_URL ||
+  "http://localhost";
+
+// ---------- build-worker / weird Request hardening ----------
+
+function isBadUrlString(v: unknown): boolean {
+  if (typeof v !== "string") return true;
+  const s = v.trim();
+  if (!s) return true;
+  if (s === "[object Object]") return true;
+  return false;
+}
+
+function canParseUrlString(v: unknown): boolean {
+  if (isBadUrlString(v)) return false;
+  const s = String(v).trim();
+  try {
+    // eslint-disable-next-line no-new
+    new URL(s, FALLBACK_BASE);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function canParseNextUrl(nextUrl: unknown): boolean {
+  if (!nextUrl || typeof nextUrl !== "object") return false;
+  const anyNext = nextUrl as any;
+
+  if (!isBadUrlString(anyNext?.href)) return canParseUrlString(anyNext.href);
+
+  if (!isBadUrlString(anyNext?.pathname)) {
+    const pathname = String(anyNext.pathname).trim();
+    const search = typeof anyNext.search === "string" ? anyNext.search : "";
+    return canParseUrlString(`${pathname}${search}`);
+  }
+
+  return false;
+}
+
+function shouldStub(req: Request): boolean {
+  if (IS_BUILD_TIME) return true;
+
+  const anyReq = req as any;
+  const okUrl = canParseUrlString(anyReq?.url);
+
+  const hasNextUrl = anyReq?.nextUrl !== undefined;
+  const okNextUrl = !hasNextUrl ? true : canParseNextUrl(anyReq?.nextUrl);
+
+  return !(okUrl && okNextUrl);
+}
+
+function safeUrlString(req: Request): string {
+  const anyReq = req as any;
+
+  const raw = anyReq?.url;
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (s && s !== "[object Object]") return s;
+  }
+
+  const href = anyReq?.nextUrl?.href;
+  if (typeof href === "string") {
+    const s = href.trim();
+    if (s && s !== "[object Object]") return s;
+  }
+
+  return "/";
+}
+
+function toAbsoluteUrlString(u: string): string {
+  const s = String(u ?? "/").trim() || "/";
+  try {
+    return new URL(s).toString();
+  } catch {
+    return new URL(s, FALLBACK_BASE).toString();
+  }
+}
+
+/**
+ * Minimal Request-like object with safe *absolute* string `url` and no `nextUrl`.
+ * Use this when passing req into helpers that might do new URL(req.url).
+ */
+function makeSafeReq(req: Request): Request {
+  const url = toAbsoluteUrlString(safeUrlString(req));
+  const method = (req as any)?.method ?? "GET";
+  return { headers: req.headers, url, method } as any as Request;
+}
+
+// ---------- stubs ----------
+
+function stubGet() {
+  return NextResponse.json({
+    ok: true,
+    buildPhase: true,
+    authMode: "token",
+    summary: "stubbed during build collection",
+    snapshot: {
+      burn: {
+        severity: "none",
+        route: null,
+        shouldAlert: false,
+        affectedObjectives: [],
+        reason: "buildPhase",
+      },
+    },
+    note: "stubbed during build collection",
+  });
+}
+
+// ---------- original auth helpers ----------
 
 function hasValidSloToken(req: Request): boolean {
   const expected = process.env.VPS_SLO_TOKEN?.trim();
@@ -46,10 +162,10 @@ function isLoopbackValue(value: string | null): boolean {
 function isTrustedLoopbackProbe(req: Request): boolean {
   if (!isLoopbackProbeAllowed()) return false;
 
-  const host = normalizeHost(req.headers.get("host")) || normalizeHost(req.headers.get("x-forwarded-host"));
-  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
-    return false;
-  }
+  const host =
+    normalizeHost(req.headers.get("host")) ||
+    normalizeHost(req.headers.get("x-forwarded-host"));
+  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") return false;
 
   const forwardedFor = req.headers.get("x-forwarded-for");
   const realIp = req.headers.get("x-real-ip");
@@ -62,85 +178,157 @@ function isTrustedLoopbackProbe(req: Request): boolean {
   return true;
 }
 
-function parseWindowHours(req: Request): number | undefined {
-  const url = safeRequestUrl(req);
-  const raw = url.searchParams.get("windowHours");
-  if (!raw) return undefined;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return undefined;
-  const value = Math.trunc(n);
-  if (value < 1) return 1;
-  if (value > 24 * 30) return 24 * 30;
-  return value;
+function parseWindowHoursFromUrl(urlStr: string): number | undefined {
+  try {
+    const u = new URL(urlStr, FALLBACK_BASE);
+    const raw = u.searchParams.get("windowHours");
+    if (!raw) return undefined;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return undefined;
+    const value = Math.trunc(n);
+    if (value < 1) return 1;
+    if (value > 24 * 30) return 24 * 30;
+    return value;
+  } catch {
+    return undefined;
+  }
 }
 
+// ---------- lazy deps (avoid import-time surprises during build collection) ----------
+
+async function loadDeps() {
+  const [auditMod, obsMod, rbacMod, sloMod] = await Promise.all([
+    import("@/lib/audit-log").catch(() => ({} as any)),
+    import("@/lib/observability").catch(() => ({} as any)),
+    import("@/lib/rbac"),
+    import("@/lib/slo"),
+  ]);
+
+  const writeAuditLog =
+    (auditMod as any).writeAuditLog ??
+    (async (_input: any) => {
+      /* no-op */
+    });
+
+  const incrementCounter = (obsMod as any).incrementCounter ?? (() => {});
+  const runObservedRoute =
+    (obsMod as any).runObservedRoute ??
+    (async (_req: Request, _meta: any, handler: (ctx: any) => Promise<Response>) => {
+      return handler({
+        correlationId: "fallback",
+        traceId: "fallback",
+        spanId: "fallback",
+        parentSpanId: null,
+        route: _meta?.route ?? null,
+        method: (_req as any)?.method ?? null,
+        userId: null,
+        hostId: null,
+        source: _meta?.source ?? null,
+      });
+    });
+
+  const requireOpsAccess = (rbacMod as any).requireOpsAccess as () => Promise<any>;
+
+  const buildSloSnapshot = (sloMod as any).buildSloSnapshot as (input: any) => Promise<any>;
+  const formatSloSummary = (sloMod as any).formatSloSummary as (snapshot: any) => string;
+
+  return {
+    writeAuditLog,
+    incrementCounter,
+    runObservedRoute,
+    requireOpsAccess,
+    buildSloSnapshot,
+    formatSloSummary,
+  };
+}
+
+// ---------- route ----------
+
 export async function GET(req: Request) {
-  return runObservedRoute(req, { route: "/api/ops/slo", source: "ops-slo" }, async (obsCtx) => {
-    let actorUserId: string | null = null;
-    let authMode: "token" | "ops" | "loopback" = "token";
+  // MUST be first: Next build worker can invoke route handlers with a weird req.url object
+  if (shouldStub(req)) return stubGet();
 
-    if (!hasValidSloToken(req)) {
-      if (isTrustedLoopbackProbe(req)) {
-        authMode = "loopback";
-      } else {
-        const access = await requireOpsAccess();
-        if (!access.ok) {
-          incrementCounter("ops.slo.denied.total", 1, {
-            status: access.status,
-          });
-          await writeAuditLog({
-            req,
-            action: "ops.slo.denied",
-            detail: `status=${access.status} email=${access.email ?? "unknown"}`,
-            meta: {
-              route: "/api/ops/slo",
-              status: access.status,
-              requiredRole: "ops",
-              email: access.email ?? null,
-              role: access.role ?? null,
-            },
-          });
-          return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+  const deps = await loadDeps();
+  const safeReq = makeSafeReq(req);
+
+  return deps.runObservedRoute(
+    safeReq,
+    { route: "/api/ops/slo", source: "ops-slo" },
+    async (obsCtx: any) => {
+      let actorUserId: string | null = null;
+      let authMode: "token" | "ops" | "loopback" = "token";
+
+      // Use *original* req for token/loopback checks (headers), but only after shouldStub passed.
+      if (!hasValidSloToken(req)) {
+        if (isTrustedLoopbackProbe(req)) {
+          authMode = "loopback";
+        } else {
+          const access = await deps.requireOpsAccess();
+          if (!access?.ok) {
+            deps.incrementCounter("ops.slo.denied.total", 1, {
+              status: String(access?.status ?? 403),
+            });
+
+            await deps.writeAuditLog({
+              req: safeReq,
+              action: "ops.slo.denied",
+              detail: `status=${access?.status ?? 403} email=${access?.email ?? "unknown"}`,
+              meta: {
+                route: "/api/ops/slo",
+                status: access?.status ?? 403,
+                requiredRole: "ops",
+                email: access?.email ?? null,
+                role: access?.role ?? null,
+              },
+            });
+
+            return NextResponse.json(
+              { ok: false, error: access?.error ?? "Access denied" },
+              { status: typeof access?.status === "number" ? access.status : 403 }
+            );
+          }
+
+          actorUserId = access.identity.userId;
+          obsCtx.userId = actorUserId;
+          authMode = "ops";
         }
-        actorUserId = access.identity.userId;
-        obsCtx.userId = actorUserId;
-        authMode = "ops";
       }
-    }
 
-    const snapshot = await buildSloSnapshot({
-      windowHours: parseWindowHours(req),
-    });
-    const summary = formatSloSummary(snapshot);
+      const windowHours = parseWindowHoursFromUrl(String((safeReq as any).url ?? "/"));
 
-    incrementCounter("ops.slo.view.total", 1, {
-      authMode,
-      severity: snapshot.burn.severity,
-      route: snapshot.burn.route,
-      shouldAlert: snapshot.burn.shouldAlert ? "true" : "false",
-    });
+      const snapshot = await deps.buildSloSnapshot({ windowHours });
+      const summary = deps.formatSloSummary(snapshot);
 
-    await writeAuditLog({
-      req,
-      userId: actorUserId,
-      action: "ops.slo.view",
-      detail: summary,
-      meta: {
-        route: "/api/ops/slo",
+      deps.incrementCounter("ops.slo.view.total", 1, {
         authMode,
-        severity: snapshot.burn.severity,
-        shouldAlert: snapshot.burn.shouldAlert,
-        alertRoute: snapshot.burn.route,
-        affectedObjectives: snapshot.burn.affectedObjectives,
-        reason: snapshot.burn.reason,
-      },
-    });
+        severity: String(snapshot?.burn?.severity ?? "unknown"),
+        route: String(snapshot?.burn?.route ?? "unknown"),
+        shouldAlert: snapshot?.burn?.shouldAlert ? "true" : "false",
+      });
 
-    return NextResponse.json({
-      ok: true,
-      authMode,
-      summary,
-      snapshot,
-    });
-  });
+      await deps.writeAuditLog({
+        req: safeReq,
+        userId: actorUserId,
+        action: "ops.slo.view",
+        detail: summary,
+        meta: {
+          route: "/api/ops/slo",
+          authMode,
+          severity: snapshot?.burn?.severity ?? null,
+          shouldAlert: Boolean(snapshot?.burn?.shouldAlert),
+          alertRoute: snapshot?.burn?.route ?? null,
+          affectedObjectives: snapshot?.burn?.affectedObjectives ?? null,
+          reason: snapshot?.burn?.reason ?? null,
+          windowHours: windowHours ?? null,
+        },
+      });
+
+      return NextResponse.json({
+        ok: true,
+        authMode,
+        summary,
+        snapshot,
+      });
+    }
+  );
 }

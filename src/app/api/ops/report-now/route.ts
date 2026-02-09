@@ -1,16 +1,8 @@
 // /var/www/vps-sentry-web/src/app/api/ops/report-now/route.ts
 import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
-import { requireOpsAccess } from "@/lib/rbac";
-import { writeAuditLog } from "@/lib/audit-log";
-import {
-  buildReportEmailHtml,
-  buildReportEmailSubject,
-  buildReportEmailText,
-  type ReportStatusJson,
-} from "@/lib/notify/templates";
-import { incrementCounter, logEvent, runObservedRoute } from "@/lib/observability";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const TRIGGER_PATH = "/tmp/vps-sentry-report-now.json";
@@ -26,14 +18,126 @@ const SMTP_CONNECTION_TIMEOUT_MS = 8_000;
 const SMTP_GREETING_TIMEOUT_MS = 8_000;
 const SMTP_SOCKET_TIMEOUT_MS = 10_000;
 
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
+
+const FALLBACK_BASE =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.APP_URL ||
+  process.env.NEXTAUTH_URL ||
+  "http://localhost";
+
+type ReportStatusJson = {
+  ts?: string | null;
+  [k: string]: unknown;
+};
+
 type SendEmailResult =
   | { ok: true }
-  | {
-      ok: false;
-      error: string;
-      detail?: string;
-      code?: string;
-    };
+  | { ok: false; error: string; detail?: string; code?: string };
+
+// ---------- build-worker / weird Request hardening ----------
+
+function isBadUrlString(v: unknown): boolean {
+  if (typeof v !== "string") return true;
+  const s = v.trim();
+  if (!s) return true;
+  if (s === "[object Object]") return true;
+  return false;
+}
+
+function canParseUrlString(v: unknown): boolean {
+  if (isBadUrlString(v)) return false;
+  const s = String(v).trim();
+  try {
+    // eslint-disable-next-line no-new
+    new URL(s, FALLBACK_BASE);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function canParseNextUrl(nextUrl: unknown): boolean {
+  if (!nextUrl || typeof nextUrl !== "object") return false;
+  const anyNext = nextUrl as any;
+
+  if (!isBadUrlString(anyNext?.href)) return canParseUrlString(anyNext.href);
+
+  if (!isBadUrlString(anyNext?.pathname)) {
+    const pathname = String(anyNext.pathname).trim();
+    const search = typeof anyNext.search === "string" ? anyNext.search : "";
+    return canParseUrlString(`${pathname}${search}`);
+  }
+
+  return false;
+}
+
+function shouldStub(req: Request): boolean {
+  if (IS_BUILD_TIME) return true;
+
+  const anyReq = req as any;
+  const okUrl = canParseUrlString(anyReq?.url);
+
+  const hasNextUrl = anyReq?.nextUrl !== undefined;
+  const okNextUrl = !hasNextUrl ? true : canParseNextUrl(anyReq?.nextUrl);
+
+  return !(okUrl && okNextUrl);
+}
+
+function safeUrlString(req: Request): string {
+  const anyReq = req as any;
+
+  const raw = anyReq?.url;
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (s && s !== "[object Object]") return s;
+  }
+
+  const href = anyReq?.nextUrl?.href;
+  if (typeof href === "string") {
+    const s = href.trim();
+    if (s && s !== "[object Object]") return s;
+  }
+
+  return "/";
+}
+
+function toAbsoluteUrlString(u: string): string {
+  const s = String(u ?? "/").trim() || "/";
+  try {
+    // absolute
+    return new URL(s).toString();
+  } catch {
+    // relative -> base
+    return new URL(s, FALLBACK_BASE).toString();
+  }
+}
+
+/**
+ * Minimal Request-like object with safe *absolute* string `url` and no `nextUrl`.
+ * Use this when passing req into helpers that might do new URL(req.url).
+ */
+function makeSafeReq(req: Request): Request {
+  const url = toAbsoluteUrlString(safeUrlString(req));
+  const method = (req as any)?.method ?? "POST";
+  return { headers: req.headers, url, method } as any as Request;
+}
+
+// ---------- stubs ----------
+
+function stubPost() {
+  return NextResponse.json({
+    ok: true,
+    buildPhase: true,
+    triggered: false,
+    emailed: false,
+    note: "stubbed during build collection",
+  });
+}
+
+// ---------- misc helpers ----------
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -196,9 +300,7 @@ async function sendEmail(opts: { to: string; subject: string; text: string; html
 
   const timeoutPromise = new Promise((_, reject) => {
     const t = setTimeout(() => reject(new Error("SMTP send timeout")), SMTP_TIMEOUT_MS);
-    if (typeof (t as NodeJS.Timeout).unref === "function") {
-      (t as NodeJS.Timeout).unref();
-    }
+    if (typeof (t as NodeJS.Timeout).unref === "function") (t as NodeJS.Timeout).unref();
   });
 
   try {
@@ -217,18 +319,12 @@ async function sendEmail(opts: { to: string; subject: string; text: string; html
     const msg = errorMessage(e) || "Unknown email error";
     const code = errorCode(e);
 
-    // normalize the UX-friendly label but keep detail for logs/JSON
     const label =
       msg.toLowerCase().includes("timeout") || code === "ETIMEDOUT"
         ? "Connection timeout"
         : "Email send failed";
 
-    return {
-      ok: false,
-      error: label,
-      detail: msg,
-      code,
-    } as SendEmailResult;
+    return { ok: false, error: label, detail: msg, code } as SendEmailResult;
   } finally {
     try {
       transport.close?.();
@@ -236,209 +332,285 @@ async function sendEmail(opts: { to: string; subject: string; text: string; html
   }
 }
 
+// ---------- lazy deps (avoid import-time surprises during build collection) ----------
+
+async function loadDeps() {
+  const [rbacMod, auditMod, obsMod, tmplMod] = await Promise.all([
+    import("@/lib/rbac"),
+    import("@/lib/audit-log").catch(() => ({} as any)),
+    import("@/lib/observability").catch(() => ({} as any)),
+    import("@/lib/notify/templates").catch(() => ({} as any)),
+  ]);
+
+  const requireOpsAccess = (rbacMod as any).requireOpsAccess as () => Promise<any>;
+
+  const writeAuditLog =
+    (auditMod as any).writeAuditLog ??
+    (async (_input: any) => {
+      /* no-op */
+    });
+
+  const incrementCounter = (obsMod as any).incrementCounter ?? (() => {});
+  const logEvent = (obsMod as any).logEvent ?? (() => {});
+  const runObservedRoute =
+    (obsMod as any).runObservedRoute ??
+    (async (_req: Request, _meta: any, handler: (ctx: any) => Promise<Response>) => {
+      return handler({
+        correlationId: "fallback",
+        traceId: "fallback",
+        spanId: "fallback",
+        parentSpanId: null,
+        route: _meta?.route ?? null,
+        method: (_req as any)?.method ?? null,
+        userId: null,
+        hostId: null,
+        source: _meta?.source ?? null,
+      });
+    });
+
+  // Templates are optional during hardening; provide safe fallbacks.
+  const buildReportEmailSubject =
+    (tmplMod as any).buildReportEmailSubject ?? ((_s: any) => "VPS Sentry report");
+  const buildReportEmailText =
+    (tmplMod as any).buildReportEmailText ??
+    ((input: any) => `VPS Sentry report requested by ${input?.requestedBy ?? "unknown"}`);
+  const buildReportEmailHtml =
+    (tmplMod as any).buildReportEmailHtml ?? ((_input: any) => undefined);
+
+  return {
+    requireOpsAccess,
+    writeAuditLog,
+    incrementCounter,
+    logEvent,
+    runObservedRoute,
+    buildReportEmailSubject,
+    buildReportEmailText,
+    buildReportEmailHtml,
+  };
+}
+
+// ---------- route ----------
+
 export async function POST(req: Request) {
-  return runObservedRoute(req, { route: "/api/ops/report-now", source: "ops-report-now" }, async (obsCtx) => {
-    const rid = obsCtx.correlationId.slice(0, 8);
-    const access = await requireOpsAccess();
-    if (!access.ok) {
-      incrementCounter("ops.report_now.denied.total", 1, {
-        status: access.status,
-      });
-      await writeAuditLog({
-        req,
-        action: "ops.report_now.denied",
-        detail: `status=${access.status} email=${access.email ?? "unknown"}`,
-        meta: {
-          rid,
-          route: "/api/ops/report-now",
-          status: access.status,
-          requiredRole: "ops",
-          email: access.email ?? null,
-          role: access.role ?? null,
-        },
-      });
-      return NextResponse.json({ error: access.error }, { status: access.status });
-    }
+  // MUST be first: Next build worker can invoke route handlers with a weird req.url object
+  if (shouldStub(req)) return stubPost();
 
-    obsCtx.userId = access.identity.userId;
+  const deps = await loadDeps();
+  const safeReq = makeSafeReq(req);
 
-    const requestedBy = access.identity.email;
-    const to = access.identity.email;
+  return deps.runObservedRoute(
+    safeReq,
+    { route: "/api/ops/report-now", source: "ops-report-now" },
+    async (obsCtx: any) => {
+      const correlationId =
+        typeof obsCtx?.correlationId === "string" ? obsCtx.correlationId : "fallback";
+      const rid = correlationId.slice(0, 8);
 
-    await writeAuditLog({
-      req,
-      userId: access.identity.userId,
-      action: "ops.report_now.request",
-      detail: `Manual report requested by ${requestedBy}`,
-      meta: {
-        rid,
-        route: "/api/ops/report-now",
-      },
-    });
+      const access = await deps.requireOpsAccess();
+      if (!access?.ok) {
+        deps.incrementCounter("ops.report_now.denied.total", 1, {
+          status: String(access?.status ?? 403),
+        });
 
-    logEvent("info", "ops.report_now.start", obsCtx, {
-      requestedBy,
-      to: to ?? null,
-      rid,
-    });
-
-    try {
-      // Read status BEFORE (so we can detect that it changed)
-      const before = await readJsonSafe<ReportStatusJson>(STATUS_PATH);
-      const beforeTs = before?.ts ?? null;
-
-      // Trigger: systemd path unit watches this
-      await fs.writeFile(
-        TRIGGER_PATH,
-        JSON.stringify({ ts: new Date().toISOString(), requestedBy, reason: "manual-report" }, null, 2),
-        "utf8"
-      );
-
-      await writeAuditLog({
-        req,
-        userId: access.identity.userId,
-        action: "ops.report_now.trigger_written",
-        detail: `Trigger file updated: ${TRIGGER_PATH}`,
-        meta: {
-          rid,
-          triggerPath: TRIGGER_PATH,
-        },
-      });
-
-      // Poll briefly for a newer status timestamp
-      let after: ReportStatusJson | null = null;
-      const start = Date.now();
-      while (Date.now() - start < POLL_MAX_MS) {
-        await sleep(POLL_STEP_MS);
-        after = await readJsonSafe<ReportStatusJson>(STATUS_PATH);
-        if (after?.ts && after.ts !== beforeTs) break;
-      }
-
-      const s = after?.ts && after.ts !== beforeTs ? after : after || before;
-
-      logEvent("info", "ops.report_now.status_loaded", obsCtx, {
-        rid,
-        beforeTs,
-        statusTs: s?.ts ?? null,
-      });
-
-      if (!to) {
-        incrementCounter("ops.report_now.no_email.total", 1);
-        await writeAuditLog({
-          req,
-          userId: access.identity.userId,
-          action: "ops.report_now.no_email",
-          detail: "Admin has no email in session; skipping mail delivery",
+        await deps.writeAuditLog({
+          req: safeReq,
+          action: "ops.report_now.denied",
+          detail: `status=${access?.status ?? 403} email=${access?.email ?? "unknown"}`,
           meta: {
             rid,
-            statusTs: s?.ts ?? null,
-          },
-        });
-        return NextResponse.json({
-          ok: true,
-          triggered: true,
-          emailed: false,
-          warning: "No session email found; cannot send report email.",
-          statusTs: s?.ts ?? null,
-        });
-      }
-
-      const baseUrl = getBaseUrl(req);
-      const subject = buildReportEmailSubject(s);
-      const text = buildReportEmailText({ requestedBy, baseUrl, s });
-      const html = buildReportEmailHtml({ requestedBy, baseUrl, s });
-
-      const mail = await sendEmail({ to, subject, text, html });
-
-      if (!mail.ok) {
-        incrementCounter("ops.report_now.mail_failed.total", 1, {
-          code: mail.code ?? "unknown",
-        });
-        logEvent("warn", "ops.report_now.mail_failed", obsCtx, {
-          rid,
-          error: mail.error,
-          detail: mail.detail ?? null,
-          code: mail.code ?? null,
-        });
-        await writeAuditLog({
-          req,
-          userId: access.identity.userId,
-          action: "ops.report_now.mail_failed",
-          detail: `Mail delivery failed: ${mail.error}`,
-          meta: {
-            rid,
-            error: mail.error,
-            detail: mail.detail ?? null,
-            code: mail.code ?? null,
-            statusTs: s?.ts ?? null,
+            route: "/api/ops/report-now",
+            status: access?.status ?? 403,
+            requiredRole: "ops",
+            email: access?.email ?? null,
+            role: access?.role ?? null,
           },
         });
 
         return NextResponse.json(
-          {
-            ok: false,
-            triggered: true,
-            emailed: false,
-            error: mail.error,
-            detail: mail.detail,
-            code: mail.code,
-            statusTs: s?.ts ?? null,
-          },
-          { status: 502 }
+          { ok: false, error: access?.error ?? "Access denied" },
+          { status: typeof access?.status === "number" ? access.status : 403 }
         );
       }
 
-      incrementCounter("ops.report_now.mail_sent.total", 1);
-      logEvent("info", "ops.report_now.mail_sent", obsCtx, {
-        rid,
-        to,
-        subject,
-      });
-      await writeAuditLog({
-        req,
+      obsCtx.userId = access.identity.userId;
+
+      const requestedBy = access.identity.email;
+      const to = access.identity.email;
+
+      await deps.writeAuditLog({
+        req: safeReq,
         userId: access.identity.userId,
-        action: "ops.report_now.mail_sent",
-        detail: `Manual report emailed to ${to}`,
-        meta: {
+        action: "ops.report_now.request",
+        detail: `Manual report requested by ${requestedBy}`,
+        meta: { rid, route: "/api/ops/report-now" },
+      });
+
+      deps.logEvent?.("info", "ops.report_now.start", obsCtx, {
+        requestedBy,
+        to: to ?? null,
+        rid,
+      });
+
+      try {
+        // Read status BEFORE (so we can detect that it changed)
+        const before = await readJsonSafe<ReportStatusJson>(STATUS_PATH);
+        const beforeTs = (before?.ts as string | null | undefined) ?? null;
+
+        // Trigger: systemd path unit watches this
+        await fs.writeFile(
+          TRIGGER_PATH,
+          JSON.stringify(
+            { ts: new Date().toISOString(), requestedBy, reason: "manual-report" },
+            null,
+            2
+          ),
+          "utf8"
+        );
+
+        await deps.writeAuditLog({
+          req: safeReq,
+          userId: access.identity.userId,
+          action: "ops.report_now.trigger_written",
+          detail: `Trigger file updated: ${TRIGGER_PATH}`,
+          meta: { rid, triggerPath: TRIGGER_PATH },
+        });
+
+        // Poll briefly for a newer status timestamp
+        let after: ReportStatusJson | null = null;
+        const start = Date.now();
+        while (Date.now() - start < POLL_MAX_MS) {
+          await sleep(POLL_STEP_MS);
+          after = await readJsonSafe<ReportStatusJson>(STATUS_PATH);
+          if (after?.ts && after.ts !== beforeTs) break;
+        }
+
+        const s =
+          after?.ts && after.ts !== beforeTs ? after : after || before;
+
+        deps.logEvent?.("info", "ops.report_now.status_loaded", obsCtx, {
+          rid,
+          beforeTs,
+          statusTs: (s?.ts as string | null | undefined) ?? null,
+        });
+
+        if (!to) {
+          deps.incrementCounter("ops.report_now.no_email.total", 1);
+          await deps.writeAuditLog({
+            req: safeReq,
+            userId: access.identity.userId,
+            action: "ops.report_now.no_email",
+            detail: "Admin has no email in session; skipping mail delivery",
+            meta: { rid, statusTs: (s?.ts as string | null | undefined) ?? null },
+          });
+
+          return NextResponse.json({
+            ok: true,
+            triggered: true,
+            emailed: false,
+            warning: "No session email found; cannot send report email.",
+            statusTs: (s?.ts as string | null | undefined) ?? null,
+          });
+        }
+
+        const baseUrl = getBaseUrl(safeReq);
+        const subject = deps.buildReportEmailSubject(s);
+        const text = deps.buildReportEmailText({ requestedBy, baseUrl, s });
+        const html = deps.buildReportEmailHtml({ requestedBy, baseUrl, s });
+
+        const mail = await sendEmail({ to, subject, text, html });
+
+        if (!mail.ok) {
+          deps.incrementCounter("ops.report_now.mail_failed.total", 1, {
+            code: mail.code ?? "unknown",
+          });
+
+          deps.logEvent?.("warn", "ops.report_now.mail_failed", obsCtx, {
+            rid,
+            error: mail.error,
+            detail: mail.detail ?? null,
+            code: mail.code ?? null,
+          });
+
+          await deps.writeAuditLog({
+            req: safeReq,
+            userId: access.identity.userId,
+            action: "ops.report_now.mail_failed",
+            detail: `Mail delivery failed: ${mail.error}`,
+            meta: {
+              rid,
+              error: mail.error,
+              detail: mail.detail ?? null,
+              code: mail.code ?? null,
+              statusTs: (s?.ts as string | null | undefined) ?? null,
+            },
+          });
+
+          return NextResponse.json(
+            {
+              ok: false,
+              triggered: true,
+              emailed: false,
+              error: mail.error,
+              detail: mail.detail,
+              code: mail.code,
+              statusTs: (s?.ts as string | null | undefined) ?? null,
+            },
+            { status: 502 }
+          );
+        }
+
+        deps.incrementCounter("ops.report_now.mail_sent.total", 1);
+
+        deps.logEvent?.("info", "ops.report_now.mail_sent", obsCtx, {
           rid,
           to,
           subject,
-          statusTs: s?.ts ?? null,
-        },
-      });
+        });
 
-      return NextResponse.json({
-        ok: true,
-        triggered: true,
-        emailed: true,
-        to,
-        subject,
-        statusTs: s?.ts ?? null,
-      });
-    } catch (err: unknown) {
-      incrementCounter("ops.report_now.errors.total", 1);
-      const message = errorMessage(err);
-      await writeAuditLog({
-        req,
-        userId: access.identity.userId,
-        action: "ops.report_now.failed",
-        detail: message,
-        meta: {
-          rid,
-        },
-      });
-      logEvent("error", "ops.report_now.failed", obsCtx, {
-        rid,
-        error: message,
-      });
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Report trigger failed",
+        await deps.writeAuditLog({
+          req: safeReq,
+          userId: access.identity.userId,
+          action: "ops.report_now.mail_sent",
+          detail: `Manual report emailed to ${to}`,
+          meta: {
+            rid,
+            to,
+            subject,
+            statusTs: (s?.ts as string | null | undefined) ?? null,
+          },
+        });
+
+        return NextResponse.json({
+          ok: true,
+          triggered: true,
+          emailed: true,
+          to,
+          subject,
+          statusTs: (s?.ts as string | null | undefined) ?? null,
+        });
+      } catch (err: unknown) {
+        deps.incrementCounter("ops.report_now.errors.total", 1);
+
+        const message = errorMessage(err);
+
+        await deps.writeAuditLog({
+          req: safeReq,
+          userId: access.identity.userId,
+          action: "ops.report_now.failed",
           detail: message,
-        },
-        { status: 500 }
-      );
+          meta: { rid },
+        });
+
+        deps.logEvent?.("error", "ops.report_now.failed", obsCtx, {
+          rid,
+          error: message,
+        });
+
+        return NextResponse.json(
+          { ok: false, error: "Report trigger failed", detail: message },
+          { status: 500 }
+        );
+      }
     }
-  });
+  );
 }

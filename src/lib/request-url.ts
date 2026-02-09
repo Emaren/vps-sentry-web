@@ -1,41 +1,106 @@
-const FALLBACK_BASE = "http://localhost";
+// /var/www/vps-sentry-web/src/lib/request-url.ts
+// Never throw on weird build-worker Request objects.
+// Always return a usable URL.
 
-function fromRawObject(raw: Record<string, unknown>): URL | null {
-  const href = raw.href;
-  if (typeof href === "string" && href.trim()) {
+const RAW_BASE =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.APP_URL ||
+  process.env.NEXTAUTH_URL ||
+  "http://localhost";
+
+function normalizeBase(input: string): string {
+  const s = String(input ?? "").trim();
+  if (!s) return "http://localhost";
+
+  // If already absolute, keep it
+  try {
+    return new URL(s).toString();
+  } catch {
+    // If missing scheme, try https then http
     try {
-      return new URL(href);
-    } catch {}
-  }
-
-  const pathname = raw.pathname;
-  if (typeof pathname === "string" && pathname.trim()) {
-    const search = typeof raw.search === "string" ? raw.search : "";
-    try {
-      return new URL(`${pathname}${search}`, FALLBACK_BASE);
-    } catch {}
-  }
-
-  return null;
-}
-
-export function safeRequestUrl(req: { url?: unknown } | null | undefined): URL {
-  const raw = req?.url;
-
-  if (raw instanceof URL) return raw;
-
-  if (typeof raw === "string") {
-    try {
-      return new URL(raw);
+      return new URL(`https://${s}`).toString();
     } catch {
-      if (raw.startsWith("/")) {
-        return new URL(raw, FALLBACK_BASE);
+      try {
+        return new URL(`http://${s}`).toString();
+      } catch {
+        return "http://localhost";
       }
     }
-  } else if (raw && typeof raw === "object") {
-    const parsed = fromRawObject(raw as Record<string, unknown>);
-    if (parsed) return parsed;
+  }
+}
+
+const FALLBACK_BASE = normalizeBase(RAW_BASE);
+
+function isBadUrlString(v: unknown): boolean {
+  if (typeof v !== "string") return true;
+  const s = v.trim();
+  if (!s) return true;
+  if (s === "[object Object]") return true;
+  return false;
+}
+
+function pickCandidateUrl(req: unknown): string {
+  const anyReq = req as any;
+
+  // 1) req.url
+  const raw = anyReq?.url;
+  if (!isBadUrlString(raw)) return String(raw).trim();
+
+  // 2) req.nextUrl?.href
+  const href = anyReq?.nextUrl?.href;
+  if (!isBadUrlString(href)) return String(href).trim();
+
+  // 3) req.nextUrl?.pathname + search
+  const pathname = anyReq?.nextUrl?.pathname;
+  if (!isBadUrlString(pathname)) {
+    const search = typeof anyReq?.nextUrl?.search === "string" ? anyReq.nextUrl.search : "";
+    return `${String(pathname).trim()}${search}`;
   }
 
-  return new URL("/", FALLBACK_BASE);
+  // 4) If someone passed a string/URL directly to safeRequestUrl
+  if (!isBadUrlString(req)) return String(req).trim();
+  if (req instanceof URL) return req.toString();
+
+  return "/";
+}
+
+function toAbsoluteUrlString(candidate: string): string {
+  const s = String(candidate ?? "/").trim() || "/";
+  if (s === "[object Object]") return new URL("/", FALLBACK_BASE).toString();
+
+  // Absolute?
+  try {
+    return new URL(s).toString();
+  } catch {
+    // Relative -> base
+    try {
+      return new URL(s, FALLBACK_BASE).toString();
+    } catch {
+      return new URL("/", FALLBACK_BASE).toString();
+    }
+  }
+}
+
+/**
+ * Safe URL parser. Never throws.
+ * Works with Request, NextRequest, or "weird" build-worker request-like objects.
+ */
+export function safeRequestUrl(req: unknown): URL {
+  const candidate = pickCandidateUrl(req);
+  const abs = toAbsoluteUrlString(candidate);
+  return new URL(abs);
+}
+
+/**
+ * Safe URL string. Never throws.
+ */
+export function safeRequestUrlString(req: unknown): string {
+  return safeRequestUrl(req).toString();
+}
+
+/**
+ * Useful when you only need origin (scheme://host).
+ */
+export function safeRequestOrigin(req: unknown): string {
+  return safeRequestUrl(req).origin;
 }

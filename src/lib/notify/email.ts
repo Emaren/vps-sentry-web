@@ -1,4 +1,5 @@
 import { incrementCounter, logEvent, observeTiming } from "@/lib/observability";
+import { coerceUrlString } from "@/lib/safe-url";
 
 type SendEmailInput = {
   to: string;
@@ -57,7 +58,7 @@ function getMailFromEnv() {
 
 function parseSmtpUrl(urlStr: string): Omit<NormalizedSmtp, "from"> | null {
   try {
-    const u = new URL(urlStr);
+    const u = new URL(coerceUrlString(urlStr));
     const protocol = u.protocol.toLowerCase();
     if (protocol !== "smtp:" && protocol !== "smtps:") return null;
 

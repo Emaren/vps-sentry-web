@@ -1,27 +1,199 @@
+// /var/www/vps-sentry-web/src/app/api/remediate/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { buildRemediationPlanFromSnapshots } from "@/lib/remediate";
-import type { RemediationAction } from "@/lib/remediate/actions";
-import { isWithinMinutes, readRemediationPolicy } from "@/lib/remediate/policy";
-import {
-  readCommandGuardPolicy,
-  validateRemediationCommands,
-} from "@/lib/remediate/guard";
-import {
-  resolveHostRemediationPolicy,
-  type RemediationPolicyProfile,
-} from "@/lib/remediate/host-policy";
-import { drainRemediationQueue } from "@/lib/remediate/queue";
-import {
-  serializeExecuteRunPayload,
-  type ExecuteRunPayload,
-} from "@/lib/remediate/queue-runtime";
-import { requireViewerAccess } from "@/lib/rbac";
-import { hasRequiredRole } from "@/lib/rbac-policy";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
+
+const RAW_BASE =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.APP_URL ||
+  process.env.NEXTAUTH_URL ||
+  "http://localhost";
+
+function normalizeBase(input: string): string {
+  const s = String(input ?? "").trim();
+  if (!s || s === "[object Object]") return "http://localhost";
+
+  // absolute already?
+  try {
+    return new URL(s).toString();
+  } catch {
+    // if missing scheme, try https then http
+    try {
+      return new URL(`https://${s}`).toString();
+    } catch {
+      try {
+        return new URL(`http://${s}`).toString();
+      } catch {
+        return "http://localhost";
+      }
+    }
+  }
+}
+
+const FALLBACK_BASE = normalizeBase(RAW_BASE);
+
+// ---------- build-worker / weird Request hardening ----------
+
+function isBadUrlString(v: unknown): boolean {
+  if (typeof v !== "string") return true;
+  const s = v.trim();
+  if (!s) return true;
+  if (s === "[object Object]") return true;
+  return false;
+}
+
+function canParseUrlString(v: unknown): boolean {
+  if (isBadUrlString(v)) return false;
+  const s = String(v).trim();
+  try {
+    // eslint-disable-next-line no-new
+    new URL(s, FALLBACK_BASE);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function canParseNextUrl(nextUrl: unknown): boolean {
+  if (!nextUrl || typeof nextUrl !== "object") return false;
+  const anyNext = nextUrl as any;
+
+  if (!isBadUrlString(anyNext?.href)) return canParseUrlString(anyNext.href);
+
+  if (!isBadUrlString(anyNext?.pathname)) {
+    const pathname = String(anyNext.pathname).trim();
+    const search = typeof anyNext.search === "string" ? anyNext.search : "";
+    return canParseUrlString(`${pathname}${search}`);
+  }
+
+  return false;
+}
+
+function shouldStub(req: Request): boolean {
+  if (IS_BUILD_TIME) return true;
+
+  const anyReq = req as any;
+  const okUrl = canParseUrlString(anyReq?.url);
+
+  const hasNextUrl = anyReq?.nextUrl !== undefined;
+  const okNextUrl = !hasNextUrl ? true : canParseNextUrl(anyReq?.nextUrl);
+
+  return !(okUrl && okNextUrl);
+}
+
+function safeUrlString(req: Request): string {
+  const anyReq = req as any;
+
+  const raw = anyReq?.url;
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (s && s !== "[object Object]") return s;
+  }
+
+  const href = anyReq?.nextUrl?.href;
+  if (typeof href === "string") {
+    const s = href.trim();
+    if (s && s !== "[object Object]") return s;
+  }
+
+  return "/";
+}
+
+function toAbsoluteUrlString(u: string): string {
+  const s = String(u ?? "/").trim() || "/";
+  if (s === "[object Object]") return new URL("/", FALLBACK_BASE).toString();
+
+  // absolute?
+  try {
+    return new URL(s).toString();
+  } catch {
+    // relative -> base (guard base too)
+    try {
+      return new URL(s, FALLBACK_BASE).toString();
+    } catch {
+      return new URL("/", FALLBACK_BASE).toString();
+    }
+  }
+}
+
+/**
+ * Minimal Request-like object with safe *absolute* string `url` and no `nextUrl`.
+ * Use this when passing req into helpers that might do new URL(req.url).
+ */
+function makeSafeReq(req: Request): Request {
+  const url = toAbsoluteUrlString(safeUrlString(req));
+  const method = (req as any)?.method ?? "POST";
+  return { headers: req.headers, url, method } as any as Request;
+}
+
+// ---------- stubs ----------
+
+function stub(req: Request) {
+  const safeReq = makeSafeReq(req);
+
+  let query: Record<string, string> = {};
+  try {
+    const u = new URL(String((safeReq as any).url ?? "/"), FALLBACK_BASE);
+    query = Object.fromEntries(u.searchParams.entries());
+  } catch {
+    query = {};
+  }
+
+  return NextResponse.json({
+    ok: true,
+    buildPhase: true,
+    route: "/api/remediate",
+    note: "stubbed during build collection",
+    method: (safeReq as any).method ?? null,
+    query,
+  });
+}
+
+// ---------- types (local, runtime-safe) ----------
+
 type RemediationMode = "plan" | "dry-run" | "execute" | "drain-queue";
+
+type RemediationAction = {
+  id: string;
+  title: string;
+  why: string;
+  commands: string[];
+  sourceCodes: string[];
+  requiresConfirm?: boolean;
+  confirmPhrase?: string;
+  rollbackNotes?: string[];
+  rollbackCommands?: string[];
+  canaryChecks?: string[];
+  autoTier?: unknown;
+};
+
+type ExecuteRunPayload = any;
+type RemediationPolicyProfile = any;
+
+type PolicyPreview = {
+  profile: RemediationPolicyProfile;
+  dryRunMaxAgeMinutes: number;
+  executeCooldownMinutes: number;
+  maxExecutePerHour: number;
+  maxQueuePerHost: number;
+  maxQueueTotal: number;
+  queueTtlMinutes: number;
+  maxRetryAttempts: number;
+  retryBackoffSeconds: number;
+  retryBackoffMaxSeconds: number;
+  commandTimeoutMs: number;
+  maxBufferBytes: number;
+  enforceAllowlist: boolean;
+  maxCommandsPerAction: number;
+  maxCommandLength: number;
+};
+
+// ---------- small helpers ----------
 
 function safeParse(s: string) {
   try {
@@ -33,7 +205,7 @@ function safeParse(s: string) {
 
 function normalizeMode(v: unknown): RemediationMode {
   const t = typeof v === "string" ? v.trim().toLowerCase() : "";
-  if (t === "dry-run" || t === "execute" || t === "drain-queue") return t;
+  if (t === "dry-run" || t === "execute" || t === "drain-queue") return t as RemediationMode;
   return "plan";
 }
 
@@ -56,51 +228,10 @@ function dryRunOutput(action: RemediationAction): string {
     .join("\n");
 }
 
-async function getRemediationRuns(hostId: string, limit = 15) {
-  return prisma.remediationRun.findMany({
-    where: { hostId },
-    orderBy: { requestedAt: "desc" },
-    take: Math.max(1, Math.min(limit, 40)),
-    select: {
-      id: true,
-      state: true,
-      requestedAt: true,
-      startedAt: true,
-      finishedAt: true,
-      output: true,
-      error: true,
-      action: {
-        select: { key: true, title: true },
-      },
-      requestedBy: {
-        select: { email: true },
-      },
-    },
-  });
-}
-
-type PolicyPreview = {
-  profile: RemediationPolicyProfile;
-  dryRunMaxAgeMinutes: number;
-  executeCooldownMinutes: number;
-  maxExecutePerHour: number;
-  maxQueuePerHost: number;
-  maxQueueTotal: number;
-  queueTtlMinutes: number;
-  maxRetryAttempts: number;
-  retryBackoffSeconds: number;
-  retryBackoffMaxSeconds: number;
-  commandTimeoutMs: number;
-  maxBufferBytes: number;
-  enforceAllowlist: boolean;
-  maxCommandsPerAction: number;
-  maxCommandLength: number;
-};
-
 function toPolicyPreview(input: {
   profile: RemediationPolicyProfile;
-  policy: ReturnType<typeof readRemediationPolicy>;
-  guardPolicy: ReturnType<typeof readCommandGuardPolicy>;
+  policy: any;
+  guardPolicy: any;
 }): PolicyPreview {
   return {
     profile: input.profile,
@@ -121,17 +252,124 @@ function toPolicyPreview(input: {
   };
 }
 
+// ---------- lazy deps (avoid import-time surprises during build collection) ----------
+
+async function loadDeps() {
+  const [
+    prismaMod,
+    remediateMod,
+    policyMod,
+    guardMod,
+    hostPolicyMod,
+    queueMod,
+    queueRuntimeMod,
+    rbacMod,
+    rbacPolicyMod,
+  ] = await Promise.all([
+    import("@/lib/prisma"),
+    import("@/lib/remediate"),
+    import("@/lib/remediate/policy"),
+    import("@/lib/remediate/guard"),
+    import("@/lib/remediate/host-policy"),
+    import("@/lib/remediate/queue"),
+    import("@/lib/remediate/queue-runtime").catch(() => ({} as any)),
+    import("@/lib/rbac"),
+    import("@/lib/rbac-policy"),
+  ]);
+
+  const prisma = (prismaMod as any).prisma as any;
+
+  const buildRemediationPlanFromSnapshots = (remediateMod as any)
+    .buildRemediationPlanFromSnapshots as (snapshots: any[], opts: any) => any;
+
+  const readRemediationPolicy = (policyMod as any).readRemediationPolicy as () => any;
+  const isWithinMinutes = (policyMod as any).isWithinMinutes as (d: Date, m: number) => boolean;
+
+  const readCommandGuardPolicy = (guardMod as any).readCommandGuardPolicy as () => any;
+  const validateRemediationCommands = (guardMod as any)
+    .validateRemediationCommands as (
+      cmds: string[],
+      guardPolicy: any
+    ) => Array<{ index: number; reason: string }>;
+
+  const resolveHostRemediationPolicy = (hostPolicyMod as any)
+    .resolveHostRemediationPolicy as (input: any) => any;
+
+  const drainRemediationQueue = (queueMod as any).drainRemediationQueue as (input: any) => Promise<any>;
+
+  const serializeExecuteRunPayload =
+    (queueRuntimeMod as any).serializeExecuteRunPayload ?? ((payload: any) => JSON.stringify(payload));
+
+  const requireViewerAccess = (rbacMod as any).requireViewerAccess as () => Promise<any>;
+  const hasRequiredRole = (rbacPolicyMod as any).hasRequiredRole as (role: string, required: string) => boolean;
+
+  return {
+    prisma,
+    buildRemediationPlanFromSnapshots,
+    readRemediationPolicy,
+    isWithinMinutes,
+    readCommandGuardPolicy,
+    validateRemediationCommands,
+    resolveHostRemediationPolicy,
+    drainRemediationQueue,
+    serializeExecuteRunPayload,
+    requireViewerAccess,
+    hasRequiredRole,
+  };
+}
+
+// ---------- route helpers ----------
+
+async function getRemediationRuns(prisma: any, hostId: string, limit = 15) {
+  return prisma.remediationRun.findMany({
+    where: { hostId },
+    orderBy: { requestedAt: "desc" },
+    take: Math.max(1, Math.min(limit, 40)),
+    select: {
+      id: true,
+      state: true,
+      requestedAt: true,
+      startedAt: true,
+      finishedAt: true,
+      output: true,
+      error: true,
+      action: { select: { key: true, title: true } },
+      requestedBy: { select: { email: true } },
+    },
+  });
+}
+
+// ---------- routes ----------
+
+export async function GET(req: Request) {
+  if (shouldStub(req)) return stub(req);
+  return NextResponse.json(
+    { ok: false, error: "Use POST /api/remediate" },
+    { status: 405, headers: { "Cache-Control": "no-store, max-age=0" } }
+  );
+}
+
 export async function POST(req: Request) {
-  const access = await requireViewerAccess();
-  if (!access.ok) {
-    return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+  // MUST be first: Next build worker can invoke route handlers with a weird req.url object
+  if (shouldStub(req)) return stub(req);
+
+  const deps = await loadDeps();
+  const safeReq = makeSafeReq(req);
+
+  const access = await deps.requireViewerAccess();
+  if (!access?.ok) {
+    return NextResponse.json(
+      { ok: false, error: access?.error ?? "Unauthorized" },
+      { status: typeof access?.status === "number" ? access.status : 401 }
+    );
   }
 
-  const body = await req.json().catch(() => ({}));
+  const body: any = await req.json().catch(() => ({}));
   const mode = normalizeMode(body?.mode);
+
   const requiresOps = mode !== "plan";
-  if (requiresOps && !hasRequiredRole(access.identity.role, "ops")) {
-    await prisma.auditLog.create({
+  if (requiresOps && !deps.hasRequiredRole(access.identity.role, "ops")) {
+    await deps.prisma.auditLog.create({
       data: {
         userId: access.identity.userId,
         action: "remediate.denied",
@@ -144,15 +382,17 @@ export async function POST(req: Request) {
         }),
       },
     });
+
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
   if (mode === "drain-queue") {
     const limitRaw = Number(body?.limit ?? 5);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 50)) : 5;
-    const drained = await drainRemediationQueue({ limit });
 
-    await prisma.auditLog.create({
+    const drained = await deps.drainRemediationQueue({ limit });
+
+    await deps.prisma.auditLog.create({
       data: {
         userId: access.identity.userId,
         action: "remediate.queue.drain",
@@ -165,11 +405,9 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json({
-      ok: true,
-      mode,
-      drained,
-    });
+    const res = NextResponse.json({ ok: true, mode, drained });
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
   }
 
   const hostId = typeof body?.hostId === "string" ? body.hostId.trim() : "";
@@ -182,7 +420,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "hostId is required" }, { status: 400 });
   }
 
-  const host = await prisma.host.findFirst({
+  const host = await deps.prisma.host.findFirst({
     where: { id: hostId, userId: access.identity.userId },
     select: {
       id: true,
@@ -193,38 +431,38 @@ export async function POST(req: Request) {
       metaJson: true,
     },
   });
+
   if (!host) return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
 
-  const snapshots = await prisma.hostSnapshot.findMany({
+  const snapshots = await deps.prisma.hostSnapshot.findMany({
     where: { hostId: host.id },
     orderBy: { ts: "desc" },
     take: limit,
-    select: {
-      id: true,
-      ts: true,
-      statusJson: true,
-    },
+    select: { id: true, ts: true, statusJson: true },
   });
 
-  const globalPolicy = readRemediationPolicy();
-  const globalGuardPolicy = readCommandGuardPolicy();
-  const resolvedPolicy = resolveHostRemediationPolicy({
+  const globalPolicy = deps.readRemediationPolicy();
+  const globalGuardPolicy = deps.readCommandGuardPolicy();
+
+  const resolvedPolicy = deps.resolveHostRemediationPolicy({
     metaJson: host.metaJson,
     globalPolicy,
     globalGuardPolicy,
   });
 
   const parsed = snapshots
-    .map((s) => ({ id: s.id, ts: s.ts, status: safeParse(s.statusJson) }))
+    .map((s: any) => ({ id: s.id, ts: s.ts, status: safeParse(s.statusJson) }))
     .filter(
-      (s): s is { id: string; ts: Date; status: Record<string, unknown> } =>
+      (s: any): s is { id: string; ts: Date; status: Record<string, unknown> } =>
         Boolean(s.status && typeof s.status === "object")
     );
 
-  const plan = buildRemediationPlanFromSnapshots(parsed, {
+  const plan = deps.buildRemediationPlanFromSnapshots(parsed, {
     dedupeWindowMinutes: resolvedPolicy.policy.timelineDedupeWindowMinutes,
   });
-  const recentRuns = await getRemediationRuns(host.id);
+
+  const recentRuns = await getRemediationRuns(deps.prisma, host.id);
+
   const policyPreview = toPolicyPreview({
     profile: resolvedPolicy.profile,
     policy: resolvedPolicy.policy,
@@ -232,7 +470,7 @@ export async function POST(req: Request) {
   });
 
   if (mode === "plan") {
-    return NextResponse.json({
+    const res = NextResponse.json({
       ok: true,
       mode,
       host,
@@ -244,9 +482,11 @@ export async function POST(req: Request) {
       actions: plan.actions,
       runs: recentRuns,
     });
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
   }
 
-  const action = resolveAction(plan.actions, actionId);
+  const action = resolveAction(plan.actions as RemediationAction[], actionId);
   if (!action) {
     return NextResponse.json(
       { ok: false, error: "Unknown actionId for this host/timeline." },
@@ -256,32 +496,25 @@ export async function POST(req: Request) {
 
   if (mode === "execute" && action.requiresConfirm && confirmPhrase !== action.confirmPhrase) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: "Confirmation phrase mismatch.",
-        expected: action.confirmPhrase,
-      },
+      { ok: false, error: "Confirmation phrase mismatch.", expected: action.confirmPhrase },
       { status: 400 }
     );
   }
 
-  const validationIssues = validateRemediationCommands(
-    action.commands,
-    resolvedPolicy.guardPolicy
-  );
+  const validationIssues = deps.validateRemediationCommands(action.commands, resolvedPolicy.guardPolicy);
   if (validationIssues.length > 0) {
     return NextResponse.json(
       {
         ok: false,
         error: "Action blocked by remediation command policy.",
         profile: resolvedPolicy.profile,
-        issues: validationIssues.map((i) => ({ index: i.index, reason: i.reason })),
+        issues: validationIssues.map((i: any) => ({ index: i.index, reason: i.reason })),
       },
       { status: 400 }
     );
   }
 
-  const actionRow = await prisma.remediationAction.upsert({
+  const actionRow = await deps.prisma.remediationAction.upsert({
     where: { key: action.id },
     create: {
       key: action.id,
@@ -305,6 +538,7 @@ export async function POST(req: Request) {
     select: { id: true, key: true },
   });
 
+  // ---- execute (queued) ----
   if (mode === "execute") {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
@@ -315,7 +549,7 @@ export async function POST(req: Request) {
       queuedOrRunningForHost,
       totalQueued,
     ] = await Promise.all([
-      prisma.remediationRun.findFirst({
+      deps.prisma.remediationRun.findFirst({
         where: {
           hostId: host.id,
           actionId: actionRow.id,
@@ -324,14 +558,14 @@ export async function POST(req: Request) {
         },
         select: { id: true, requestedAt: true },
       }),
-      prisma.remediationRun.count({
+      deps.prisma.remediationRun.count({
         where: {
           hostId: host.id,
           requestedAt: { gte: oneHourAgo },
           paramsJson: { contains: '"mode":"execute"' },
         },
       }),
-      prisma.remediationRun.findFirst({
+      deps.prisma.remediationRun.findFirst({
         where: {
           hostId: host.id,
           actionId: actionRow.id,
@@ -340,18 +574,15 @@ export async function POST(req: Request) {
         orderBy: { requestedAt: "desc" },
         select: { id: true, requestedAt: true },
       }),
-      prisma.remediationRun.count({
+      deps.prisma.remediationRun.count({
         where: {
           hostId: host.id,
           state: { in: ["queued", "running"] },
           paramsJson: { contains: '"mode":"execute"' },
         },
       }),
-      prisma.remediationRun.count({
-        where: {
-          state: "queued",
-          paramsJson: { contains: '"mode":"execute"' },
-        },
+      deps.prisma.remediationRun.count({
+        where: { state: "queued", paramsJson: { contains: '"mode":"execute"' } },
       }),
     ]);
 
@@ -380,7 +611,7 @@ export async function POST(req: Request) {
     if (
       latestExecuteRun &&
       resolvedPolicy.policy.executeCooldownMinutes > 0 &&
-      isWithinMinutes(latestExecuteRun.requestedAt, resolvedPolicy.policy.executeCooldownMinutes)
+      deps.isWithinMinutes(latestExecuteRun.requestedAt, resolvedPolicy.policy.executeCooldownMinutes)
     ) {
       return NextResponse.json(
         {
@@ -414,7 +645,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const latestDryRun = await prisma.remediationRun.findFirst({
+    const latestDryRun = await deps.prisma.remediationRun.findFirst({
       where: {
         hostId: host.id,
         actionId: actionRow.id,
@@ -422,15 +653,12 @@ export async function POST(req: Request) {
         paramsJson: { contains: '"mode":"dry-run"' },
       },
       orderBy: { requestedAt: "desc" },
-      select: {
-        id: true,
-        requestedAt: true,
-      },
+      select: { id: true, requestedAt: true },
     });
 
     const hasFreshDryRun =
       latestDryRun !== null &&
-      isWithinMinutes(latestDryRun.requestedAt, resolvedPolicy.policy.dryRunMaxAgeMinutes);
+      deps.isWithinMinutes(latestDryRun.requestedAt, resolvedPolicy.policy.dryRunMaxAgeMinutes);
 
     if (!hasFreshDryRun) {
       return NextResponse.json(
@@ -446,15 +674,16 @@ export async function POST(req: Request) {
     const canaryChecks = (action.canaryChecks ?? [])
       .filter((x): x is string => typeof x === "string")
       .map((x) => x.trim())
-      .filter((x) => x.length > 0)
+      .filter(Boolean)
       .slice(0, 20);
+
     const rollbackCommands = (action.rollbackCommands ?? [])
       .filter((x): x is string => typeof x === "string")
       .map((x) => x.trim())
-      .filter((x) => x.length > 0)
+      .filter(Boolean)
       .slice(0, 20);
-    const rollbackEnabled =
-      resolvedPolicy.policy.autoRollback && rollbackCommands.length > 0;
+
+    const rollbackEnabled = Boolean(resolvedPolicy.policy.autoRollback && rollbackCommands.length > 0);
 
     const executePayload: ExecuteRunPayload = {
       mode: "execute",
@@ -506,7 +735,7 @@ export async function POST(req: Request) {
       },
     };
 
-    const queuedRun = await prisma.remediationRun.create({
+    const queuedRun = await deps.prisma.remediationRun.create({
       data: {
         hostId: host.id,
         actionId: actionRow.id,
@@ -514,7 +743,7 @@ export async function POST(req: Request) {
         state: "queued",
         startedAt: null,
         finishedAt: null,
-        paramsJson: serializeExecuteRunPayload(executePayload),
+        paramsJson: deps.serializeExecuteRunPayload(executePayload),
         output: null,
       },
       select: {
@@ -528,7 +757,7 @@ export async function POST(req: Request) {
       },
     });
 
-    await prisma.auditLog.create({
+    await deps.prisma.auditLog.create({
       data: {
         userId: access.identity.userId,
         hostId: host.id,
@@ -547,11 +776,10 @@ export async function POST(req: Request) {
     });
 
     if (resolvedPolicy.policy.queueAutoDrain) {
-      // Best-effort async kick so execute requests stay queue-first and non-blocking.
-      void drainRemediationQueue({ limit: 1 });
+      void deps.drainRemediationQueue({ limit: 1 });
     }
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       ok: true,
       mode,
       queued: true,
@@ -564,11 +792,14 @@ export async function POST(req: Request) {
         drainTriggered: resolvedPolicy.policy.queueAutoDrain,
       },
       actions: plan.actions,
-      runs: await getRemediationRuns(host.id),
+      runs: await getRemediationRuns(deps.prisma, host.id),
     });
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
   }
 
-  const run = await prisma.remediationRun.create({
+  // ---- dry-run (record as succeeded w/ output) ----
+  const run = await deps.prisma.remediationRun.create({
     data: {
       hostId: host.id,
       actionId: actionRow.id,
@@ -597,20 +828,17 @@ export async function POST(req: Request) {
     },
   });
 
-  await prisma.auditLog.create({
+  await deps.prisma.auditLog.create({
     data: {
       userId: access.identity.userId,
       hostId: host.id,
       action: "remediate.dry_run",
       detail: `Dry-run action ${action.id}`,
-      metaJson: JSON.stringify({
-        runId: run.id,
-        profile: resolvedPolicy.profile,
-      }),
+      metaJson: JSON.stringify({ runId: run.id, profile: resolvedPolicy.profile }),
     },
   });
 
-  return NextResponse.json({
+  const res = NextResponse.json({
     ok: true,
     mode,
     host,
@@ -618,6 +846,8 @@ export async function POST(req: Request) {
     action,
     run,
     actions: plan.actions,
-    runs: await getRemediationRuns(host.id),
+    runs: await getRemediationRuns(deps.prisma, host.id),
   });
+  res.headers.set("Cache-Control", "no-store, max-age=0");
+  return res;
 }

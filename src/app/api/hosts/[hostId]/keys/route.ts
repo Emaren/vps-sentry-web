@@ -1,22 +1,9 @@
+// /var/www/vps-sentry-web/src/app/api/hosts/[hostId]/keys/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireAdminAccess } from "@/lib/rbac";
-import { writeAuditLog } from "@/lib/audit-log";
-import { safeRequestUrl } from "@/lib/request-url";
-import {
-  generateHostKeyTokenBundle,
-  HOST_KEY_DEFAULT_SCOPES,
-  HOST_KEY_SCOPE_ORDER,
-  nextHostKeyVersion,
-  normalizeHostKeyScope,
-  normalizeHostKeyScopes,
-  parseHostKeyScopes,
-  serializeHostKeyScopes,
-  type HostKeyScope,
-} from "@/lib/host-keys";
-import { summarizeHostKey, verifyHostTokenForScope } from "@/lib/host-key-auth";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
 const IS_BUILD_TIME =
   process.env.NEXT_PHASE === "phase-production-build" ||
   process.env.npm_lifecycle_event === "build";
@@ -50,7 +37,9 @@ function trimLabel(raw: unknown): string | null {
   return t.length ? t : null;
 }
 
-function parseExpiresAt(raw: unknown): { ok: true; value: Date | null } | { ok: false; error: string } {
+function parseExpiresAt(
+  raw: unknown
+): { ok: true; value: Date | null } | { ok: false; error: string } {
   if (raw === undefined) return { ok: true, value: null };
   if (raw === null || raw === "") return { ok: true, value: null };
   if (typeof raw !== "string") return { ok: false, error: "expiresAt must be an ISO date string" };
@@ -59,41 +48,100 @@ function parseExpiresAt(raw: unknown): { ok: true; value: Date | null } | { ok: 
   return { ok: true, value: ts };
 }
 
-function toScopes(raw: unknown): HostKeyScope[] {
-  return normalizeHostKeyScopes(raw, HOST_KEY_DEFAULT_SCOPES);
+async function loadDeps() {
+  const [prismaMod, rbacMod, auditMod, reqUrlMod, hostKeysMod, hostKeyAuthMod] =
+    await Promise.all([
+      import("@/lib/prisma"),
+      import("@/lib/rbac"),
+      import("@/lib/audit-log"),
+      import("@/lib/request-url"),
+      import("@/lib/host-keys"),
+      import("@/lib/host-key-auth"),
+    ]);
+
+  return {
+    prisma: prismaMod.prisma,
+    requireAdminAccess: rbacMod.requireAdminAccess,
+    writeAuditLog: auditMod.writeAuditLog,
+    safeRequestUrl: reqUrlMod.safeRequestUrl,
+    hostKeys: hostKeysMod,
+    hostKeyAuth: hostKeyAuthMod,
+  };
 }
 
-async function requireManagedHost(req: Request, hostId: string) {
-  const access = await requireAdminAccess();
-  if (!access.ok) {
-    await writeAuditLog({
+type ManagedOk = {
+  ok: true;
+  host: { id: string; name: string; slug: string | null };
+  identity: { userId: string; email?: string | null; role?: string | null };
+};
+
+type ManagedFail = {
+  ok: false;
+  status: number;
+  error: string;
+  identity?: { userId?: string; email?: string | null; role?: string | null };
+};
+
+async function requireManagedHost(
+  deps: Awaited<ReturnType<typeof loadDeps>>,
+  req: Request,
+  hostId: string
+): Promise<ManagedOk | ManagedFail> {
+  const access: any = await deps.requireAdminAccess();
+
+  // Normalize shape defensively so we don't fight Next-auth/RBAC unions here.
+  if (!access || access.ok !== true) {
+    const status = typeof access?.status === "number" ? access.status : 403;
+    const error = typeof access?.error === "string" ? access.error : "Access denied";
+    const email = typeof access?.email === "string" ? access.email : null;
+    const role = typeof access?.role === "string" || access?.role === null ? access.role : null;
+
+    await deps.writeAuditLog({
       req,
       action: "host.key.manage.denied",
-      detail: `status=${access.status} role=${access.role ?? "unknown"} email=${access.email ?? "unknown"}`,
+      detail: `status=${status} role=${role ?? "unknown"} email=${email ?? "unknown"}`,
       meta: {
         route: "/api/hosts/[hostId]/keys",
         requiredRole: "admin",
-        status: access.status,
-        email: access.email ?? null,
-        role: access.role ?? null,
+        status,
+        email,
+        role,
+        hostId,
       },
     });
-    return { ok: false as const, access };
+
+    return { ok: false, status, error, identity: { email, role } };
   }
 
-  const host = await prisma.host.findFirst({
-    where: { id: hostId, userId: access.identity.userId },
+  const userId: string | undefined = access?.identity?.userId;
+  const email = typeof access?.identity?.email === "string" ? access.identity.email : null;
+  const role =
+    typeof access?.identity?.role === "string" || access?.identity?.role === null
+      ? access.identity.role
+      : null;
+
+  if (!userId) {
+    return { ok: false, status: 403, error: "Access identity missing userId" };
+  }
+
+  const host = await deps.prisma.host.findFirst({
+    where: { id: hostId, userId },
     select: { id: true, name: true, slug: true },
   });
+
   if (!host) {
-    return { ok: false as const, access, host: null };
+    return { ok: false, status: 404, error: "Host not found" };
   }
 
-  return { ok: true as const, access, host };
+  return { ok: true, host, identity: { userId, email, role } };
 }
 
-async function listHostKeys(hostId: string, includeRevoked: boolean) {
-  const rows = await prisma.hostApiKey.findMany({
+async function listHostKeys(
+  deps: Awaited<ReturnType<typeof loadDeps>>,
+  hostId: string,
+  includeRevoked: boolean
+) {
+  const rows = await deps.prisma.hostApiKey.findMany({
     where: {
       hostId,
       ...(includeRevoked ? {} : { revokedAt: null }),
@@ -101,47 +149,42 @@ async function listHostKeys(hostId: string, includeRevoked: boolean) {
     orderBy: [{ version: "desc" }, { createdAt: "desc" }],
     select: HOST_KEY_SELECT,
   });
-  return rows.map((row) => summarizeHostKey(row));
+
+  return rows.map((row: any) => deps.hostKeyAuth.summarizeHostKey(row));
 }
 
-export async function GET(
-  req: Request,
-  ctx: { params: Promise<{ hostId: string }> }
-) {
+// IMPORTANT: Next 16 app-route type checker wants ctx.params as a Promise (matches your verify route)
+export async function GET(req: Request, ctx: { params: Promise<{ hostId: string }> }) {
   if (IS_BUILD_TIME) {
     return NextResponse.json({
       ok: true,
       buildPhase: true,
       host: null,
-      keyScopes: HOST_KEY_SCOPE_ORDER,
-      defaults: {
-        createScopes: HOST_KEY_DEFAULT_SCOPES,
-        includeRevokedDefault: true,
-      },
+      keyScopes: [],
+      defaults: { createScopes: [], includeRevokedDefault: true },
       latestActiveKeyId: null,
       keys: [],
     });
   }
 
+  const deps = await loadDeps();
   const { hostId } = await ctx.params;
-  const managed = await requireManagedHost(req, hostId);
+
+  const managed = await requireManagedHost(deps, req, hostId);
   if (!managed.ok) {
-    if (managed.host === null) {
-      return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
-    }
-    return NextResponse.json({ ok: false, error: managed.access.error }, { status: managed.access.status });
+    return NextResponse.json({ ok: false, error: managed.error }, { status: managed.status });
   }
 
-  const includeRevoked = parseBool(safeRequestUrl(req).searchParams.get("includeRevoked"), true);
-  const keys = await listHostKeys(hostId, includeRevoked);
-  const active = keys.find((k) => k.state === "active") ?? null;
+  const includeRevoked = parseBool(deps.safeRequestUrl(req).searchParams.get("includeRevoked"), true);
+  const keys = await listHostKeys(deps, hostId, includeRevoked);
+  const active = keys.find((k: any) => k.state === "active") ?? null;
 
   return NextResponse.json({
     ok: true,
     host: managed.host,
-    keyScopes: HOST_KEY_SCOPE_ORDER,
+    keyScopes: deps.hostKeys.HOST_KEY_SCOPE_ORDER,
     defaults: {
-      createScopes: HOST_KEY_DEFAULT_SCOPES,
+      createScopes: deps.hostKeys.HOST_KEY_DEFAULT_SCOPES,
       includeRevokedDefault: true,
     },
     latestActiveKeyId: active?.id ?? null,
@@ -149,55 +192,57 @@ export async function GET(
   });
 }
 
-export async function POST(
-  req: Request,
-  ctx: { params: Promise<{ hostId: string }> }
-) {
+export async function POST(req: Request, ctx: { params: Promise<{ hostId: string }> }) {
   if (IS_BUILD_TIME) {
     return NextResponse.json({ ok: true, buildPhase: true, action: "noop" });
   }
 
+  const deps = await loadDeps();
   const { hostId } = await ctx.params;
-  const managed = await requireManagedHost(req, hostId);
+
+  const managed = await requireManagedHost(deps, req, hostId);
   if (!managed.ok) {
-    if (managed.host === null) {
-      return NextResponse.json({ ok: false, error: "Host not found" }, { status: 404 });
-    }
-    return NextResponse.json({ ok: false, error: managed.access.error }, { status: managed.access.status });
+    return NextResponse.json({ ok: false, error: managed.error }, { status: managed.status });
   }
 
-  const body = await req.json().catch(() => ({}));
+  const body: any = await req.json().catch(() => ({}));
   const action = typeof body?.action === "string" ? body.action.trim().toLowerCase() : "";
 
+  const toScopes = (raw: unknown) =>
+    deps.hostKeys.normalizeHostKeyScopes(raw, deps.hostKeys.HOST_KEY_DEFAULT_SCOPES);
+
+  // -------------------- create --------------------
   if (action === "create") {
     const scopes = toScopes(body?.scopes);
     const expires = parseExpiresAt(body?.expiresAt);
     if (!expires.ok) return NextResponse.json({ ok: false, error: expires.error }, { status: 400 });
+
     const label = trimLabel(body?.label) ?? "scoped key";
 
-    const versionRows = await prisma.hostApiKey.findMany({
+    const versionRows = await deps.prisma.hostApiKey.findMany({
       where: { hostId },
       select: { version: true },
     });
-    const nextVersion = nextHostKeyVersion(versionRows);
-    const tokenBundle = generateHostKeyTokenBundle(nextVersion);
 
-    const created = await prisma.hostApiKey.create({
+    const nextVersion = deps.hostKeys.nextHostKeyVersion(versionRows);
+    const tokenBundle = deps.hostKeys.generateHostKeyTokenBundle(nextVersion);
+
+    const created = await deps.prisma.hostApiKey.create({
       data: {
         hostId,
         tokenHash: tokenBundle.tokenHash,
         prefix: tokenBundle.prefix,
         version: tokenBundle.version,
         label,
-        scopeJson: serializeHostKeyScopes(scopes),
+        scopeJson: deps.hostKeys.serializeHostKeyScopes(scopes),
         expiresAt: expires.value,
       },
       select: HOST_KEY_SELECT,
     });
 
-    await writeAuditLog({
+    await deps.writeAuditLog({
       req,
-      userId: managed.access.identity.userId,
+      userId: managed.identity.userId,
       hostId,
       action: "host.key.create",
       detail: `Created host key ${created.prefix} v${created.version}`,
@@ -214,31 +259,31 @@ export async function POST(
       {
         ok: true,
         action,
-        key: summarizeHostKey(created),
-        secret: {
-          token: tokenBundle.token,
-          note: "Token shown once. Save it now.",
-        },
+        key: deps.hostKeyAuth.summarizeHostKey(created),
+        secret: { token: tokenBundle.token, note: "Token shown once. Save it now." },
       },
       { status: 201 }
     );
   }
 
+  // -------------------- rotate --------------------
   if (action === "rotate") {
     const sourceKeyId =
       typeof body?.sourceKeyId === "string" && body.sourceKeyId.trim()
         ? body.sourceKeyId.trim()
         : null;
+
     const explicitScopes = body?.scopes !== undefined;
+
     const expires = parseExpiresAt(body?.expiresAt);
     if (!expires.ok) return NextResponse.json({ ok: false, error: expires.error }, { status: 400 });
 
     const source = sourceKeyId
-      ? await prisma.hostApiKey.findFirst({
+      ? await deps.prisma.hostApiKey.findFirst({
           where: { id: sourceKeyId, hostId },
           select: HOST_KEY_SELECT,
         })
-      : await prisma.hostApiKey.findFirst({
+      : await deps.prisma.hostApiKey.findFirst({
           where: {
             hostId,
             revokedAt: null,
@@ -249,24 +294,31 @@ export async function POST(
         });
 
     if (!source) {
-      return NextResponse.json({ ok: false, error: "No source key available for rotation" }, { status: 409 });
+      return NextResponse.json(
+        { ok: false, error: "No source key available for rotation" },
+        { status: 409 }
+      );
     }
 
-    const versionRows = await prisma.hostApiKey.findMany({
+    const versionRows = await deps.prisma.hostApiKey.findMany({
       where: { hostId },
       select: { version: true },
     });
-    const computedVersion = nextHostKeyVersion(versionRows);
-    const nextVersion = Math.max(source.version + 1, computedVersion);
-    const tokenBundle = generateHostKeyTokenBundle(nextVersion);
 
-    const sourceScopes = parseHostKeyScopes(source.scopeJson);
+    const computedVersion = deps.hostKeys.nextHostKeyVersion(versionRows);
+    const nextVersion = Math.max(source.version + 1, computedVersion);
+
+    const tokenBundle = deps.hostKeys.generateHostKeyTokenBundle(nextVersion);
+
+    const sourceScopes = deps.hostKeys.parseHostKeyScopes(source.scopeJson);
     const scopes = explicitScopes ? toScopes(body?.scopes) : sourceScopes;
+
     const nextLabel = trimLabel(body?.label) ?? `rotation of ${source.prefix}`;
-    const rotateReason = trimLabel(body?.reason) ?? `rotated_by:${managed.access.identity.email}`;
+    const rotateReason =
+      trimLabel(body?.reason) ?? `rotated_by:${managed.identity.email ?? "unknown"}`;
     const expiresAt = expires.value ?? source.expiresAt;
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await deps.prisma.$transaction(async (tx: any) => {
       const created = await tx.hostApiKey.create({
         data: {
           hostId,
@@ -274,7 +326,7 @@ export async function POST(
           prefix: tokenBundle.prefix,
           version: tokenBundle.version,
           label: nextLabel,
-          scopeJson: serializeHostKeyScopes(scopes),
+          scopeJson: deps.hostKeys.serializeHostKeyScopes(scopes),
           expiresAt,
           rotatedFromKeyId: source.id,
         },
@@ -293,9 +345,9 @@ export async function POST(
       return { created, revoked };
     });
 
-    await writeAuditLog({
+    await deps.writeAuditLog({
       req,
-      userId: managed.access.identity.userId,
+      userId: managed.identity.userId,
       hostId,
       action: "host.key.rotate",
       detail: `Rotated ${result.revoked.prefix} -> ${result.created.prefix}`,
@@ -305,6 +357,7 @@ export async function POST(
         newKeyId: result.created.id,
         newVersion: result.created.version,
         scopes,
+        expiresAt: expiresAt ? expiresAt.toISOString() : null,
       },
     });
 
@@ -312,41 +365,37 @@ export async function POST(
       ok: true,
       action,
       rotated: {
-        from: summarizeHostKey(result.revoked),
-        to: summarizeHostKey(result.created),
+        from: deps.hostKeyAuth.summarizeHostKey(result.revoked),
+        to: deps.hostKeyAuth.summarizeHostKey(result.created),
       },
-      secret: {
-        token: tokenBundle.token,
-        note: "Token shown once. Save it now.",
-      },
+      secret: { token: tokenBundle.token, note: "Token shown once. Save it now." },
     });
   }
 
+  // -------------------- revoke --------------------
   if (action === "revoke") {
     const keyId = typeof body?.keyId === "string" ? body.keyId.trim() : "";
     if (!keyId) return NextResponse.json({ ok: false, error: "keyId is required" }, { status: 400 });
 
-    const existing = await prisma.hostApiKey.findFirst({
+    const existing = await deps.prisma.hostApiKey.findFirst({
       where: { id: keyId, hostId },
       select: HOST_KEY_SELECT,
     });
     if (!existing) return NextResponse.json({ ok: false, error: "Key not found" }, { status: 404 });
 
-    const reason = trimLabel(body?.reason) ?? `revoked_by:${managed.access.identity.email}`;
+    const reason = trimLabel(body?.reason) ?? `revoked_by:${managed.identity.email ?? "unknown"}`;
+
     const revoked = existing.revokedAt
       ? existing
-      : await prisma.hostApiKey.update({
+      : await deps.prisma.hostApiKey.update({
           where: { id: existing.id },
-          data: {
-            revokedAt: new Date(),
-            revokedReason: reason,
-          },
+          data: { revokedAt: new Date(), revokedReason: reason },
           select: HOST_KEY_SELECT,
         });
 
-    await writeAuditLog({
+    await deps.writeAuditLog({
       req,
-      userId: managed.access.identity.userId,
+      userId: managed.identity.userId,
       hostId,
       action: "host.key.revoke",
       detail: `Revoked host key ${revoked.prefix}`,
@@ -361,27 +410,38 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       action,
-      key: summarizeHostKey(revoked),
+      key: deps.hostKeyAuth.summarizeHostKey(revoked),
       alreadyRevoked: Boolean(existing.revokedAt),
     });
   }
 
+  // -------------------- verify --------------------
   if (action === "verify") {
     const token = typeof body?.token === "string" ? body.token.trim() : "";
     if (!token) return NextResponse.json({ ok: false, error: "token is required" }, { status: 400 });
 
     const rawScope = body?.requiredScope ?? body?.scope;
     const requiredScopeRaw = typeof rawScope === "string" ? rawScope.trim() : "";
-    const requiredScope = requiredScopeRaw ? normalizeHostKeyScope(requiredScopeRaw) : null;
+    const requiredScope = requiredScopeRaw
+      ? deps.hostKeys.normalizeHostKeyScope(requiredScopeRaw)
+      : null;
+
     if (requiredScopeRaw && !requiredScope) {
-      return NextResponse.json({ ok: false, error: "Unsupported scope" }, { status: 400 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Unsupported scope. Allowed: ${deps.hostKeys.HOST_KEY_SCOPE_ORDER.join(", ")}`,
+        },
+        { status: 400 }
+      );
     }
 
-    const verified = await verifyHostTokenForScope({
+    const verified = await deps.hostKeyAuth.verifyHostTokenForScope({
       hostId,
       token,
       requiredScope: requiredScope ?? undefined,
     });
+
     if (!verified.ok) {
       return NextResponse.json(
         {
@@ -390,6 +450,7 @@ export async function POST(
           code: verified.code,
           requiredScope: verified.requiredScope ?? null,
           key: verified.keySummary ?? null,
+          host: null,
         },
         { status: verified.status }
       );

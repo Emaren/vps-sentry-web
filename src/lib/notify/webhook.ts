@@ -1,4 +1,5 @@
 import { incrementCounter, logEvent, observeTiming } from "@/lib/observability";
+import { coerceUrlString } from "@/lib/safe-url";
 
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 8_000;
 const MAX_RESPONSE_DETAIL = 1_000;
@@ -65,7 +66,7 @@ export async function sendWebhookNotification(input: SendWebhookInput): Promise<
 
   let url: URL;
   try {
-    url = new URL(input.url);
+    url = new URL(coerceUrlString(input.url));
   } catch {
     incrementCounter("notify.webhook.send.failure.total", 1, { reason: "invalid_url" });
     observeTiming("notify.webhook.send.duration_ms", Date.now() - started, {

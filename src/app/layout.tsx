@@ -1,4 +1,5 @@
 // /var/www/vps-sentry-web/src/app/layout.tsx
+import "@/lib/url-trap-runtime";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
@@ -14,8 +15,39 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Never throw on weird build-worker env/request situations.
+function safeMetadataBase(): URL {
+  const raw =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    process.env.NEXTAUTH_URL ||
+    "https://vps-sentry.tokentap.ca";
+
+  const s = String(raw ?? "").trim();
+
+  // Guard the exact failure you’re seeing
+  if (!s || s === "[object Object]") return new URL("https://vps-sentry.tokentap.ca");
+
+  // Absolute URL?
+  try {
+    return new URL(s);
+  } catch {
+    // If missing scheme, try https then http
+    try {
+      return new URL(`https://${s}`);
+    } catch {
+      try {
+        return new URL(`http://${s}`);
+      } catch {
+        return new URL("https://vps-sentry.tokentap.ca");
+      }
+    }
+  }
+}
+
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://vps-sentry.tokentap.ca"),
+  metadataBase: safeMetadataBase(),
   title: "VPS Sentry",
   description:
     "Monitor SSH logins, public ports, and watched system files. Get alerted when anything changes.",
@@ -56,7 +88,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const plausibleSrc =
-    process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ?? "https://plausible.io/js/pa-VDQL7gVqfpbKgwbCot3B8.js";
+    process.env.NEXT_PUBLIC_PLAUSIBLE_SRC ??
+    "https://plausible.io/js/pa-VDQL7gVqfpbKgwbCot3B8.js";
 
   return (
     <html lang="en" data-site-theme="dark">

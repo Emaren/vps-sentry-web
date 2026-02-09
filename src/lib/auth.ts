@@ -5,6 +5,7 @@ import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import GoogleProvider from "next-auth/providers/google";
 import EmailProvider from "next-auth/providers/email";
 import { prisma } from "@/lib/prisma";
+import { coerceUrlString } from "@/lib/safe-url";
 
 /**
  * IMPORTANT: Do NOT throw during module import.
@@ -75,7 +76,7 @@ type EmailServerConfig =
 function buildEmailServerFromUrl(urlStr: string): EmailServerConfig | null {
   try {
     // Accept smtp://user:pass@host:port or smtps://...
-    const u = new URL(urlStr);
+    const u = new URL(coerceUrlString(urlStr));
     const protocol = (u.protocol || "").replace(":", "");
     const host = u.hostname;
     const port = u.port ? Number(u.port) : protocol === "smtps" ? 465 : 587;

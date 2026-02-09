@@ -24,6 +24,9 @@ import {
   type AppRole,
 } from "@/lib/rbac-policy";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function fmtDate(d?: Date | null) {
   if (!d) return "-";
   try {

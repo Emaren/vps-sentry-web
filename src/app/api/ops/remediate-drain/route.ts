@@ -1,11 +1,116 @@
+// /var/www/vps-sentry-web/src/app/api/ops/remediate-drain/route.ts
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
-import { requireOpsAccess } from "@/lib/rbac";
-import { drainRemediationQueue } from "@/lib/remediate/queue";
-import { writeAuditLog } from "@/lib/audit-log";
-import { incrementCounter, runObservedRoute } from "@/lib/observability";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
+
+const FALLBACK_BASE =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.APP_URL ||
+  process.env.NEXTAUTH_URL ||
+  "http://localhost";
+
+// ---------- build-worker / weird Request hardening ----------
+
+function isBadUrlString(v: unknown): boolean {
+  if (typeof v !== "string") return true;
+  const s = v.trim();
+  if (!s) return true;
+  if (s === "[object Object]") return true;
+  return false;
+}
+
+function canParseUrlString(v: unknown): boolean {
+  if (isBadUrlString(v)) return false;
+  const s = String(v).trim();
+  try {
+    // eslint-disable-next-line no-new
+    new URL(s, FALLBACK_BASE);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function canParseNextUrl(nextUrl: unknown): boolean {
+  if (!nextUrl || typeof nextUrl !== "object") return false;
+  const anyNext = nextUrl as any;
+
+  if (!isBadUrlString(anyNext?.href)) return canParseUrlString(anyNext.href);
+
+  if (!isBadUrlString(anyNext?.pathname)) {
+    const pathname = String(anyNext.pathname).trim();
+    const search = typeof anyNext.search === "string" ? anyNext.search : "";
+    return canParseUrlString(`${pathname}${search}`);
+  }
+
+  return false;
+}
+
+function shouldStub(req: Request): boolean {
+  if (IS_BUILD_TIME) return true;
+
+  const anyReq = req as any;
+
+  const okUrl = canParseUrlString(anyReq?.url);
+
+  const hasNextUrl = anyReq?.nextUrl !== undefined;
+  const okNextUrl = !hasNextUrl ? true : canParseNextUrl(anyReq?.nextUrl);
+
+  return !(okUrl && okNextUrl);
+}
+
+function safeUrlString(req: Request): string {
+  const anyReq = req as any;
+
+  const raw = anyReq?.url;
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (s && s !== "[object Object]") return s;
+  }
+
+  const href = anyReq?.nextUrl?.href;
+  if (typeof href === "string") {
+    const s = href.trim();
+    if (s && s !== "[object Object]") return s;
+  }
+
+  return "/";
+}
+
+/**
+ * Minimal Request-like object with safe string `url` and no `nextUrl`.
+ * Use this when passing req into helpers that might do new URL(req.url).
+ */
+function makeSafeReq(req: Request): Request {
+  const url = safeUrlString(req);
+  const method = (req as any)?.method ?? "POST";
+  return { headers: req.headers, url, method } as any as Request;
+}
+
+// ---------- stubs ----------
+
+function stubPost() {
+  return NextResponse.json({
+    ok: true,
+    buildPhase: true,
+    authMode: "token",
+    drained: {
+      ok: true,
+      processed: 0,
+      requestedLimit: 0,
+      errors: [],
+    },
+    note: "stubbed during build collection",
+  });
+}
+
+// ---------- auth helper ----------
 
 function hasValidQueueToken(req: Request): boolean {
   const expected = process.env.VPS_REMEDIATE_QUEUE_TOKEN?.trim();
@@ -21,64 +126,136 @@ function hasValidQueueToken(req: Request): boolean {
   return timingSafeEqual(a, b);
 }
 
+function clampInt(v: number, min: number, max: number): number {
+  if (!Number.isFinite(v)) return min;
+  const t = Math.trunc(v);
+  if (t < min) return min;
+  if (t > max) return max;
+  return t;
+}
+
+// ---------- lazy deps (avoid import-time surprises during build collection) ----------
+
+async function loadDeps() {
+  const [rbacMod, queueMod, auditMod, obsMod] = await Promise.all([
+    import("@/lib/rbac"),
+    import("@/lib/remediate/queue"),
+    import("@/lib/audit-log").catch(() => ({} as any)),
+    import("@/lib/observability").catch(() => ({} as any)),
+  ]);
+
+  const requireOpsAccess = (rbacMod as any).requireOpsAccess as () => Promise<any>;
+  const drainRemediationQueue = (queueMod as any).drainRemediationQueue as (input: any) => Promise<any>;
+
+  const writeAuditLog =
+    (auditMod as any).writeAuditLog ??
+    (async (_input: any) => {
+      /* no-op */
+    });
+
+  const incrementCounter = (obsMod as any).incrementCounter ?? (() => {});
+  const runObservedRoute =
+    (obsMod as any).runObservedRoute ??
+    (async (_req: Request, _meta: any, handler: (ctx: any) => Promise<Response>) => {
+      return handler({
+        correlationId: "fallback",
+        traceId: "fallback",
+        spanId: "fallback",
+        parentSpanId: null,
+        route: _meta?.route ?? null,
+        method: (_req as any)?.method ?? null,
+        userId: null,
+        hostId: null,
+        source: _meta?.source ?? null,
+      });
+    });
+
+  return {
+    requireOpsAccess,
+    drainRemediationQueue,
+    writeAuditLog,
+    incrementCounter,
+    runObservedRoute,
+  };
+}
+
+// ---------- route ----------
+
 export async function POST(req: Request) {
-  return runObservedRoute(req, { route: "/api/ops/remediate-drain", source: "ops-remediate-drain" }, async (obsCtx) => {
-    let actorUserId: string | null = null;
-    let authMode: "token" | "ops" = "token";
+  // MUST be first: Next build worker can invoke route handlers with a weird req.url object
+  if (shouldStub(req)) return stubPost();
 
-    if (!hasValidQueueToken(req)) {
-      const access = await requireOpsAccess();
-      if (!access.ok) {
-        incrementCounter("ops.remediate_drain.denied.total", 1, {
-          status: access.status,
-        });
-        await writeAuditLog({
-          req,
-          action: "ops.remediate_queue_drain.denied",
-          detail: `status=${access.status} email=${access.email ?? "unknown"}`,
-          meta: {
-            route: "/api/ops/remediate-drain",
-            status: access.status,
-            requiredRole: "ops",
-            email: access.email ?? null,
-            role: access.role ?? null,
-          },
-        });
-        return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+  const deps = await loadDeps();
+  const safeReq = makeSafeReq(req);
+
+  return deps.runObservedRoute(
+    safeReq,
+    { route: "/api/ops/remediate-drain", source: "ops-remediate-drain" },
+    async (obsCtx: any) => {
+      let actorUserId: string | null = null;
+      let authMode: "token" | "ops" = "token";
+
+      if (!hasValidQueueToken(req)) {
+        const access = await deps.requireOpsAccess();
+        if (!access?.ok) {
+          deps.incrementCounter("ops.remediate_drain.denied.total", 1, {
+            status: String(access?.status ?? 403),
+          });
+
+          await deps.writeAuditLog({
+            req: safeReq,
+            action: "ops.remediate_queue_drain.denied",
+            detail: `status=${access?.status ?? 403} email=${access?.email ?? "unknown"}`,
+            meta: {
+              route: "/api/ops/remediate-drain",
+              status: access?.status ?? 403,
+              requiredRole: "ops",
+              email: access?.email ?? null,
+              role: access?.role ?? null,
+            },
+          });
+
+          return NextResponse.json(
+            { ok: false, error: access?.error ?? "Access denied" },
+            { status: typeof access?.status === "number" ? access.status : 403 }
+          );
+        }
+
+        actorUserId = access.identity.userId;
+        obsCtx.userId = actorUserId;
+        authMode = "ops";
       }
-      actorUserId = access.identity.userId;
-      obsCtx.userId = actorUserId;
-      authMode = "ops";
-    }
 
-    const body = await req.json().catch(() => ({}));
-    const limitRaw = Number(body?.limit ?? 5);
-    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 50)) : 5;
+      const body: any = await req.json().catch(() => ({}));
+      const limitRaw = Number(body?.limit ?? 5);
+      const limit = clampInt(Number.isFinite(limitRaw) ? limitRaw : 5, 1, 50);
 
-    const drained = await drainRemediationQueue({ limit });
-    incrementCounter("ops.remediate_drain.total", 1, {
-      authMode,
-      ok: drained.ok ? "true" : "false",
-    });
+      const drained = await deps.drainRemediationQueue({ limit });
 
-    await writeAuditLog({
-      req,
-      userId: actorUserId,
-      action: "ops.remediate_queue_drain",
-      detail: `Processed ${drained.processed}/${drained.requestedLimit} queued run(s)`,
-      meta: {
-        route: "/api/ops/remediate-drain",
+      deps.incrementCounter("ops.remediate_drain.total", 1, {
         authMode,
-        processed: drained.processed,
-        requestedLimit: drained.requestedLimit,
-        ok: drained.ok,
-      },
-    });
+        ok: drained?.ok ? "true" : "false",
+      });
 
-    return NextResponse.json({
-      ok: true,
-      authMode,
-      drained,
-    });
-  });
+      await deps.writeAuditLog({
+        req: safeReq,
+        userId: actorUserId,
+        action: "ops.remediate_queue_drain",
+        detail: `Processed ${drained?.processed ?? 0}/${drained?.requestedLimit ?? limit} queued run(s)`,
+        meta: {
+          route: "/api/ops/remediate-drain",
+          authMode,
+          processed: drained?.processed ?? 0,
+          requestedLimit: drained?.requestedLimit ?? limit,
+          ok: Boolean(drained?.ok),
+        },
+      });
+
+      return NextResponse.json({
+        ok: true,
+        authMode,
+        drained,
+      });
+    }
+  );
 }
