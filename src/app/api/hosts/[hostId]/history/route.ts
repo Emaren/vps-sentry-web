@@ -1,13 +1,4 @@
-// /var/www/vps-sentry-web/src/app/api/hosts/[hostId]/history/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { normalizeHostKeyScope } from "@/lib/host-keys";
-import { safeRequestUrl } from "@/lib/request-url";
-import {
-  readBearerToken,
-  touchHostKeyLastUsed,
-  verifyHostTokenForScope,
-} from "@/lib/host-key-auth";
 
 export const dynamic = "force-dynamic";
 const IS_BUILD_TIME =
@@ -21,6 +12,18 @@ export async function GET(
   if (IS_BUILD_TIME) {
     return NextResponse.json({ ok: true, buildPhase: true, hostId: null, items: [] });
   }
+
+  const [
+    { prisma },
+    { normalizeHostKeyScope },
+    { safeRequestUrl },
+    { readBearerToken, touchHostKeyLastUsed, verifyHostTokenForScope },
+  ] = await Promise.all([
+    import("@/lib/prisma"),
+    import("@/lib/host-keys"),
+    import("@/lib/request-url"),
+    import("@/lib/host-key-auth"),
+  ]);
 
   const { hostId } = await ctx.params;
 
