@@ -39,21 +39,31 @@ function isBadUrlString(v: unknown): boolean {
   return false;
 }
 
+type ReqLike = {
+  url?: unknown;
+  nextUrl?: {
+    href?: unknown;
+    pathname?: unknown;
+    search?: unknown;
+  };
+};
+
 function pickCandidateUrl(req: unknown): string {
-  const anyReq = req as any;
+  const reqLike = (req && typeof req === "object" ? req : null) as ReqLike | null;
 
   // 1) req.url
-  const raw = anyReq?.url;
+  const raw = reqLike?.url;
   if (!isBadUrlString(raw)) return String(raw).trim();
 
   // 2) req.nextUrl?.href
-  const href = anyReq?.nextUrl?.href;
+  const href = reqLike?.nextUrl?.href;
   if (!isBadUrlString(href)) return String(href).trim();
 
   // 3) req.nextUrl?.pathname + search
-  const pathname = anyReq?.nextUrl?.pathname;
+  const pathname = reqLike?.nextUrl?.pathname;
   if (!isBadUrlString(pathname)) {
-    const search = typeof anyReq?.nextUrl?.search === "string" ? anyReq.nextUrl.search : "";
+    const search =
+      typeof reqLike?.nextUrl?.search === "string" ? reqLike.nextUrl.search : "";
     return `${String(pathname).trim()}${search}`;
   }
 

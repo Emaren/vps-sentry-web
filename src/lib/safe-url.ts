@@ -18,9 +18,11 @@ export function coerceUrlString(input: unknown): string {
   if (input instanceof URL) return input.toString();
 
   if (input && typeof input === "object") {
-    const any = input as any;
-    if (typeof any.href === "string") return any.href.trim();
-    if (typeof any.url === "string") return any.url.trim();
+    const withHref = input as { href?: unknown };
+    if (typeof withHref.href === "string") return withHref.href.trim();
+
+    const withUrl = input as { url?: unknown };
+    if (typeof withUrl.url === "string") return withUrl.url.trim();
   }
 
   const s = String(input ?? "").trim();

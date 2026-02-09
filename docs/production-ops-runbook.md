@@ -53,6 +53,11 @@ Checks included:
 - root filesystem usage threshold
 - backup freshness (`$VPS_BACKUP_BASE/last_success_epoch`)
 
+App readiness probes:
+
+- process-only readiness: `curl -fsS "http://127.0.0.1:${VPS_WEB_PORT}/api/readyz"`
+- DB-inclusive readiness: `curl -fsS "http://127.0.0.1:${VPS_WEB_PORT}/api/readyz?check=db"`
+
 ## 3) Alerting
 
 Manual alert test:

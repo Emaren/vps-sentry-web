@@ -77,3 +77,12 @@ Tune in `.vps.env`:
 - `VPS_OBS_MAX_ALERTS`
 
 These are process-local in-memory ring buffers (cleared on restart/deploy).
+
+## Datadog trial mode (safe local QA)
+
+If the host injects Datadog globally through `NODE_OPTIONS`, local quality checks can become noisy.
+Use these commands for deterministic baseline checks while keeping Datadog enabled for separate trials:
+
+- `npm run qa:baseline` (lint + test + build with `DD_TRACE_ENABLED=false` and empty `NODE_OPTIONS`)
+- `npm test` (same deterministic test mode)
+- `npm run test:dd` (run tests with current host Datadog behavior)

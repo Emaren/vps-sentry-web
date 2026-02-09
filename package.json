@@ -7,9 +7,11 @@
     "build": "DD_TRACE_ENABLED=false next build --webpack",
     "start": "DD_TRACE_ENABLED=false next start",
 
-    "lint": "eslint",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "lint": "DD_TRACE_ENABLED=false NODE_OPTIONS='' eslint",
+    "test": "DD_TRACE_ENABLED=false NODE_OPTIONS='' vitest run",
+    "test:watch": "DD_TRACE_ENABLED=false NODE_OPTIONS='' vitest",
+    "test:dd": "vitest run",
+    "qa:baseline": "./scripts/qa-baseline.sh",
 
     "migrate:prod": "prisma migrate deploy",
     "generate": "prisma generate",
