@@ -10,6 +10,30 @@ const MAX_DETAIL_LEN = 600;
 const MAX_META_LEN = 6000;
 const MAX_USER_AGENT_LEN = 240;
 
+function isRequestLike(value: unknown): value is Request {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as {
+    url?: unknown;
+    method?: unknown;
+    headers?: { get?: (name: string) => string | null } | null;
+  };
+  return (
+    typeof candidate.url === "string" &&
+    typeof candidate.method === "string" &&
+    !!candidate.headers &&
+    typeof candidate.headers.get === "function"
+  );
+}
+
+function safeRouteFromRequest(req: Request): string {
+  try {
+    return new URL(req.url).pathname;
+  } catch {
+    if (req.url.startsWith("/")) return req.url;
+    return "unknown";
+  }
+}
+
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return `${s.slice(0, max)}...[truncated ${s.length - max} chars]`;
@@ -37,9 +61,10 @@ function mergeMetaWithObservability(
   action: string
 ): unknown {
   if (!req) return meta;
+  const route = safeRouteFromRequest(req);
   const obs = contextFromRequest(req, {
     source: "audit-log",
-    route: new URL(req.url).pathname,
+    route,
     method: req.method,
   });
   const baseMeta: Record<string, unknown> =
@@ -90,7 +115,7 @@ export type AuditInput = {
   detail?: string;
   userId?: string | null;
   hostId?: string | null;
-  req?: Request;
+  req?: unknown;
   meta?: unknown;
 };
 
@@ -100,6 +125,7 @@ export async function writeAuditLog(input: AuditInput): Promise<void> {
 
   const detail = input.detail?.trim();
   const started = Date.now();
+  const request = isRequestLike(input.req) ? input.req : undefined;
 
   try {
     await prisma.auditLog.create({
@@ -108,9 +134,9 @@ export async function writeAuditLog(input: AuditInput): Promise<void> {
         detail: detail ? truncate(detail, MAX_DETAIL_LEN) : null,
         userId: input.userId ?? null,
         hostId: input.hostId ?? null,
-        metaJson: stringifyMeta(mergeMetaWithObservability(input.req, input.meta, action)),
-        ip: extractIp(input.req),
-        userAgent: extractUserAgent(input.req),
+        metaJson: stringifyMeta(mergeMetaWithObservability(request, input.meta, action)),
+        ip: extractIp(request),
+        userAgent: extractUserAgent(request),
       },
     });
     incrementCounter("audit.write.success.total", 1, {
@@ -126,11 +152,11 @@ export async function writeAuditLog(input: AuditInput): Promise<void> {
     observeTiming("audit.write.duration_ms", Date.now() - started, {
       ok: "false",
     });
-    const obs = input.req
-      ? contextFromRequest(input.req, {
+    const obs = request
+      ? contextFromRequest(request, {
           source: "audit-log",
-          route: new URL(input.req.url).pathname,
-          method: input.req.method,
+          route: safeRouteFromRequest(request),
+          method: request.method,
         })
       : null;
     logEvent("error", "audit.write.failed", obs, {
