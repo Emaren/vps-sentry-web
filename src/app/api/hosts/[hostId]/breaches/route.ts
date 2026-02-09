@@ -6,6 +6,9 @@ import { requireOpsAccess, requireViewerAccess } from "@/lib/rbac";
 import { safeRequestUrl } from "@/lib/request-url";
 
 export const dynamic = "force-dynamic";
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
 
 function parseLimit(raw: string | null): number {
   const n = Number(raw ?? "");
@@ -61,6 +64,32 @@ export async function GET(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({
+      ok: true,
+      buildPhase: true,
+      host: null,
+      filters: {
+        state: "all",
+        severity: "all",
+        q: null,
+        includeEvidence: false,
+        limit: 0,
+      },
+      pagination: {
+        nextCursor: null,
+        hasMore: false,
+        limit: 0,
+      },
+      summary: {
+        total: 0,
+        byState: { open: 0, fixed: 0, ignored: 0 },
+        bySeverity: { info: 0, warn: 0, critical: 0 },
+      },
+      breaches: [],
+    });
+  }
+
   const access = await requireViewerAccess();
   if (!access.ok) {
     return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
@@ -186,6 +215,10 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({ ok: true, buildPhase: true, action: "noop" });
+  }
+
   const access = await requireOpsAccess();
   if (!access.ok) {
     await writeAuditLog({
@@ -332,5 +365,9 @@ export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({ ok: true, buildPhase: true, action: "noop" });
+  }
+
   return POST(req, ctx);
 }

@@ -17,6 +17,9 @@ import {
 import { summarizeHostKey, verifyHostTokenForScope } from "@/lib/host-key-auth";
 
 export const dynamic = "force-dynamic";
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
 
 const HOST_KEY_SELECT = {
   id: true,
@@ -105,6 +108,21 @@ export async function GET(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({
+      ok: true,
+      buildPhase: true,
+      host: null,
+      keyScopes: HOST_KEY_SCOPE_ORDER,
+      defaults: {
+        createScopes: HOST_KEY_DEFAULT_SCOPES,
+        includeRevokedDefault: true,
+      },
+      latestActiveKeyId: null,
+      keys: [],
+    });
+  }
+
   const { hostId } = await ctx.params;
   const managed = await requireManagedHost(req, hostId);
   if (!managed.ok) {
@@ -135,6 +153,10 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({ ok: true, buildPhase: true, action: "noop" });
+  }
+
   const { hostId } = await ctx.params;
   const managed = await requireManagedHost(req, hostId);
   if (!managed.ok) {

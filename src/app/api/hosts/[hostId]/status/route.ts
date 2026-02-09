@@ -12,6 +12,9 @@ import { incrementCounter, runObservedRoute } from "@/lib/observability";
 import { queueAutonomousRemediationForHost } from "@/lib/remediate/autonomous-runtime";
 
 export const dynamic = "force-dynamic";
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
 
 function safeParse(s: string) {
   try {
@@ -53,6 +56,24 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({
+      ok: true,
+      buildPhase: true,
+      hostId: null,
+      received: false,
+      persisted: false,
+      deduped: false,
+      warnings: [],
+      alertsCount: 0,
+      publicPortsCount: 0,
+      publicPortsTotalCount: 0,
+      unexpectedPublicPortsCount: 0,
+      expectedPublicPorts: null,
+      autonomous: null,
+    });
+  }
+
   const { hostId } = await ctx.params;
   return runObservedRoute(
     req,
@@ -267,6 +288,16 @@ export async function GET(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({
+      ok: true,
+      buildPhase: true,
+      hostId: null,
+      snapshot: null,
+      heartbeat: { state: "missing", targetEveryMinutes: 5, staleAfterMinutes: 15, missingAfterMinutes: 60 },
+    });
+  }
+
   const { hostId } = await ctx.params;
   return runObservedRoute(
     req,

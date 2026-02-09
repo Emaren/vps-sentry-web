@@ -8,6 +8,9 @@ import {
 } from "@/lib/host-key-auth";
 
 export const dynamic = "force-dynamic";
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
 
 function parseBool(v: string | null, fallback = false): boolean {
   if (!v) return fallback;
@@ -90,6 +93,17 @@ export async function GET(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({
+      ok: true,
+      buildPhase: true,
+      requiredScope: null,
+      touched: false,
+      key: null,
+      host: null,
+    });
+  }
+
   const { hostId } = await ctx.params;
   const url = safeRequestUrl(req);
   return runVerify({
@@ -104,6 +118,17 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({
+      ok: true,
+      buildPhase: true,
+      requiredScope: null,
+      touched: false,
+      key: null,
+      host: null,
+    });
+  }
+
   const { hostId } = await ctx.params;
   const url = safeRequestUrl(req);
   const body = await req.json().catch(() => ({}));

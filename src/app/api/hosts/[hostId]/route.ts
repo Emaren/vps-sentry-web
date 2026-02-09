@@ -18,6 +18,9 @@ import { requireAdminAccess, requireViewerAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
 
 export const dynamic = "force-dynamic";
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
 
 function toName(input: unknown): string | null {
   if (typeof input !== "string") return null;
@@ -134,6 +137,16 @@ export async function GET(
   _req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({
+      ok: true,
+      buildPhase: true,
+      host: null,
+      remediationPolicy: null,
+      fleetPolicy: null,
+    });
+  }
+
   const access = await requireViewerAccess();
   if (!access.ok) return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
 
@@ -220,6 +233,10 @@ export async function PUT(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({ ok: true, buildPhase: true, host: null });
+  }
+
   const access = await requireAdminAccess();
   if (!access.ok) {
     await writeAuditLog({
@@ -392,6 +409,10 @@ export async function DELETE(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({ ok: true, buildPhase: true });
+  }
+
   const access = await requireAdminAccess();
   if (!access.ok) {
     await writeAuditLog({

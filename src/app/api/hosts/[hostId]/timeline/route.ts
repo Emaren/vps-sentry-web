@@ -5,6 +5,9 @@ import { requireViewerAccess } from "@/lib/rbac";
 import { safeRequestUrl } from "@/lib/request-url";
 
 export const dynamic = "force-dynamic";
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
 
 function safeParse(s: string) {
   try {
@@ -18,6 +21,17 @@ export async function GET(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({
+      ok: true,
+      buildPhase: true,
+      hostId: null,
+      snapshotsConsidered: 0,
+      timeline: [],
+      summary: { total: 0, bySeverity: {}, byCode: {} },
+    });
+  }
+
   const access = await requireViewerAccess();
   if (!access.ok) {
     return NextResponse.json({ ok: false, error: access.error }, { status: access.status });

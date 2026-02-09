@@ -10,11 +10,18 @@ import {
 } from "@/lib/host-key-auth";
 
 export const dynamic = "force-dynamic";
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
 
 export async function GET(
   req: Request,
   ctx: { params: Promise<{ hostId: string }> }
 ) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({ ok: true, buildPhase: true, hostId: null, items: [] });
+  }
+
   const { hostId } = await ctx.params;
 
   const token = readBearerToken(req);
