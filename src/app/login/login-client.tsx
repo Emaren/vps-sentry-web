@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { signIn } from "next-auth/react";
+import { Manrope } from "next/font/google";
 
 type Providers = Record<
   string,
@@ -16,6 +17,11 @@ const ERROR_COPY: Record<string, string> = {
   Configuration: "Server auth configuration error.",
 };
 
+const heroFont = Manrope({
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
+});
+
 export default function LoginClient({
   callbackUrl,
   error,
@@ -26,6 +32,9 @@ export default function LoginClient({
   const [providers, setProviders] = useState<Providers>({});
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
+  const [magicStatus, setMagicStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [magicError, setMagicError] = useState<string | null>(null);
+  const resetMagicStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const errorText = useMemo(() => {
     if (!error) return null;
@@ -50,13 +59,27 @@ export default function LoginClient({
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (resetMagicStatusTimer.current) clearTimeout(resetMagicStatusTimer.current);
+    };
+  }, []);
+
   const hasGoogle = !!providers?.google;
   const hasEmail = !!providers?.email;
 
+  const magicButtonText =
+    magicStatus === "sending"
+      ? "Sending..."
+      : magicStatus === "sent"
+        ? "Sent"
+        : "Email me a magic link";
+
   return (
-    <div style={{ marginTop: 18 }}>
+    <div style={{ marginTop: 24, display: "grid", gap: 18, justifyItems: "center", width: "100%" }}>
       {errorText ? (
         <div
+          className={heroFont.className}
           style={{
             padding: 12,
             borderRadius: 12,
@@ -64,6 +87,8 @@ export default function LoginClient({
             background: "rgba(255,80,80,0.08)",
             marginBottom: 14,
             maxWidth: 520,
+            width: "100%",
+            textAlign: "left",
           }}
         >
           <b>Sign-in error:</b> {errorText}
@@ -73,9 +98,10 @@ export default function LoginClient({
         </div>
       ) : null}
 
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
         <button
           disabled={loading || !hasGoogle}
+          className={heroFont.className}
           style={{
             padding: "12px 14px",
             borderRadius: 12,
@@ -97,20 +123,54 @@ export default function LoginClient({
         </button>
       </div>
 
-      <div style={{ marginTop: 18 }}>
-        <div style={{ fontWeight: 800, marginBottom: 8 }}>Magic link</div>
+      <div style={{ width: "100%", maxWidth: 520 }}>
+        <div
+          className={heroFont.className}
+          style={{ fontWeight: 800, marginBottom: 8, textAlign: "center", fontSize: 22 }}
+        >
+          Magic link
+        </div>
         <form
-          style={{ display: "grid", gap: 10, maxWidth: 520 }}
-          onSubmit={(e) => {
+          style={{
+            display: "grid",
+            gap: 10,
+            maxWidth: 520,
+            width: "100%",
+            justifyItems: "center",
+          }}
+          onSubmit={async (e) => {
             e.preventDefault();
-            if (!email) return;
-            signIn("email", {
-              email,
-              callbackUrl: callbackUrl || "/dashboard",
-            });
+            if (!email || magicStatus === "sending" || loading || !hasEmail) return;
+
+            if (resetMagicStatusTimer.current) clearTimeout(resetMagicStatusTimer.current);
+            setMagicError(null);
+            setMagicStatus("sending");
+
+            try {
+              const result = await signIn("email", {
+                email,
+                callbackUrl: callbackUrl || "/dashboard",
+                redirect: false,
+              });
+
+              if (result?.error) {
+                setMagicStatus("idle");
+                setMagicError("Could not send the magic link. Please try again.");
+                return;
+              }
+
+              setMagicStatus("sent");
+              resetMagicStatusTimer.current = setTimeout(() => {
+                setMagicStatus("idle");
+              }, 1800);
+            } catch {
+              setMagicStatus("idle");
+              setMagicError("Could not send the magic link. Please try again.");
+            }
           }}
         >
           <input
+            className={heroFont.className}
             style={{
               padding: "12px 12px",
               borderRadius: 12,
@@ -118,7 +178,7 @@ export default function LoginClient({
               background: "rgba(255,255,255,0.03)",
               color: "inherit",
               width: "100%",
-              maxWidth: 420,
+              maxWidth: 520,
             }}
             type="email"
             placeholder="you@domain.com"
@@ -126,25 +186,46 @@ export default function LoginClient({
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            disabled={loading || !hasEmail}
+            disabled={loading || !hasEmail || magicStatus === "sending"}
           />
           <button
-            disabled={loading || !hasEmail}
+            disabled={loading || !hasEmail || magicStatus === "sending"}
+            className={heroFont.className}
             style={{
               padding: "12px 14px",
               borderRadius: 12,
-              border: "1px solid rgba(255,255,255,0.15)",
-              background: "rgba(255,255,255,0.06)",
+              border:
+                magicStatus === "sent"
+                  ? "1px solid rgba(34, 197, 94, 0.65)"
+                  : "1px solid rgba(255,255,255,0.15)",
+              background:
+                magicStatus === "sent" ? "rgba(34, 197, 94, 0.18)" : "rgba(255,255,255,0.06)",
               fontWeight: 800,
               color: "inherit",
-              cursor: loading || !hasEmail ? "not-allowed" : "pointer",
+              cursor:
+                loading || !hasEmail || magicStatus === "sending" ? "not-allowed" : "pointer",
               width: "fit-content",
-              opacity: loading || !hasEmail ? 0.6 : 1,
+              opacity: loading || !hasEmail || magicStatus === "sending" ? 0.6 : 1,
+              minWidth: 210,
             }}
             type="submit"
           >
-            Email me a magic link
+            {magicButtonText}
           </button>
+
+          {magicError ? (
+            <div
+              className={heroFont.className}
+              style={{
+                marginTop: 4,
+                color: "rgba(255, 170, 170, 0.95)",
+                fontSize: 13,
+                lineHeight: 1.4,
+              }}
+            >
+              {magicError}
+            </div>
+          ) : null}
         </form>
       </div>
     </div>

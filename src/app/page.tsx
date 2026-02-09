@@ -2,9 +2,15 @@
 import Link from "next/link";
 import Image from "next/image";
 import { getServerSession } from "next-auth";
+import { Manrope } from "next/font/google";
 import { authOptions } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
+
+const heroFont = Manrope({
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
+});
 
 export default async function Home() {
   const session = await getServerSession(authOptions);
@@ -50,17 +56,30 @@ export default async function Home() {
         </div>
 
         <h1
+          className={heroFont.className}
           style={{
             fontSize: "clamp(34px, 4.6vw, 46px)",
             lineHeight: 1.1,
-            margin: "0 0 12px",
-            letterSpacing: "0.01em",
+            margin: "0 0 16px",
+            letterSpacing: "0.012em",
+            fontWeight: 700,
           }}
         >
           VPS Sentry
         </h1>
 
-        <p style={{ opacity: 0.85, lineHeight: 1.6, maxWidth: 650, margin: "0 0 26px" }}>
+        <p
+          className={heroFont.className}
+          style={{
+            opacity: 0.92,
+            fontSize: "clamp(19px, 1.45vw, 23px)",
+            lineHeight: 1.52,
+            maxWidth: 820,
+            margin: "0 auto 34px",
+            textWrap: "balance",
+            letterSpacing: "0.003em",
+          }}
+        >
           Monitor SSH logins, public ports, and watched system files. Get alerted when anything
           changes.
         </p>
@@ -75,11 +94,11 @@ export default async function Home() {
           }}
         >
           {session ? (
-            <Link href="/dashboard" style={btn()}>
+            <Link href="/dashboard" className={heroFont.className} style={btn()}>
               Go to dashboard
             </Link>
           ) : (
-            <Link href="/login" style={btn()}>
+            <Link href="/login" className={heroFont.className} style={btn()}>
               Sign in
             </Link>
           )}

@@ -1,6 +1,7 @@
 // /var/www/vps-sentry-web/src/app/login/page.tsx
 import Link from "next/link";
 import Image from "next/image";
+import { Manrope } from "next/font/google";
 import LoginClient from "./login-client";
 
 const errorMap: Record<string, string> = {
@@ -29,6 +30,11 @@ function safeCallbackUrl(input?: string) {
   return "/dashboard";
 }
 
+const heroFont = Manrope({
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
+});
+
 export default async function LoginPage({
   searchParams,
 }: {
@@ -44,57 +50,96 @@ export default async function LoginPage({
   );
 
   return (
-    <main className="dashboard-shell dashboard-main" style={{ maxWidth: 760 }}>
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
-        <Link href="/" aria-label="VPS Sentry home">
-          <Image
-            src="/vps-sentry-logo.png"
-            alt="VPS Sentry logo"
-            width={560}
-            height={430}
-            priority
-            style={{
-              width: "100%",
-              maxWidth: 420,
-              height: "auto",
-              borderRadius: 12,
-            }}
-          />
-        </Link>
-      </div>
+    <main
+      className="dashboard-shell dashboard-shell-force-dark dashboard-shell-no-gradient dashboard-main"
+      style={{
+        minHeight: "calc(100dvh - 32px)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "flex-start",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 760,
+          margin: "0 auto",
+          paddingTop: "clamp(18px, 4.5vw, 56px)",
+          paddingBottom: 28,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+          <Link href="/" aria-label="VPS Sentry home">
+            <Image
+              src="/vps-sentry-logo.png"
+              alt="VPS Sentry logo"
+              width={560}
+              height={430}
+              priority
+              style={{
+                width: "100%",
+                maxWidth: 480,
+                height: "auto",
+                borderRadius: 12,
+              }}
+            />
+          </Link>
+        </div>
 
-      <h1 style={{ fontSize: 34, marginBottom: 10 }}>Sign in</h1>
-      <p style={{ opacity: 0.85, lineHeight: 1.5 }}>
-        {googleEnabled
-          ? "Use Google or a magic link to access your VPS Sentry dashboard."
-          : "Use a magic link to access your VPS Sentry dashboard."}
-      </p>
-
-      {errorMessage ? (
-        <div
+        <h1
+          className={heroFont.className}
+          style={{ fontSize: "clamp(34px, 4.6vw, 46px)", lineHeight: 1.1, margin: "0 0 14px" }}
+        >
+          Sign in
+        </h1>
+        <p
+          className={heroFont.className}
           style={{
-            marginTop: 14,
-            marginBottom: 10,
-            padding: "10px 12px",
-            border: "1px solid rgba(255,255,255,0.18)",
-            borderRadius: 10,
-            background: "rgba(255, 80, 80, 0.10)",
-            color: "rgba(255,255,255,0.92)",
-            fontSize: 13,
-            lineHeight: 1.4,
+            opacity: 0.9,
+            lineHeight: 1.5,
+            fontSize: "clamp(18px, 1.35vw, 22px)",
+            maxWidth: 760,
+            margin: "0 auto",
+            textWrap: "balance",
           }}
         >
-          {errorMessage}
-          {errorCode ? (
-            <span style={{ opacity: 0.7 }}> (code: {errorCode})</span>
-          ) : null}
+          {googleEnabled
+            ? "Use Google or a magic link to access your VPS Sentry dashboard."
+            : "Use a magic link to access your VPS Sentry dashboard."}
+        </p>
+
+        {errorMessage ? (
+          <div
+            className={heroFont.className}
+            style={{
+              marginTop: 18,
+              marginBottom: 4,
+              padding: "10px 12px",
+              border: "1px solid rgba(255,255,255,0.18)",
+              borderRadius: 10,
+              background: "rgba(255, 80, 80, 0.10)",
+              color: "rgba(255,255,255,0.92)",
+              fontSize: 13,
+              lineHeight: 1.4,
+              maxWidth: 580,
+            }}
+          >
+            {errorMessage}
+            {errorCode ? (
+              <span style={{ opacity: 0.7 }}> (code: {errorCode})</span>
+            ) : null}
+          </div>
+        ) : null}
+
+        <LoginClient callbackUrl={callbackUrl} error={errorCode} />
+
+        <div className={heroFont.className} style={{ marginTop: 16, opacity: 0.62, fontSize: 12 }}>
+          If email doesn’t arrive, check spam.
         </div>
-      ) : null}
-
-      <LoginClient callbackUrl={callbackUrl} error={errorCode} />
-
-      <div style={{ marginTop: 18, opacity: 0.6, fontSize: 12 }}>
-        If email doesn’t arrive, check spam.
       </div>
     </main>
   );
