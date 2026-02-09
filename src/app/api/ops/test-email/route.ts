@@ -6,6 +6,10 @@ import { sendEmailNotification } from "@/lib/notify/email";
 import { buildOpsTestEmailBodies } from "@/lib/notify/templates";
 import { incrementCounter, logEvent, runObservedRoute } from "@/lib/observability";
 
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
+
 function envTrim(key: string): string | null {
   const v = process.env[key]?.trim();
   return v && v.length ? v : null;
@@ -23,6 +27,10 @@ function errorMessage(err: unknown): string {
 }
 
 export async function POST(req: Request) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({ ok: true, skipped: "build" });
+  }
+
   return runObservedRoute(req, { route: "/api/ops/test-email", source: "ops-test-email" }, async (obsCtx) => {
     const access = await requireOpsAccess();
     if (!access.ok) {

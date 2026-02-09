@@ -5,6 +5,10 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -109,6 +113,10 @@ async function ensureStripeCustomer(user: {
  */
 export async function POST(req: Request) {
   const rid = requestId();
+
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({ ok: true, requestId: rid, skipped: "build" });
+  }
 
   const appUrl = (process.env.APP_URL || process.env.NEXTAUTH_URL || "").trim();
   if (!appUrl) {

@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 
 type Plan = "BASIC" | "PRO";
 
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
+
 function requestId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 }
@@ -113,6 +117,10 @@ async function ensureStripeCustomer(user: {
 
 export async function POST(req: Request) {
   const rid = requestId();
+
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({ ok: true, requestId: rid, skipped: "build" });
+  }
 
   if (!stripeConfigured()) {
     return NextResponse.json(

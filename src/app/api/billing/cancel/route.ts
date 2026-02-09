@@ -1,6 +1,10 @@
 // /var/www/vps-sentry-web/src/app/api/billing/cancel/route.ts
 import { NextResponse } from "next/server";
 
+const IS_BUILD_TIME =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
+
 function requireEnv(name: string): string | null {
   const v = process.env[name];
   return v && v.trim().length ? v.trim() : null;
@@ -15,6 +19,10 @@ function errorMessage(err: unknown): string {
 }
 
 export async function POST(req: Request) {
+  if (IS_BUILD_TIME) {
+    return NextResponse.json({ ok: true, skipped: "build" });
+  }
+
   if (!stripeConfigured()) {
     return NextResponse.json(
       { error: "Stripe is not configured (missing STRIPE_SECRET_KEY)." },
