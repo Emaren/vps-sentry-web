@@ -127,7 +127,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ hostId: string 
 
   const points = includePayload
     ? rows
-    : rows.map(({ statusJson, lastJson, diffJson, ...rest }) => rest);
+    : rows.map(({ statusJson: _statusJson, lastJson: _lastJson, diffJson: _diffJson, ...rest }) => rest);
 
   return NextResponse.json({
     ok: true,

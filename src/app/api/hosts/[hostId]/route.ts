@@ -34,7 +34,6 @@ function canParseUrlString(v: unknown): boolean {
   const s = String(v).trim();
   try {
     // absolute or relative
-    // eslint-disable-next-line no-new
     new URL(s, FALLBACK_BASE);
     return true;
   } catch {

@@ -51,7 +51,6 @@ function canParseUrlString(v: unknown): boolean {
   if (isBadUrlString(v)) return false;
   const s = String(v).trim();
   try {
-    // eslint-disable-next-line no-new
     new URL(s, FALLBACK_BASE);
     return true;
   } catch {

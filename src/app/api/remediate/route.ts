@@ -51,7 +51,6 @@ function canParseUrlString(v: unknown): boolean {
   if (isBadUrlString(v)) return false;
   const s = String(v).trim();
   try {
-    // eslint-disable-next-line no-new
     new URL(s, FALLBACK_BASE);
     return true;
   } catch {
@@ -354,7 +353,7 @@ export async function POST(req: Request) {
   if (shouldStub(req)) return stub(req);
 
   const deps = await loadDeps();
-  const safeReq = makeSafeReq(req);
+  makeSafeReq(req);
 
   const access = await deps.requireViewerAccess();
   if (!access?.ok) {
