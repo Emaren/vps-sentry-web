@@ -44,3 +44,10 @@ yarn-error.log*
 prisma/*.db
 prisma/*.db-journal
 vps-sentry-web-*.zip
+
+# VPSSentry runtime-only ops artifacts (VPS)
+/context/
+/bin/
+*.zip
+*.zip.sha256
+*.bak.*
