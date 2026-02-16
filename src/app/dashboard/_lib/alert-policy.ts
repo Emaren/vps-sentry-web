@@ -91,7 +91,7 @@ function scoreAlert(alert: AlertItem): number {
 
   // High-confidence compromise-ish signals.
   if (
-    /authorized_keys|\/etc\/sudoers|sshd_config|firewall changed|user list changed|root login|privilege/i.test(
+    /authorized_keys|\/etc\/sudoers|sshd_config|firewall changed|user list changed|root login|privilege|outbound scan ioc|suspicious process ioc|ioc detected/i.test(
       text
     )
   ) {
