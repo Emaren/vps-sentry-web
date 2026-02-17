@@ -213,6 +213,7 @@ make db-pg-rollback
 - `docs/sqlite-postgres-migration.md`
 - `docs/sentinel-prime-runbook.md`
 - `docs/key-lifecycle-runbook.md`
+- `docs/abuse-closeout-runbook.md`
 
 ## Notes
 
