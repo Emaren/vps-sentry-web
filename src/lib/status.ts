@@ -37,6 +37,36 @@ export type Shipping = {
   last_ship_error?: string;
 };
 
+export type VitalsProcess = {
+  pid?: number;
+  name?: string;
+  cpu_share_percent?: number;
+  cpu_capacity_percent?: number;
+  memory_mb?: number;
+  memory_capacity_percent?: number;
+};
+
+export type Vitals = {
+  cpu?: {
+    used_percent?: number | null;
+    capacity_percent?: number;
+    cores?: number;
+  };
+  memory?: {
+    total_mb?: number;
+    used_mb?: number;
+    available_mb?: number;
+    used_percent?: number | null;
+    capacity_percent?: number;
+  };
+  processes?: {
+    sampled_count?: number;
+    top?: VitalsProcess[];
+    other?: VitalsProcess | null;
+    cpu_share_total_percent?: number;
+  };
+};
+
 export type Status = {
   host: string;
   version: string;
@@ -77,6 +107,9 @@ export type Status = {
 
   // Optional: shipping / email status (future)
   shipping?: Shipping;
+
+  // Optional: VPS resource vitals
+  vitals?: Vitals;
 
   // Allow forward-compatible extra fields without TypeScript fights
   [k: string]: unknown;
@@ -228,6 +261,7 @@ export function normalizeStatusEnvelope(data: Status | StatusEnvelope) {
     breaches: breaches.length ? breaches : undefined,
 
     shipping: (source.shipping as Status["shipping"]) ?? undefined,
+    vitals: (source.vitals as Status["vitals"]) ?? undefined,
 
     // preserve additional unknown fields for DebugPanel
     ...source,

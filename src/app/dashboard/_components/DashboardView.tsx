@@ -25,6 +25,7 @@ import {
 } from "./sections";
 import DashboardLogoutButton from "./DashboardLogoutButton";
 import LivePulseStrip from "./LivePulseStrip";
+import PowerMemoryTile from "./PowerMemoryTile";
 import ViewScreen from "./ViewScreen";
 
 export default function DashboardView(props: {
@@ -95,6 +96,7 @@ export default function DashboardView(props: {
         </div>
       </div>
 
+      <PowerMemoryTile derived={d} />
       <ViewScreen status={s} derived={d} initialPulse={livePulse} />
 
       <div style={{ marginTop: 10 }}>

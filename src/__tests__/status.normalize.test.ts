@@ -12,10 +12,14 @@ describe("normalizeStatusEnvelope", () => {
       alerts: [{ title: "A" }, { title: "B" }],
       public_ports_count: 1,
       ports_public: [],
+      vitals: {
+        cpu: { used_percent: 47.2, capacity_percent: 100, cores: 2 },
+      },
     } as Status);
 
     expect(out.last.host).toBe("test-host");
     expect(out.last.alerts_count).toBe(2);
     expect(out.last.public_ports_count).toBe(1);
+    expect(out.last.vitals?.cpu?.used_percent).toBe(47.2);
   });
 });

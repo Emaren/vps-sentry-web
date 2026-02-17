@@ -34,6 +34,15 @@ function pickStringArray(v: unknown): string[] | null {
 
 type AlertItem = RawAlertItem;
 type DashboardPort = Pick<Port, "proto" | "host" | "port" | "proc" | "pid">;
+export type DashboardVitalsProcess = {
+  pid: number | null;
+  name: string;
+  cpuSharePercent: number | null;
+  cpuCapacityPercent: number | null;
+  memoryMb: number | null;
+  memoryCapacityPercent: number | null;
+  isOther: boolean;
+};
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
@@ -150,6 +159,20 @@ export type DerivedDashboard = {
   shipping: Shipping | undefined;
   hasShippingSignals: boolean;
 
+  // VPS resource vitals (optional, from host snapshot)
+  hasVitals: boolean;
+  cpuUsedPercent: number | null;
+  cpuCapacityPercent: number;
+  cpuCores: number | null;
+  memoryUsedPercent: number | null;
+  memoryCapacityPercent: number;
+  memoryUsedMb: number | null;
+  memoryTotalMb: number | null;
+  memoryAvailableMb: number | null;
+  vitalsSampledCount: number | null;
+  vitalsCpuShareTotalPercent: number | null;
+  vitalsProcesses: DashboardVitalsProcess[];
+
   // Debug extras (from /api/status envelope raw)
   canonicalStatus: unknown;
   rawWarnings: string[] | undefined;
@@ -186,6 +209,70 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
     shipping?.last_ship_ok !== undefined ||
     Boolean(shipping?.last_ship_ts) ||
     Boolean(shipping?.last_ship_error);
+
+  // ---- Resource vitals (optional) ----
+  const vitalsRoot = asRecord(s.vitals);
+  const vitalsCpu = asRecord(vitalsRoot?.cpu);
+  const vitalsMemory = asRecord(vitalsRoot?.memory);
+  const vitalsProcesses = asRecord(vitalsRoot?.processes);
+
+  const cpuUsedPercent = pickNumber(vitalsCpu?.used_percent);
+  const cpuCapacityPercent = pickNumber(vitalsCpu?.capacity_percent) ?? 100;
+  const cpuCoresRaw = pickNumber(vitalsCpu?.cores);
+  const cpuCores = cpuCoresRaw === null ? null : Math.max(1, Math.trunc(cpuCoresRaw));
+
+  const memoryUsedPercent = pickNumber(vitalsMemory?.used_percent);
+  const memoryCapacityPercent = pickNumber(vitalsMemory?.capacity_percent) ?? 100;
+  const memoryUsedMb = pickNumber(vitalsMemory?.used_mb);
+  const memoryTotalMb = pickNumber(vitalsMemory?.total_mb);
+  const memoryAvailableMb = pickNumber(vitalsMemory?.available_mb);
+
+  const topVitalsRaw = Array.isArray(vitalsProcesses?.top) ? vitalsProcesses.top : [];
+  const vitalsProcessRows: DashboardVitalsProcess[] = [];
+
+  for (const raw of topVitalsRaw) {
+    const rec = asRecord(raw);
+    if (!rec) continue;
+    const pidRaw = pickNumber(rec.pid);
+    const pid = pidRaw === null ? null : Math.max(0, Math.trunc(pidRaw));
+    const fallbackName = pid !== null && pid > 0 ? `pid ${pid}` : "unknown";
+
+    vitalsProcessRows.push({
+      pid,
+      name: pickString(rec.name) ?? fallbackName,
+      cpuSharePercent: pickNumber(rec.cpu_share_percent),
+      cpuCapacityPercent: pickNumber(rec.cpu_capacity_percent),
+      memoryMb: pickNumber(rec.memory_mb),
+      memoryCapacityPercent: pickNumber(rec.memory_capacity_percent),
+      isOther: false,
+    });
+  }
+
+  const otherRaw = asRecord(vitalsProcesses?.other);
+  if (otherRaw) {
+    vitalsProcessRows.push({
+      pid: null,
+      name: pickString(otherRaw.name) ?? "other-processes",
+      cpuSharePercent: pickNumber(otherRaw.cpu_share_percent),
+      cpuCapacityPercent: pickNumber(otherRaw.cpu_capacity_percent),
+      memoryMb: pickNumber(otherRaw.memory_mb),
+      memoryCapacityPercent: pickNumber(otherRaw.memory_capacity_percent),
+      isOther: true,
+    });
+  }
+
+  const vitalsSampledRaw = pickNumber(vitalsProcesses?.sampled_count);
+  const vitalsSampledCount = vitalsSampledRaw === null ? null : Math.max(0, Math.trunc(vitalsSampledRaw));
+  const vitalsCpuShareTotalPercent =
+    pickNumber(vitalsProcesses?.cpu_share_total_percent) ??
+    (vitalsProcessRows.length
+      ? vitalsProcessRows.reduce((acc, row) => acc + (row.cpuSharePercent ?? 0), 0)
+      : null);
+
+  const hasVitals =
+    cpuUsedPercent !== null ||
+    memoryUsedPercent !== null ||
+    vitalsProcessRows.length > 0;
 
   // ---- Public ports: prefer "unexpected" (actionable) if present ----
   const publicPortsTotalCount = s.public_ports_count;
@@ -314,6 +401,19 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
 
     shipping,
     hasShippingSignals,
+
+    hasVitals,
+    cpuUsedPercent,
+    cpuCapacityPercent,
+    cpuCores,
+    memoryUsedPercent,
+    memoryCapacityPercent,
+    memoryUsedMb,
+    memoryTotalMb,
+    memoryAvailableMb,
+    vitalsSampledCount,
+    vitalsCpuShareTotalPercent,
+    vitalsProcesses: vitalsProcessRows,
 
     canonicalStatus,
     rawWarnings,
