@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import {
   executeRemediationCommands,
   formatExecutionForLog,
@@ -878,8 +879,11 @@ export async function getRemediationQueueSnapshot(input?: {
 }): Promise<RemediationQueueSnapshot> {
   const limit = clamp(input?.limit ?? 25, 1, 100);
   const dlqOnly = Boolean(input?.dlqOnly);
-  const executeWhere = { paramsJson: { contains: '"mode":"execute"' } };
-  const executeDlqWhere = {
+  const executeWhere: Prisma.RemediationRunWhereInput = {
+    paramsJson: { contains: '"mode":"execute"' },
+  };
+  const executeDlqWhere: Prisma.RemediationRunWhereInput = {
+    state: "failed",
     AND: [
       { paramsJson: { contains: '"mode":"execute"' } },
       { paramsJson: { contains: '"dlq":true' } },
@@ -1042,6 +1046,8 @@ export async function replayRemediationRun(input: {
       actionId: true,
       requestedByUserId: true,
       state: true,
+      finishedAt: true,
+      error: true,
       paramsJson: true,
       action: {
         select: {
@@ -1103,35 +1109,70 @@ export async function replayRemediationRun(input: {
     },
   };
 
-  const replayRun = await prisma.remediationRun.create({
-    data: {
-      hostId: source.hostId,
-      actionId: source.actionId,
-      requestedByUserId: input.replayedByUserId ?? source.requestedByUserId,
-      state: "queued",
-      startedAt: null,
-      finishedAt: null,
-      paramsJson: serializeExecuteRunPayload(replayPayload),
-      output: null,
-      error: null,
-    },
-    select: {
-      id: true,
-    },
-  });
+  const replayRun = await prisma.$transaction(async (tx) => {
+    const created = await tx.remediationRun.create({
+      data: {
+        hostId: source.hostId,
+        actionId: source.actionId,
+        requestedByUserId: input.replayedByUserId ?? source.requestedByUserId,
+        state: "queued",
+        startedAt: null,
+        finishedAt: null,
+        paramsJson: serializeExecuteRunPayload(replayPayload),
+        output: null,
+        error: null,
+      },
+      select: {
+        id: true,
+      },
+    });
 
-  await prisma.auditLog.create({
-    data: {
-      userId: input.replayedByUserId,
-      hostId: source.hostId,
-      action: "remediate.execute.replay_queued",
-      detail: `Replayed queued run ${source.id} -> ${replayRun.id}`,
-      metaJson: JSON.stringify({
-        sourceRunId: source.id,
-        replayRunId: replayRun.id,
-        actionKey: source.action.key,
-      }),
-    },
+    // DLQ source runs are considered reviewed once replay has been queued.
+    if (source.state === "failed" && payload.queue.dlq) {
+      const resolvedSourcePayload: ExecuteRunPayload = {
+        ...payload,
+        queue: {
+          ...payload.queue,
+          dlq: false,
+          dlqReason: "replayed",
+          nextAttemptAt: null,
+        },
+      };
+      const replayMarker = `[queue] replayed_as=${created.id}`;
+      const nextError = source.error
+        ? truncateQueueErrorMessage(
+            source.error.includes(replayMarker)
+              ? source.error
+              : `${source.error}\n${replayMarker}`
+          )
+        : replayMarker;
+
+      await tx.remediationRun.update({
+        where: { id: source.id },
+        data: {
+          state: "canceled",
+          finishedAt: source.finishedAt ?? new Date(),
+          paramsJson: serializeExecuteRunPayload(resolvedSourcePayload),
+          error: nextError,
+        },
+      });
+    }
+
+    await tx.auditLog.create({
+      data: {
+        userId: input.replayedByUserId,
+        hostId: source.hostId,
+        action: "remediate.execute.replay_queued",
+        detail: `Replayed queued run ${source.id} -> ${created.id}`,
+        metaJson: JSON.stringify({
+          sourceRunId: source.id,
+          replayRunId: created.id,
+          actionKey: source.action.key,
+        }),
+      },
+    });
+
+    return created;
   });
 
   return {
