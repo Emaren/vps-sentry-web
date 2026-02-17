@@ -61,6 +61,10 @@ function fmtClock(ts: string): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+function isNearBottom(el: HTMLDivElement, threshold = 32): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+}
+
 export default function ViewScreen(props: {
   status: Status;
   derived: DerivedDashboard;
@@ -70,10 +74,13 @@ export default function ViewScreen(props: {
   const [pulse, setPulse] = React.useState<ViewScreenLivePulse>(initialPulse);
   const [connected, setConnected] = React.useState(false);
   const [entries, setEntries] = React.useState<ViewScreenEntry[]>([]);
+  const [followTail, setFollowTail] = React.useState(true);
+  const [pausedUnread, setPausedUnread] = React.useState(0);
   const feedRef = React.useRef<HTMLDivElement | null>(null);
   const nextCursorRef = React.useRef(0);
   const lastFingerprintRef = React.useRef<string | null>(null);
   const entryCounterRef = React.useRef(0);
+  const followTailRef = React.useRef(true);
 
   React.useEffect(() => {
     const es = new EventSource("/api/dashboard/live?intervalMs=5000");
@@ -156,11 +163,33 @@ export default function ViewScreen(props: {
   React.useEffect(() => {
     const el = feedRef.current;
     if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-    if (nearBottom || el.scrollTop === 0) {
+    if (followTailRef.current) {
       el.scrollTop = el.scrollHeight;
+    } else {
+      setPausedUnread((prev) => prev + 1);
     }
   }, [entries.length]);
+
+  const onFeedScroll = React.useCallback(() => {
+    const el = feedRef.current;
+    if (!el) return;
+
+    const nextFollowTail = isNearBottom(el);
+    if (nextFollowTail !== followTailRef.current) {
+      followTailRef.current = nextFollowTail;
+      setFollowTail(nextFollowTail);
+      if (nextFollowTail) setPausedUnread(0);
+    }
+  }, []);
+
+  const jumpToLatest = React.useCallback(() => {
+    const el = feedRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    followTailRef.current = true;
+    setFollowTail(true);
+    setPausedUnread(0);
+  }, []);
 
   const ageMin = minutesAgo(pulse.snapshotTs);
   const ageLabel = ageMin === null ? "unknown age" : `${ageMin}m old`;
@@ -187,11 +216,16 @@ export default function ViewScreen(props: {
           <div className="view-screen-meta-row">
             <span className="view-screen-meta-dot" aria-hidden="true" />
             <span className="view-screen-meta-text">
-              {cadenceLabel} · history {entries.length} line(s)
+              {cadenceLabel} · history {entries.length} line(s) · {followTail ? "following newest" : "scroll paused"}
             </span>
+            {!followTail ? (
+              <button type="button" className="view-screen-jump-btn" onClick={jumpToLatest}>
+                Jump to latest{pausedUnread > 0 ? ` (${pausedUnread})` : ""}
+              </button>
+            ) : null}
           </div>
 
-          <div className="view-screen-feed" ref={feedRef} aria-label="View Screen feed history">
+          <div className="view-screen-feed" ref={feedRef} onScroll={onFeedScroll} aria-label="View Screen feed history">
             {entries.length === 0 ? (
               <div className="view-screen-empty">Waiting for first sensor update...</div>
             ) : (

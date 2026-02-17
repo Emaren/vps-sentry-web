@@ -940,6 +940,22 @@ html[data-site-theme="sepia"] .dashboard-shell {
   font-size: 12px;
 }
 
+.view-screen-jump-btn {
+  margin-left: auto;
+  border: 1px solid var(--dash-btn-border);
+  background: var(--dash-btn-bg);
+  color: var(--dash-fg);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.view-screen-jump-btn:hover {
+  background: var(--dash-btn-bg-hover);
+}
+
 .view-screen-feed {
   width: 100%;
   min-height: calc(20 * 1.3rem);
