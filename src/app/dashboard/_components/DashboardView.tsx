@@ -25,6 +25,7 @@ import {
 } from "./sections";
 import DashboardLogoutButton from "./DashboardLogoutButton";
 import LivePulseStrip from "./LivePulseStrip";
+import ViewScreen from "./ViewScreen";
 
 export default function DashboardView(props: {
   env: DashboardEnv;
@@ -93,6 +94,8 @@ export default function DashboardView(props: {
           </div>
         </div>
       </div>
+
+      <ViewScreen status={s} derived={d} initialPulse={livePulse} />
 
       <div style={{ marginTop: 10 }}>
         <TopArea
