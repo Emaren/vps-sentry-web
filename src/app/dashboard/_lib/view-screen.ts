@@ -8,6 +8,11 @@ export type ViewScreenMessage = {
   line2?: string;
 };
 
+export type ViewScreenPickerState = {
+  cursor: number;
+  lastFingerprint: string | null;
+};
+
 export type ViewScreenModel = {
   host: string;
   version: string;
@@ -166,4 +171,48 @@ export function buildViewScreenMessages(input: ViewScreenModel): ViewScreenMessa
   }
 
   return out;
+}
+
+export function viewScreenMessageFingerprint(msg: ViewScreenMessage): string {
+  return `${msg.sensor}|${msg.tone}|${msg.line1}|${msg.line2 ?? ""}`;
+}
+
+/**
+ * Picks exactly one message for the next feed tick (3-5s cadence target).
+ * Prefers not to repeat the immediate previous message when alternatives exist.
+ */
+export function pickNextViewScreenMessage(
+  messages: ViewScreenMessage[],
+  state: ViewScreenPickerState
+): { message: ViewScreenMessage | null; nextCursor: number; fingerprint: string | null } {
+  if (!messages.length) {
+    return { message: null, nextCursor: 0, fingerprint: null };
+  }
+
+  const len = messages.length;
+  const start = ((state.cursor % len) + len) % len;
+
+  let selected = messages[start];
+  let selectedIndex = start;
+  let selectedFingerprint = viewScreenMessageFingerprint(selected);
+
+  if (state.lastFingerprint && len > 1 && selectedFingerprint === state.lastFingerprint) {
+    for (let i = 1; i < len; i++) {
+      const idx = (start + i) % len;
+      const candidate = messages[idx];
+      const candidateFingerprint = viewScreenMessageFingerprint(candidate);
+      if (candidateFingerprint !== state.lastFingerprint) {
+        selected = candidate;
+        selectedIndex = idx;
+        selectedFingerprint = candidateFingerprint;
+        break;
+      }
+    }
+  }
+
+  return {
+    message: selected,
+    nextCursor: (selectedIndex + 1) % len,
+    fingerprint: selectedFingerprint,
+  };
 }

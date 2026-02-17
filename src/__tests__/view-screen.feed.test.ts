@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildViewScreenMessages, type ViewScreenModel } from "../app/dashboard/_lib/view-screen";
+import {
+  buildViewScreenMessages,
+  pickNextViewScreenMessage,
+  type ViewScreenModel,
+} from "../app/dashboard/_lib/view-screen";
 
 function baseInput(): ViewScreenModel {
   return {
@@ -52,5 +56,27 @@ describe("buildViewScreenMessages", () => {
     const queue = out.find((x) => x.id === "response-queue");
     expect(queue).toBeDefined();
     expect(queue?.tone).toBe("bad");
+  });
+
+  it("picks one message per tick and avoids immediate duplicate when options exist", () => {
+    const messages = buildViewScreenMessages({
+      ...baseInput(),
+      alertsCount: 2,
+      topAlertSeverity: "high",
+      unexpectedPorts: 1,
+    });
+
+    const first = pickNextViewScreenMessage(messages, {
+      cursor: 0,
+      lastFingerprint: null,
+    });
+    const second = pickNextViewScreenMessage(messages, {
+      cursor: first.nextCursor,
+      lastFingerprint: first.fingerprint,
+    });
+
+    expect(first.message).toBeTruthy();
+    expect(second.message).toBeTruthy();
+    expect(second.fingerprint).not.toBe(first.fingerprint);
   });
 });

@@ -3,7 +3,11 @@
 import React from "react";
 import type { Status } from "@/lib/status";
 import type { DerivedDashboard } from "../_lib/derive";
-import { buildViewScreenMessages, type ViewScreenMessage } from "../_lib/view-screen";
+import {
+  buildViewScreenMessages,
+  pickNextViewScreenMessage,
+  type ViewScreenMessage,
+} from "../_lib/view-screen";
 
 type ViewScreenLivePulse = {
   ts: string;
@@ -35,11 +39,26 @@ function threatSignalCount(s: Status): number {
   return n;
 }
 
-function toneClass(msg: ViewScreenMessage): string {
+function toneClass(msg: { tone: ViewScreenMessage["tone"] }): string {
   if (msg.tone === "bad") return "view-screen-tone-bad";
   if (msg.tone === "warn") return "view-screen-tone-warn";
   if (msg.tone === "ok") return "view-screen-tone-ok";
   return "view-screen-tone-info";
+}
+
+type ViewScreenEntry = {
+  id: string;
+  ts: string;
+  sensor: string;
+  tone: ViewScreenMessage["tone"];
+  line1: string;
+  line2?: string;
+};
+
+function fmtClock(ts: string): string {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 export default function ViewScreen(props: {
@@ -50,7 +69,11 @@ export default function ViewScreen(props: {
   const { status, derived, initialPulse } = props;
   const [pulse, setPulse] = React.useState<ViewScreenLivePulse>(initialPulse);
   const [connected, setConnected] = React.useState(false);
-  const [cursor, setCursor] = React.useState(0);
+  const [entries, setEntries] = React.useState<ViewScreenEntry[]>([]);
+  const feedRef = React.useRef<HTMLDivElement | null>(null);
+  const nextCursorRef = React.useRef(0);
+  const lastFingerprintRef = React.useRef<string | null>(null);
+  const entryCounterRef = React.useRef(0);
 
   React.useEffect(() => {
     const es = new EventSource("/api/dashboard/live?intervalMs=5000");
@@ -101,27 +124,47 @@ export default function ViewScreen(props: {
   }, [pulse, derived.stale, derived.topAlertSeverity, status]);
 
   React.useEffect(() => {
-    if (messages.length <= 1) {
-      setCursor(0);
+    const pick = pickNextViewScreenMessage(messages, {
+      cursor: nextCursorRef.current,
+      lastFingerprint: lastFingerprintRef.current,
+    });
+
+    if (!pick.message) {
       return;
     }
 
-    const timer = setInterval(() => {
-      setCursor((prev) => (prev + 1) % messages.length);
-    }, 4000);
+    nextCursorRef.current = pick.nextCursor;
+    lastFingerprintRef.current = pick.fingerprint;
 
-    return () => clearInterval(timer);
-  }, [messages.length]);
+    entryCounterRef.current += 1;
+    const nextEntry: ViewScreenEntry = {
+      id: `${pulse.ts}-${entryCounterRef.current}`,
+      ts: pulse.ts,
+      sensor: pick.message.sensor,
+      tone: pick.message.tone,
+      line1: pick.message.line1,
+      line2: pick.message.line2,
+    };
+
+    setEntries((prev) => {
+      const out = [...prev, nextEntry];
+      if (out.length > 250) return out.slice(out.length - 250);
+      return out;
+    });
+  }, [messages, pulse.ts]);
 
   React.useEffect(() => {
-    if (cursor < messages.length) return;
-    setCursor(0);
-  }, [cursor, messages.length]);
+    const el = feedRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    if (nearBottom || el.scrollTop === 0) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [entries.length]);
 
-  const current = messages[cursor] ?? messages[0];
   const ageMin = minutesAgo(pulse.snapshotTs);
   const ageLabel = ageMin === null ? "unknown age" : `${ageMin}m old`;
-  const cadenceLabel = "1 update every 4s";
+  const cadenceLabel = "1 update every 5s";
 
   return (
     <section className="view-screen-wrap">
@@ -142,23 +185,33 @@ export default function ViewScreen(props: {
 
         <div className="view-screen-body">
           <div className="view-screen-meta-row">
-            <span className={`view-screen-sensor ${toneClass(current)}`}>{current.sensor}</span>
             <span className="view-screen-meta-dot" aria-hidden="true" />
             <span className="view-screen-meta-text">
-              {cadenceLabel} · message {Math.min(cursor + 1, messages.length)}/{messages.length}
+              {cadenceLabel} · history {entries.length} line(s)
             </span>
           </div>
 
-          <textarea
-            readOnly
-            rows={3}
-            className={`view-screen-textbox ${toneClass(current)}`}
-            value={`${current.line1}${current.line2 ? `\n${current.line2}` : ""}`}
-            aria-label="View Screen feed"
-          />
+          <div className="view-screen-feed" ref={feedRef} aria-label="View Screen feed history">
+            {entries.length === 0 ? (
+              <div className="view-screen-empty">Waiting for first sensor update...</div>
+            ) : (
+              entries.map((entry) => (
+                <div key={entry.id} className="view-screen-entry">
+                  <div className="view-screen-entry-head">
+                    <span className="view-screen-entry-ts">{fmtClock(entry.ts)}</span>
+                    <span className={`view-screen-sensor ${toneClass(entry)}`}>
+                      {entry.sensor}
+                    </span>
+                  </div>
+                  <div className="view-screen-entry-line1">{entry.line1}</div>
+                  {entry.line2 ? <div className="view-screen-entry-line2">{entry.line2}</div> : null}
+                </div>
+              ))
+            )}
+          </div>
 
           <div className="view-screen-footer">
-            Host {status.host} · Snapshot {ageLabel}
+            Host {status.host} · Snapshot {ageLabel} · Scroll up to review prior updates.
           </div>
         </div>
       </details>
