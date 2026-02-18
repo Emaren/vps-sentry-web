@@ -3,6 +3,7 @@
 import React from "react";
 import { hasRequiredRole, type AppRole } from "@/lib/rbac-policy";
 import { boxStyle, subtleText, tinyText } from "@/app/dashboard/_styles";
+import { SCRIPT_ACTIONS } from "@/lib/actions/script-catalog";
 
 type Ability = {
   id: string;
@@ -112,6 +113,15 @@ const abilities: Ability[] = [
     path: "/api/ops/observability",
     requiredRole: "admin",
   },
+  ...SCRIPT_ACTIONS.map((entry) => ({
+    id: `script-${entry.script}`,
+    title: entry.title,
+    summary: entry.summary,
+    method: "POST" as const,
+    path: "/api/ops/actions/run-script",
+    requiredRole: entry.requiredRole,
+    body: { script: entry.script },
+  })),
 ];
 
 const buttonStyle: React.CSSProperties = {
