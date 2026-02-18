@@ -154,23 +154,48 @@ function previewBody(body: string): string {
 
 function renderResult(result: AbilityResult | undefined) {
   if (!result) return null;
+  const copyResult = async () => {
+    if (typeof navigator === "undefined" || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(result.bodyPreview);
+    } catch {
+      // Ignore clipboard failures (browser policy/permissions).
+    }
+  };
+
   return (
     <div style={{ marginTop: 8 }}>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 700,
-          color: result.ok ? "var(--site-sev-ok-text)" : "var(--site-sev-critical-text)",
-        }}
-      >
-        {result.ok ? "Last run OK" : "Last run failed"} ({result.status}) at {result.ranAt}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 700,
+            color: result.ok ? "var(--site-sev-ok-text)" : "var(--site-sev-critical-text)",
+          }}
+        >
+          {result.ok ? "Last run OK" : "Last run failed"} ({result.status}) at {result.ranAt}
+        </div>
+        <button
+          type="button"
+          onClick={() => void copyResult()}
+          style={{
+            ...buttonStyle,
+            padding: "4px 8px",
+            borderRadius: 8,
+            fontSize: 12,
+            lineHeight: 1.1,
+          }}
+        >
+          Copy
+        </button>
       </div>
       <pre
         style={{
           marginTop: 6,
           marginBottom: 0,
           fontSize: 12,
-          maxHeight: 150,
+          minHeight: 204,
+          maxHeight: 204,
           overflow: "auto",
           background: "var(--site-input-bg, rgba(255,255,255,0.03))",
           border: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))",
