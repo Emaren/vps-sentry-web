@@ -80,6 +80,9 @@ export default function DashboardView(props: {
             <Link href="/billing" className="app-header-btn">
               Billing
             </Link>
+            <Link href="/actions" className="app-header-btn">
+              Actions
+            </Link>
             <Link href="/get-vps-sentry" className="app-header-btn">
               Install guide
             </Link>
