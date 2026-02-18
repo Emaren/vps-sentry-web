@@ -108,14 +108,20 @@ export async function POST(req: Request) {
 
       const started = Date.now();
       try {
+        const isContextScript =
+          entry.script.includes("context") ||
+          entry.script === "full-context-all" ||
+          entry.script === "full-context" ||
+          entry.script === "full-context-tgz" ||
+          entry.script === "vps-pull-context";
+
         const run = await execFileAsync(scriptPath, [], {
           cwd: "/var/www/VPSSentry",
           env: {
             ...process.env,
-            // Web-triggered runs execute under hardened systemd constraints.
-            // Keep script execution local to VPS to avoid SSH host-key/home permission failures.
-            SEND_TO_MBP: "0",
-            PRUNE_REMOTE_MBP: "0",
+            // Keep non-context actions local. For context actions, allow VPS->MBP mirror.
+            SEND_TO_MBP: isContextScript ? "1" : "0",
+            PRUNE_REMOTE_MBP: isContextScript ? "1" : "0",
           },
           timeout: COMMAND_TIMEOUT_MS,
           maxBuffer: MAX_BUFFER_BYTES,
