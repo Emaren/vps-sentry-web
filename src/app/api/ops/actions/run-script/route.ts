@@ -20,6 +20,7 @@ const BIN_DIR = process.env.VPS_ACTIONS_BIN_DIR || "/var/www/VPSSentry/bin";
 const COMMAND_TIMEOUT_MS = Number(process.env.VPS_ACTIONS_TIMEOUT_MS || 120_000);
 const MAX_BUFFER_BYTES = Number(process.env.VPS_ACTIONS_MAX_BUFFER_BYTES || 1_000_000);
 const OUTPUT_MAX_CHARS = Number(process.env.VPS_ACTIONS_OUTPUT_MAX_CHARS || 12_000);
+const SHELL_ONLY_SCRIPTS = new Set(["mbp-context", "mbp-context-tgz"]);
 
 function truncateOutput(raw: string): string {
   if (raw.length <= OUTPUT_MAX_CHARS) return raw;
@@ -57,6 +58,18 @@ export async function POST(req: Request) {
       const entry = SCRIPT_ACTIONS_BY_NAME.get(script);
       if (!entry) {
         return NextResponse.json({ ok: false, error: "script is not allowlisted" }, { status: 400 });
+      }
+
+      if (SHELL_ONLY_SCRIPTS.has(entry.script)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "script is shell-only (run on MBP terminal)",
+            script: entry.script,
+            hint: "~/projects/VPSSentry/bin/" + entry.script,
+          },
+          { status: 409 }
+        );
       }
 
       const accessResult = await requireRoleAccess(entry.requiredRole);
@@ -97,6 +110,13 @@ export async function POST(req: Request) {
       try {
         const run = await execFileAsync(scriptPath, [], {
           cwd: "/var/www/VPSSentry",
+          env: {
+            ...process.env,
+            // Web-triggered runs execute under hardened systemd constraints.
+            // Keep script execution local to VPS to avoid SSH host-key/home permission failures.
+            SEND_TO_MBP: "0",
+            PRUNE_REMOTE_MBP: "0",
+          },
           timeout: COMMAND_TIMEOUT_MS,
           maxBuffer: MAX_BUFFER_BYTES,
         });

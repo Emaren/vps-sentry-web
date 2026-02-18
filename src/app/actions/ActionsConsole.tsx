@@ -51,10 +51,17 @@ const disabledButtonStyle: React.CSSProperties = {
   cursor: "not-allowed",
 };
 
+const SHELL_ONLY_SCRIPTS = new Set(["mbp-context", "mbp-context-tgz"]);
+
 function getScriptName(ability: DeckAbility): string | null {
   if (!ability.id.startsWith("script-")) return null;
   const script = ability.body?.script;
   return typeof script === "string" ? script : null;
+}
+
+function isShellOnly(ability: DeckAbility): boolean {
+  const script = getScriptName(ability);
+  return !!script && SHELL_ONLY_SCRIPTS.has(script);
 }
 
 function buildRows(): RowEntry[] {
@@ -305,6 +312,8 @@ export default function ActionsConsole(props: { userRole: AppRole; signedInAs: s
                 const zipCount = runCounts[row.zipAbility.id] ?? 0;
                 const tgzCount = runCounts[row.tgzAbility.id] ?? 0;
                 const total = zipCount + tgzCount;
+                const shellOnly = isShellOnly(row.zipAbility) || isShellOnly(row.tgzAbility);
+                const disabled = shellOnly || !allowed || busyId !== null;
 
                 return (
                   <tr
@@ -344,20 +353,25 @@ export default function ActionsConsole(props: { userRole: AppRole; signedInAs: s
                         <button
                           type="button"
                           onClick={() => void runAbility(row.zipAbility)}
-                          disabled={!allowed || busyId !== null}
-                          style={!allowed || busyId !== null ? disabledButtonStyle : buttonStyle}
+                          disabled={disabled}
+                          style={disabled ? disabledButtonStyle : buttonStyle}
                         >
                           {zipBusy ? "ZIP..." : "ZIP"}
                         </button>
                         <button
                           type="button"
                           onClick={() => void runAbility(row.tgzAbility)}
-                          disabled={!allowed || busyId !== null}
-                          style={!allowed || busyId !== null ? disabledButtonStyle : buttonStyle}
+                          disabled={disabled}
+                          style={disabled ? disabledButtonStyle : buttonStyle}
                         >
                           {tgzBusy ? "TGZ..." : "TGZ"}
                         </button>
                       </div>
+                      {shellOnly ? (
+                        <div style={{ ...tinyText, marginTop: 6 }}>
+                          Shell-only action: run from MBP terminal.
+                        </div>
+                      ) : null}
                       {!allowed ? (
                         <div style={{ ...tinyText, marginTop: 6 }}>Needs {row.requiredRole} role.</div>
                       ) : null}
@@ -370,6 +384,8 @@ export default function ActionsConsole(props: { userRole: AppRole; signedInAs: s
               const isBusy = busyId === row.ability.id;
               const result = results[row.ability.id];
               const count = runCounts[row.ability.id] ?? 0;
+              const shellOnly = isShellOnly(row.ability);
+              const disabled = shellOnly || !allowed || busyId !== null;
 
               return (
                 <tr
@@ -413,11 +429,16 @@ export default function ActionsConsole(props: { userRole: AppRole; signedInAs: s
                     <button
                       type="button"
                       onClick={() => void runAbility(row.ability)}
-                      disabled={!allowed || busyId !== null}
-                      style={!allowed || busyId !== null ? disabledButtonStyle : buttonStyle}
+                      disabled={disabled}
+                      style={disabled ? disabledButtonStyle : buttonStyle}
                     >
                       {isBusy ? "Running..." : "Run"}
                     </button>
+                    {shellOnly ? (
+                      <div style={{ ...tinyText, marginTop: 6 }}>
+                        Shell-only action: run from MBP terminal.
+                      </div>
+                    ) : null}
                     {!allowed ? (
                       <div style={{ ...tinyText, marginTop: 6 }}>Needs {row.requiredRole} role.</div>
                     ) : null}
