@@ -3,17 +3,7 @@
 import React from "react";
 import { hasRequiredRole, type AppRole } from "@/lib/rbac-policy";
 import { boxStyle, subtleText, tinyText } from "@/app/dashboard/_styles";
-import { SCRIPT_ACTIONS } from "@/lib/actions/script-catalog";
-
-type Ability = {
-  id: string;
-  title: string;
-  summary: string;
-  method: "GET" | "POST";
-  path: string;
-  requiredRole: AppRole;
-  body?: Record<string, unknown>;
-};
+import { ACTION_DECK, type DeckAbility } from "@/lib/actions/ability-catalog";
 
 type AbilityResult = {
   ranAt: string;
@@ -22,107 +12,29 @@ type AbilityResult = {
   bodyPreview: string;
 };
 
-const abilities: Ability[] = [
-  {
-    id: "send-test-email",
-    title: "Send test email",
-    summary: "Validates SMTP wiring by sending a test message to your signed-in account.",
-    method: "POST",
-    path: "/api/ops/test-email",
-    requiredRole: "ops",
-  },
-  {
-    id: "send-report-now",
-    title: "Send report now",
-    summary: "Triggers immediate report generation and delivery.",
-    method: "POST",
-    path: "/api/ops/report-now",
-    requiredRole: "ops",
-  },
-  {
-    id: "queue-drain",
-    title: "Drain remediation queue",
-    summary: "Processes pending remediation jobs right now (safe capped drain).",
-    method: "POST",
-    path: "/api/ops/remediate-drain",
-    requiredRole: "ops",
-    body: { limit: 25 },
-  },
-  {
-    id: "replay-dlq-batch",
-    title: "Replay DLQ batch",
-    summary: "Retries a small batch of dead-letter remediation runs.",
-    method: "POST",
-    path: "/api/ops/remediate-replay",
-    requiredRole: "ops",
-    body: { mode: "dlq-batch", limit: 3 },
-  },
-  {
-    id: "view-remediation-queue",
-    title: "View remediation queue",
-    summary: "Shows queued/processing/done/failed/DLQ counts.",
-    method: "GET",
-    path: "/api/ops/remediate-queue?limit=25",
-    requiredRole: "ops",
-  },
-  {
-    id: "list-incidents",
-    title: "List incidents",
-    summary: "Returns current incidents for incident workflow tracking.",
-    method: "GET",
-    path: "/api/ops/incidents?limit=20",
-    requiredRole: "ops",
-  },
-  {
-    id: "list-workflows",
-    title: "List incident workflows",
-    summary: "Shows available workflow playbooks and API-executable steps.",
-    method: "GET",
-    path: "/api/ops/incident-workflow",
-    requiredRole: "ops",
-  },
-  {
-    id: "slo-snapshot",
-    title: "SLO burn snapshot",
-    summary: "Calculates burn-rate posture and summarizes objective risk.",
-    method: "GET",
-    path: "/api/ops/slo",
-    requiredRole: "ops",
-  },
-  {
-    id: "metrics-snapshot",
-    title: "Prometheus metrics",
-    summary: "Returns runtime metrics in Prometheus text format.",
-    method: "GET",
-    path: "/api/ops/metrics",
-    requiredRole: "ops",
-  },
-  {
-    id: "fleet-policy-summary",
-    title: "Fleet policy summary",
-    summary: "Shows current fleet policy/tags/groups and policy scope metadata.",
-    method: "GET",
-    path: "/api/ops/fleet-policy",
-    requiredRole: "admin",
-  },
-  {
-    id: "observability-snapshot",
-    title: "Observability snapshot",
-    summary: "Returns counters, timings, traces, logs, and alert event streams.",
-    method: "GET",
-    path: "/api/ops/observability",
-    requiredRole: "admin",
-  },
-  ...SCRIPT_ACTIONS.map((entry) => ({
-    id: `script-${entry.script}`,
-    title: entry.title,
-    summary: entry.summary,
-    method: "POST" as const,
-    path: "/api/ops/actions/run-script",
-    requiredRole: entry.requiredRole,
-    body: { script: entry.script },
-  })),
-];
+type StatsResponse = {
+  ok: boolean;
+  counts?: Record<string, number>;
+};
+
+type RowEntry =
+  | {
+      kind: "single";
+      id: string;
+      title: string;
+      summary: string;
+      requiredRole: AppRole;
+      ability: DeckAbility;
+    }
+  | {
+      kind: "pair";
+      id: string;
+      title: string;
+      summary: string;
+      requiredRole: AppRole;
+      zipAbility: DeckAbility;
+      tgzAbility: DeckAbility;
+    };
 
 const buttonStyle: React.CSSProperties = {
   padding: "8px 10px",
@@ -138,6 +50,84 @@ const disabledButtonStyle: React.CSSProperties = {
   opacity: 0.55,
   cursor: "not-allowed",
 };
+
+function getScriptName(ability: DeckAbility): string | null {
+  if (!ability.id.startsWith("script-")) return null;
+  const script = ability.body?.script;
+  return typeof script === "string" ? script : null;
+}
+
+function buildRows(): RowEntry[] {
+  const rows: RowEntry[] = [];
+  const scriptByName = new Map<string, DeckAbility>();
+  const used = new Set<string>();
+
+  for (const ability of ACTION_DECK) {
+    const script = getScriptName(ability);
+    if (!script) {
+      rows.push({
+        kind: "single",
+        id: ability.id,
+        title: ability.title,
+        summary: ability.summary,
+        requiredRole: ability.requiredRole,
+        ability,
+      });
+      continue;
+    }
+    scriptByName.set(script, ability);
+  }
+
+  for (const [script, ability] of scriptByName.entries()) {
+    if (used.has(ability.id)) continue;
+    if (script.endsWith("-tgz")) continue;
+
+    const tgzScript = `${script}-tgz`;
+    const tgzAbility = scriptByName.get(tgzScript);
+    if (tgzAbility && !used.has(tgzAbility.id)) {
+      used.add(ability.id);
+      used.add(tgzAbility.id);
+      const title = ability.title.replace(/\s+ZIP$/i, "");
+      rows.push({
+        kind: "pair",
+        id: `pair-${script}`,
+        title,
+        summary: ability.summary.replace(/\s+as\s+ZIP\+SHA\.\s*$/i, ""),
+        requiredRole: ability.requiredRole,
+        zipAbility: ability,
+        tgzAbility,
+      });
+      continue;
+    }
+
+    used.add(ability.id);
+    rows.push({
+      kind: "single",
+      id: ability.id,
+      title: ability.title,
+      summary: ability.summary,
+      requiredRole: ability.requiredRole,
+      ability,
+    });
+  }
+
+  for (const ability of ACTION_DECK) {
+    if (used.has(ability.id)) continue;
+    if (!ability.id.startsWith("script-")) continue;
+    rows.push({
+      kind: "single",
+      id: ability.id,
+      title: ability.title,
+      summary: ability.summary,
+      requiredRole: ability.requiredRole,
+      ability,
+    });
+  }
+
+  return rows;
+}
+
+const ACTION_ROWS: RowEntry[] = buildRows();
 
 async function parseResponseBody(res: Response): Promise<string> {
   const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
@@ -155,15 +145,85 @@ function previewBody(body: string): string {
   return `${trimmed.slice(0, 2400)}\n... [truncated]`;
 }
 
+function renderResult(result: AbilityResult | undefined) {
+  if (!result) return null;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 700,
+          color: result.ok ? "var(--site-sev-ok-text)" : "var(--site-sev-critical-text)",
+        }}
+      >
+        {result.ok ? "Last run OK" : "Last run failed"} ({result.status}) at {result.ranAt}
+      </div>
+      <pre
+        style={{
+          marginTop: 6,
+          marginBottom: 0,
+          fontSize: 12,
+          maxHeight: 150,
+          overflow: "auto",
+          background: "var(--site-input-bg, rgba(255,255,255,0.03))",
+          border: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))",
+          borderRadius: 8,
+          padding: 8,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        }}
+      >
+        {result.bodyPreview}
+      </pre>
+    </div>
+  );
+}
+
 export default function ActionsConsole(props: { userRole: AppRole; signedInAs: string }) {
   const { userRole, signedInAs } = props;
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [results, setResults] = React.useState<Record<string, AbilityResult>>({});
+  const [runCounts, setRunCounts] = React.useState<Record<string, number>>({});
 
-  async function runAbility(ability: Ability) {
+  const sortedRows = React.useMemo(() => {
+    const rowScore = (row: RowEntry): number => {
+      if (row.kind === "pair") {
+        return (runCounts[row.zipAbility.id] ?? 0) + (runCounts[row.tgzAbility.id] ?? 0);
+      }
+      return runCounts[row.ability.id] ?? 0;
+    };
+    return [...ACTION_ROWS].sort((a, b) => {
+      const diff = rowScore(b) - rowScore(a);
+      if (diff !== 0) return diff;
+      return a.title.localeCompare(b.title);
+    });
+  }, [runCounts]);
+
+  const refreshStats = React.useCallback(async () => {
+    const res = await fetch("/api/ops/actions/stats", { cache: "no-store" });
+    const data: StatsResponse = await res.json().catch(() => ({ ok: false }));
+    if (!res.ok || !data.ok) return;
+    setRunCounts(data.counts ?? {});
+  }, []);
+
+  React.useEffect(() => {
+    void refreshStats();
+  }, [refreshStats]);
+
+  async function trackRun(abilityId: string, ok: boolean, status: number) {
+    await fetch("/api/ops/actions/track-run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ abilityId, ok, status }),
+    }).catch(() => undefined);
+  }
+
+  async function runAbility(ability: DeckAbility) {
     if (!hasRequiredRole(userRole, ability.requiredRole)) return;
 
     setBusyId(ability.id);
+    let runOk = false;
+    let runStatus = 0;
     try {
       const res = await fetch(ability.path, {
         method: ability.method,
@@ -175,6 +235,8 @@ export default function ActionsConsole(props: { userRole: AppRole; signedInAs: s
             : undefined,
         body: ability.method === "POST" ? JSON.stringify(ability.body ?? {}) : undefined,
       });
+      runOk = res.ok;
+      runStatus = res.status;
       const rawBody = await parseResponseBody(res);
       setResults((prev) => ({
         ...prev,
@@ -197,6 +259,11 @@ export default function ActionsConsole(props: { userRole: AppRole; signedInAs: s
         },
       }));
     } finally {
+      await trackRun(ability.id, runOk, runStatus);
+      setRunCounts((prev) => ({
+        ...prev,
+        [ability.id]: (prev[ability.id] ?? 0) + 1,
+      }));
       setBusyId(null);
     }
   }
@@ -209,6 +276,7 @@ export default function ActionsConsole(props: { userRole: AppRole; signedInAs: s
           Signed in as <strong>{signedInAs}</strong>. Each action runs a guarded VPS Sentry API ability; this page
           does not execute arbitrary shell commands.
         </div>
+        <div style={{ ...tinyText, marginTop: 8 }}>Sorted by most-run first.</div>
       </div>
 
       <div
@@ -218,68 +286,110 @@ export default function ActionsConsole(props: { userRole: AppRole; signedInAs: s
           overflowX: "auto",
         }}
       >
-        <table style={{ width: "100%", minWidth: 860, borderCollapse: "collapse" }}>
+        <table style={{ width: "100%", minWidth: 1000, borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))" }}>
               <th style={{ textAlign: "left", padding: 12 }}>Ability</th>
               <th style={{ textAlign: "left", padding: 12 }}>Command</th>
               <th style={{ textAlign: "left", padding: 12 }}>Role</th>
+              <th style={{ textAlign: "left", padding: 12 }}>Times Run</th>
               <th style={{ textAlign: "left", padding: 12 }}>Run</th>
             </tr>
           </thead>
           <tbody>
-            {abilities.map((ability) => {
-              const allowed = hasRequiredRole(userRole, ability.requiredRole);
-              const isBusy = busyId === ability.id;
-              const result = results[ability.id];
+            {sortedRows.map((row) => {
+              if (row.kind === "pair") {
+                const allowed = hasRequiredRole(userRole, row.requiredRole);
+                const zipBusy = busyId === row.zipAbility.id;
+                const tgzBusy = busyId === row.tgzAbility.id;
+                const zipCount = runCounts[row.zipAbility.id] ?? 0;
+                const tgzCount = runCounts[row.tgzAbility.id] ?? 0;
+                const total = zipCount + tgzCount;
+
+                return (
+                  <tr
+                    key={row.id}
+                    style={{
+                      borderTop: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))",
+                      verticalAlign: "top",
+                    }}
+                  >
+                    <td style={{ padding: 12 }}>
+                      <div style={{ fontWeight: 800 }}>{row.title}</div>
+                      <div style={{ ...tinyText, marginTop: 5 }}>{row.summary} (ZIP + TGZ)</div>
+                      {renderResult(results[row.zipAbility.id])}
+                      {renderResult(results[row.tgzAbility.id])}
+                    </td>
+                    <td style={{ padding: 12 }}>
+                      <code>POST</code>
+                      <div style={{ marginTop: 4 }}>
+                        <code>/api/ops/actions/run-script</code>
+                      </div>
+                      <div style={{ ...tinyText, marginTop: 6 }}>
+                        ZIP: <code>{JSON.stringify(row.zipAbility.body)}</code>
+                      </div>
+                      <div style={{ ...tinyText, marginTop: 4 }}>
+                        TGZ: <code>{JSON.stringify(row.tgzAbility.body)}</code>
+                      </div>
+                    </td>
+                    <td style={{ padding: 12 }}>
+                      <code>{row.requiredRole}</code>
+                    </td>
+                    <td style={{ padding: 12 }}>
+                      <div style={{ fontWeight: 700 }}>{total}</div>
+                      <div style={tinyText}>zip {zipCount} / tgz {tgzCount}</div>
+                    </td>
+                    <td style={{ padding: 12 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() => void runAbility(row.zipAbility)}
+                          disabled={!allowed || busyId !== null}
+                          style={!allowed || busyId !== null ? disabledButtonStyle : buttonStyle}
+                        >
+                          {zipBusy ? "ZIP..." : "ZIP"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void runAbility(row.tgzAbility)}
+                          disabled={!allowed || busyId !== null}
+                          style={!allowed || busyId !== null ? disabledButtonStyle : buttonStyle}
+                        >
+                          {tgzBusy ? "TGZ..." : "TGZ"}
+                        </button>
+                      </div>
+                      {!allowed ? (
+                        <div style={{ ...tinyText, marginTop: 6 }}>Needs {row.requiredRole} role.</div>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              }
+
+              const allowed = hasRequiredRole(userRole, row.requiredRole);
+              const isBusy = busyId === row.ability.id;
+              const result = results[row.ability.id];
+              const count = runCounts[row.ability.id] ?? 0;
+
               return (
                 <tr
-                  key={ability.id}
+                  key={row.id}
                   style={{
                     borderTop: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))",
                     verticalAlign: "top",
                   }}
                 >
                   <td style={{ padding: 12 }}>
-                    <div style={{ fontWeight: 800 }}>{ability.title}</div>
-                    <div style={{ ...tinyText, marginTop: 5 }}>{ability.summary}</div>
-                    {result ? (
-                      <div style={{ marginTop: 10 }}>
-                        <div
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 700,
-                            color: result.ok ? "var(--site-sev-ok-text)" : "var(--site-sev-critical-text)",
-                          }}
-                        >
-                          {result.ok ? "Last run OK" : "Last run failed"} ({result.status}) at {result.ranAt}
-                        </div>
-                        <pre
-                          style={{
-                            marginTop: 6,
-                            marginBottom: 0,
-                            fontSize: 12,
-                            maxHeight: 180,
-                            overflow: "auto",
-                            background: "var(--site-input-bg, rgba(255,255,255,0.03))",
-                            border: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))",
-                            borderRadius: 8,
-                            padding: 8,
-                            whiteSpace: "pre-wrap",
-                            wordBreak: "break-word",
-                          }}
-                        >
-                          {result.bodyPreview}
-                        </pre>
-                      </div>
-                    ) : null}
+                    <div style={{ fontWeight: 800 }}>{row.title}</div>
+                    <div style={{ ...tinyText, marginTop: 5 }}>{row.summary}</div>
+                    {renderResult(result)}
                   </td>
                   <td style={{ padding: 12 }}>
-                    <code>{ability.method}</code>
+                    <code>{row.ability.method}</code>
                     <div style={{ marginTop: 4 }}>
-                      <code>{ability.path}</code>
+                      <code>{row.ability.path}</code>
                     </div>
-                    {ability.body ? (
+                    {row.ability.body ? (
                       <pre
                         style={{
                           marginTop: 8,
@@ -289,24 +399,27 @@ export default function ActionsConsole(props: { userRole: AppRole; signedInAs: s
                           wordBreak: "break-word",
                         }}
                       >
-                        {JSON.stringify(ability.body)}
+                        {JSON.stringify(row.ability.body)}
                       </pre>
                     ) : null}
                   </td>
                   <td style={{ padding: 12 }}>
-                    <code>{ability.requiredRole}</code>
+                    <code>{row.requiredRole}</code>
+                  </td>
+                  <td style={{ padding: 12 }}>
+                    <div style={{ fontWeight: 700 }}>{count}</div>
                   </td>
                   <td style={{ padding: 12 }}>
                     <button
                       type="button"
-                      onClick={() => void runAbility(ability)}
+                      onClick={() => void runAbility(row.ability)}
                       disabled={!allowed || busyId !== null}
                       style={!allowed || busyId !== null ? disabledButtonStyle : buttonStyle}
                     >
                       {isBusy ? "Running..." : "Run"}
                     </button>
                     {!allowed ? (
-                      <div style={{ ...tinyText, marginTop: 6 }}>Needs {ability.requiredRole} role.</div>
+                      <div style={{ ...tinyText, marginTop: 6 }}>Needs {row.requiredRole} role.</div>
                     ) : null}
                   </td>
                 </tr>
