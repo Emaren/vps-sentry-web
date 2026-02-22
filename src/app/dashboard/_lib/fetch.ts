@@ -133,8 +133,37 @@ export async function getStatusEnvelopeSafe() {
         : null;
 
     if (status || last) {
-      const mergedLast = { ...(status ?? {}), ...(last ?? {}) };
-      const patched = { ...obj, last: mergedLast };
+      const safeArr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+
+      const portsLocal = safeArr(
+        (last as any)?.ports_local ?? (last as any)?.ports?.local
+      );
+
+      const portsPublicFromStatus = safeArr(
+        (status as any)?.ports_public ?? (status as any)?.ports?.public
+      );
+      const portsPublicFromLast = safeArr(
+        (last as any)?.ports_public ?? (last as any)?.ports?.public
+      );
+      const portsPublic =
+        portsPublicFromStatus.length > 0 ? portsPublicFromStatus : portsPublicFromLast;
+
+      // Ensure BOTH roots expose ports_local/ports_public so downstream derive logic
+      // can’t “miss” them depending on which root it uses.
+      const patchedStatus = {
+        ...(status ?? {}),
+        ports_local: portsLocal,
+        ports_public: portsPublic,
+      };
+
+      const patchedLast = {
+        ...(status ?? {}),
+        ...(last ?? {}),
+        ports_local: portsLocal,
+        ports_public: portsPublic,
+      };
+
+      const patched = { ...obj, status: patchedStatus, last: patchedLast };
       return normalizeStatusEnvelope(patched as Status | StatusEnvelope);
     }
 
