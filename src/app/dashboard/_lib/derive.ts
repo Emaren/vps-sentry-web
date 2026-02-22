@@ -34,6 +34,7 @@ function pickStringArray(v: unknown): string[] | null {
 
 type AlertItem = RawAlertItem;
 type DashboardPort = Pick<Port, "proto" | "host" | "port" | "proc" | "pid">;
+
 export type DashboardVitalsProcess = {
   pid: number | null;
   name: string;
@@ -46,6 +47,11 @@ export type DashboardVitalsProcess = {
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+}
+
+function pickPorts(rec: Record<string, unknown>, key: "ports_local" | "ports_public"): DashboardPort[] {
+  const v = rec[key];
+  return Array.isArray(v) ? (v as unknown as DashboardPort[]) : [];
 }
 
 function isPortsNoiseAlert(alert: AlertItem, expectedPortsLower: string[]): boolean {
@@ -149,6 +155,10 @@ export type DerivedDashboard = {
   unexpectedPublicPortsCount: number; // alias of actionable count (always numeric)
   expectedPublicPorts: string[] | null; // e.g. ["udp:68"]
   portsPublicForAction: DashboardPort[]; // unexpected list if present, else total list
+
+  // Raw ports arrays for UI (Power/Memory tile + diagnostics)
+  portsLocal: DashboardPort[];
+  portsPublic: DashboardPort[];
 
   // Optional future signals (present = show)
   breachesOpen: number | null;
@@ -265,14 +275,9 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
   const vitalsSampledCount = vitalsSampledRaw === null ? null : Math.max(0, Math.trunc(vitalsSampledRaw));
   const vitalsCpuShareTotalPercent =
     pickNumber(vitalsProcesses?.cpu_share_total_percent) ??
-    (vitalsProcessRows.length
-      ? vitalsProcessRows.reduce((acc, row) => acc + (row.cpuSharePercent ?? 0), 0)
-      : null);
+    (vitalsProcessRows.length ? vitalsProcessRows.reduce((acc, row) => acc + (row.cpuSharePercent ?? 0), 0) : null);
 
-  const hasVitals =
-    cpuUsedPercent !== null ||
-    memoryUsedPercent !== null ||
-    vitalsProcessRows.length > 0;
+  const hasVitals = cpuUsedPercent !== null || memoryUsedPercent !== null || vitalsProcessRows.length > 0;
 
   // ---- Public ports: prefer "unexpected" (actionable) if present ----
   const publicPortsTotalCount = s.public_ports_count;
@@ -292,6 +297,18 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
   // - if unexpected list exists, use it (only actionable ports)
   // - else fallback to raw list
   const portsPublicForAction = portsPublicUnexpected ?? (s.ports_public ?? []);
+
+  // ---- Canonical status + ports arrays (fixes "local 0" / DOWN tiles when env.raw carries the ports) ----
+  const rawObj = asRecord(env.raw);
+  const canonicalRoot =
+    asRecord(rawObj?.status) ??
+    asRecord(rawObj?.last) ??
+    asRecord(s) ??
+    {};
+
+  const portsLocal = pickPorts(canonicalRoot, "ports_local");
+  const portsPublic = pickPorts(canonicalRoot, "ports_public");
+  const canonicalStatus = canonicalRoot;
 
   // ---- Alerts: best-effort filter out allowlisted ports noise ----
   const alertsRaw: AlertItem[] = Array.isArray(s.alerts) ? s.alerts : [];
@@ -347,11 +364,8 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
         : "ok";
 
   const scanLabel =
-    `${fmt(snapshotTs)}` + (typeof ageMin === "number" ? ` · Age: ${ageMin}m${stale ? " (stale)" : ""}` : "");
-
-  // Extract canonical status object + warnings/paths from raw /api/status
-  const rawObj = asRecord(env.raw);
-  const canonicalStatus = rawObj?.status;
+    `${fmt(snapshotTs)}` +
+    (typeof ageMin === "number" ? ` · Age: ${ageMin}m${stale ? " (stale)" : ""}` : "");
 
   const rawWarnings = Array.isArray(rawObj?.warnings)
     ? rawObj.warnings.filter((x): x is string => typeof x === "string")
@@ -393,6 +407,9 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
     unexpectedPublicPortsCount,
     expectedPublicPorts,
     portsPublicForAction,
+
+    portsLocal,
+    portsPublic,
 
     breachesOpen,
     breachesFixed,

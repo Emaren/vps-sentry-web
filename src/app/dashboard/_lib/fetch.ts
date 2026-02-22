@@ -74,7 +74,6 @@ function toAdaptiveSeverity(severity: SignalSeverity): "info" | "warn" | "critic
   if (severity === "medium") return "warn";
   return "info";
 }
-
 function signalLabelFromCode(code: string): string {
   return code
     .split("_")
@@ -118,6 +117,25 @@ export async function getStatusEnvelopeSafe() {
         diff: null,
         warnings: [`dashboard_fallback: /api/status returned ${res.status}`],
       });
+    }
+
+    // ✅ FIX: /api/status returns BOTH `status` and `last`, but ports_local is in `last`.
+    // Merge `status` into `last` so UI can always see ports_local/ports_public.
+    const obj = data as Record<string, unknown>;
+    const status =
+      obj.status && typeof obj.status === "object" && !Array.isArray(obj.status)
+        ? (obj.status as Record<string, unknown>)
+        : null;
+
+    const last =
+      obj.last && typeof obj.last === "object" && !Array.isArray(obj.last)
+        ? (obj.last as Record<string, unknown>)
+        : null;
+
+    if (status || last) {
+      const mergedLast = { ...(status ?? {}), ...(last ?? {}) };
+      const patched = { ...obj, last: mergedLast };
+      return normalizeStatusEnvelope(patched as Status | StatusEnvelope);
     }
 
     return normalizeStatusEnvelope(data as Status | StatusEnvelope);
