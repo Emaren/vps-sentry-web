@@ -20,6 +20,14 @@ type StepOutcome = {
   detail: string;
 };
 
+type RemediationPlanAction = {
+  id: string;
+  title: string;
+  risk: "low" | "medium" | "high";
+  autoTier: string;
+  confirmPhrase: string;
+};
+
 function asRecord(v: unknown): JsonRecord | null {
   return v && typeof v === "object" ? (v as JsonRecord) : null;
 }
@@ -36,6 +44,78 @@ function asString(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
   return t.length ? t : null;
+}
+
+function toRemediationPlanAction(raw: JsonRecord): RemediationPlanAction | null {
+  const id = asString(raw.id);
+  if (!id) return null;
+
+  const riskRaw = asString(raw.risk)?.toLowerCase();
+  const risk: RemediationPlanAction["risk"] =
+    riskRaw === "low" || riskRaw === "medium" || riskRaw === "high" ? riskRaw : "high";
+
+  return {
+    id,
+    title: asString(raw.title) ?? id,
+    risk,
+    autoTier: asString(raw.autoTier) ?? "observe",
+    confirmPhrase: asString(raw.confirmPhrase) ?? `EXECUTE ${id}`,
+  };
+}
+
+function normalizeHostToken(v: string): string {
+  return v.trim().toLowerCase();
+}
+
+function safeActionPriorityValue(action: RemediationPlanAction): number {
+  if (action.autoTier === "safe_auto") return 3;
+  if (action.autoTier === "guarded_auto") return 2;
+  return 1;
+}
+
+async function resolveHostIdForName(hostName: string): Promise<{ hostId: string | null; note?: string }> {
+  const lookup = normalizeHostToken(hostName);
+  const res = await fetch("/api/hosts", {
+    method: "GET",
+    cache: "no-store",
+    headers: { accept: "application/json" },
+  });
+
+  if (!res.ok) {
+    return { hostId: null, note: `Could not list hosts (${res.status}).` };
+  }
+
+  const payload = asRecord(await res.json().catch(() => null)) ?? {};
+  const hostRows = asArray(payload.hosts)
+    .map((row) => asRecord(row))
+    .filter((row): row is JsonRecord => row !== null);
+
+  if (hostRows.length === 0) {
+    return { hostId: null, note: "No hosts were found for this account." };
+  }
+
+  const exactByName = hostRows.find((row) => normalizeHostToken(asString(row.name) ?? "") === lookup);
+  const exactBySlug = hostRows.find((row) => normalizeHostToken(asString(row.slug) ?? "") === lookup);
+  const exact = exactByName ?? exactBySlug;
+  if (exact) {
+    const id = asString(exact.id);
+    if (id) return { hostId: id };
+  }
+
+  if (hostRows.length === 1) {
+    const onlyId = asString(hostRows[0]?.id);
+    if (onlyId) {
+      return {
+        hostId: onlyId,
+        note: `Host name '${hostName}' did not match exactly; using your only host.`,
+      };
+    }
+  }
+
+  return {
+    hostId: null,
+    note: `Could not map '${hostName}' to a managed host ID.`,
+  };
 }
 
 function errorMessage(err: unknown): string {
@@ -244,29 +324,110 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     }
 
     if (stepId === "alerts") {
-      const requestedLimit = Math.min(Math.max(alertsCount, 1), 25);
-      const run = await postJson("/api/ops/remediate-drain", { limit: requestedLimit });
-      if (!run.ok) {
-        return { ok: false, detail: run.error };
+      const hostResolved = await resolveHostIdForName(host);
+      if (!hostResolved.hostId) {
+        return {
+          ok: false,
+          detail: hostResolved.note ?? "Unable to resolve host for remediation.",
+        };
       }
 
-      const drained = asRecord(run.payload.drained) ?? {};
+      const hostId = hostResolved.hostId;
+      const planRun = await postJson("/api/remediate", {
+        mode: "plan",
+        hostId,
+      });
+      if (!planRun.ok) {
+        return {
+          ok: false,
+          detail: `Could not build remediation plan: ${planRun.error}`,
+        };
+      }
+
+      const candidateActions = asArray(planRun.payload.actions)
+        .map((x) => asRecord(x))
+        .filter((x): x is JsonRecord => x !== null)
+        .map((x) => toRemediationPlanAction(x))
+        .filter((x): x is RemediationPlanAction => x !== null)
+        .filter((a) => (a.autoTier === "safe_auto" || a.autoTier === "guarded_auto") && a.risk !== "high")
+        .sort((a, b) => safeActionPriorityValue(b) - safeActionPriorityValue(a))
+        .slice(0, 3);
+
+      if (candidateActions.length === 0) {
+        return {
+          ok: false,
+          detail:
+            "No safe auto-fix playbooks were available for the current alerts. Review alerts manually or adjust remediation policy.",
+        };
+      }
+
+      let queuedCount = 0;
+      const touchedActionIds: string[] = [];
+      const failures: string[] = [];
+
+      for (const action of candidateActions) {
+        const dryRun = await postJson("/api/remediate", {
+          mode: "dry-run",
+          hostId,
+          actionId: action.id,
+          confirmPhrase: action.confirmPhrase,
+        });
+        if (!dryRun.ok) {
+          failures.push(`${action.id}: dry-run failed (${dryRun.error})`);
+          continue;
+        }
+
+        const executeRun = await postJson("/api/remediate", {
+          mode: "execute",
+          hostId,
+          actionId: action.id,
+          confirmPhrase: action.confirmPhrase,
+        });
+        if (!executeRun.ok) {
+          failures.push(`${action.id}: execute failed (${executeRun.error})`);
+          continue;
+        }
+
+        const queuedFlag = executeRun.payload.queued === true;
+        const runState = asString(asRecord(executeRun.payload.run)?.state);
+        const accepted =
+          queuedFlag || runState === "queued" || runState === "running" || runState === "succeeded";
+        if (accepted) {
+          queuedCount += 1;
+          touchedActionIds.push(action.id);
+        }
+      }
+
+      if (queuedCount <= 0) {
+        const reason = failures.length
+          ? failures.slice(0, 3).join(" | ")
+          : "No safe actions were queued.";
+        return { ok: false, detail: reason };
+      }
+
+      const requestedLimit = Math.min(Math.max(queuedCount, 1), 25);
+      const drainRun = await postJson("/api/ops/remediate-drain", { limit: requestedLimit });
+      if (!drainRun.ok) {
+        return {
+          ok: false,
+          detail: `Queued ${queuedCount} action(s) but drain failed: ${drainRun.error}`,
+        };
+      }
+
+      const drained = asRecord(drainRun.payload.drained) ?? {};
       const processed = asNumber(drained.processed);
       const requested = asNumber(drained.requestedLimit);
       const queueErrors = asArray(drained.errors).length;
 
       const bits: string[] = [];
-      bits.push(
-        `Processed ${processed ?? 0}/${requested ?? requestedLimit} queued remediation run(s).`
-      );
+      if (hostResolved.note) bits.push(hostResolved.note);
+      bits.push(`Queued ${queuedCount} safe remediation action(s): ${touchedActionIds.join(", ")}.`);
+      bits.push(`Processed ${processed ?? 0}/${requested ?? requestedLimit} queued remediation run(s).`);
       if (queueErrors > 0) bits.push(`${queueErrors} run(s) reported errors; review remediation queue.`);
+      if (failures.length > 0) bits.push(`Action failures: ${failures.slice(0, 2).join(" | ")}`);
 
-      if ((processed ?? 0) <= 0 && alertsCount > 0) {
-        bits.push("No queued safe remediations were available for the active alerts in this snapshot.");
-        return { ok: false, detail: bits.join(" ") };
-      }
-
-      return { ok: queueErrors === 0, detail: bits.join(" ") };
+      const ok = queueErrors === 0 && failures.length === 0;
+      return { ok, detail: bits.join(" ") };
     }
 
     if (stepId === "report") {
