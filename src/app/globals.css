@@ -1190,6 +1190,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 }
 
 .pm-project-name-link {
+  display: block;
   color: inherit;
   text-decoration: none;
   cursor: pointer;
@@ -1209,6 +1210,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 }
 
 .pm-project-sub-link {
+  display: inline-block;
   text-decoration: none;
   color: var(--dash-meta);
   border-bottom: 1px dotted color-mix(in srgb, var(--dash-meta) 70%, transparent 30%);
@@ -1365,75 +1367,21 @@ html[data-site-theme="sepia"] .dashboard-shell {
   padding: 7px 9px;
 }
 
-.pm-project-services {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+.pm-project-services-text {
+  display: grid;
+  gap: 4px;
 }
 
-.pm-project-service-chip {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--dash-card-border) 80%, transparent 20%);
-  background: color-mix(in srgb, var(--dash-btn-bg) 90%, transparent 10%);
-  color: var(--dash-meta);
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  padding: 4px 8px;
-}
-
-.pm-project-service-chip-up {
-  border-color: var(--dash-sev-ok-border);
-  background: var(--dash-sev-ok-bg);
-  color: var(--dash-sev-ok-text);
-}
-
-.pm-project-service-chip-public {
-  border-color: var(--dash-sev-high-border);
-  background: var(--dash-sev-high-bg);
-  color: var(--dash-sev-high-text);
-}
-
-.pm-project-service-chip-down {
-  border-color: var(--dash-sev-critical-border);
-  background: var(--dash-sev-critical-bg);
-  color: var(--dash-sev-critical-text);
-}
-
-.pm-project-ports {
-  color: var(--dash-meta);
-  font-size: 11px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.pm-project-ports-text {
-  flex: 1 1 220px;
-  min-width: 0;
-}
-
-.pm-project-link {
-  margin-left: auto;
-  border: 1px solid var(--dash-btn-border);
-  background: var(--dash-btn-bg);
+.pm-project-service-line {
   color: var(--dash-fg);
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  line-height: 1;
-  text-decoration: none;
-  cursor: pointer;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
-.pm-project-link:hover {
-  background: var(--dash-btn-bg-hover);
+.pm-project-service-line-down {
+  color: var(--dash-sev-critical-text);
 }
 
 .pm-projects-list {
@@ -1463,6 +1411,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 }
 
 .pm-project-list-title-link {
+  display: block;
   color: inherit;
   text-decoration: none;
   cursor: pointer;

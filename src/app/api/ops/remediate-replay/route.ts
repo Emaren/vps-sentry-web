@@ -1,5 +1,6 @@
 // /var/www/vps-sentry-web/src/app/api/ops/remediate-replay/route.ts
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -129,6 +130,17 @@ function toTrimmedString(v: unknown, max = 200): string | null {
   return t.slice(0, max);
 }
 
+function hasValidQueueToken(req: Request): boolean {
+  const expected = process.env.VPS_REMEDIATE_QUEUE_TOKEN?.trim();
+  if (!expected) return false;
+  const provided = req.headers.get("x-remediate-queue-token")?.trim();
+  if (!provided) return false;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(provided);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 // ---------- lazy deps (avoid import-time surprises during build collection) ----------
 
 async function loadDeps() {
@@ -190,32 +202,38 @@ export async function POST(req: Request) {
     safeReq,
     { route: "/api/ops/remediate-replay", source: "ops-remediate-replay" },
     async (obsCtx: any) => {
-      const access = await deps.requireOpsAccess();
-      if (!access?.ok) {
-        deps.incrementCounter("ops.remediate_replay.denied.total", 1, {
-          status: String(access?.status ?? 403),
-        });
+      let actorUserId: string | null = null;
+      let authMode: "token" | "ops" = "token";
 
-        await deps.writeAuditLog({
-          req: safeReq,
-          action: "ops.remediate_replay.denied",
-          detail: `status=${access?.status ?? 403} email=${access?.email ?? "unknown"}`,
-          meta: {
-            route: "/api/ops/remediate-replay",
-            status: access?.status ?? 403,
-            requiredRole: "ops",
-            email: access?.email ?? null,
-            role: access?.role ?? null,
-          },
-        });
+      if (!hasValidQueueToken(req)) {
+        const access = await deps.requireOpsAccess();
+        if (!access?.ok) {
+          deps.incrementCounter("ops.remediate_replay.denied.total", 1, {
+            status: String(access?.status ?? 403),
+          });
 
-        return NextResponse.json(
-          { ok: false, error: access?.error ?? "Access denied" },
-          { status: typeof access?.status === "number" ? access.status : 403 }
-        );
+          await deps.writeAuditLog({
+            req: safeReq,
+            action: "ops.remediate_replay.denied",
+            detail: `status=${access?.status ?? 403} email=${access?.email ?? "unknown"}`,
+            meta: {
+              route: "/api/ops/remediate-replay",
+              status: access?.status ?? 403,
+              requiredRole: "ops",
+              email: access?.email ?? null,
+              role: access?.role ?? null,
+            },
+          });
+
+          return NextResponse.json(
+            { ok: false, error: access?.error ?? "Access denied" },
+            { status: typeof access?.status === "number" ? access.status : 403 }
+          );
+        }
+        actorUserId = access.identity.userId;
+        obsCtx.userId = actorUserId;
+        authMode = "ops";
       }
-
-      obsCtx.userId = access.identity.userId;
 
       const body: any = await req.json().catch(() => ({}));
       const mode = normalizeMode(body?.mode);
@@ -224,21 +242,23 @@ export async function POST(req: Request) {
         const limit = parseLimit(body?.limit, 3);
         const summary = await deps.replayDeadLetterRuns({
           limit,
-          replayedByUserId: access.identity.userId,
+          replayedByUserId: actorUserId,
         });
 
         deps.incrementCounter("ops.remediate_replay.batch.total", 1, {
+          authMode,
           ok: summary?.ok ? "true" : "false",
         });
 
         await deps.writeAuditLog({
           req: safeReq,
-          userId: access.identity.userId,
+          userId: actorUserId,
           action: "ops.remediate_replay.batch",
           detail: `DLQ replay batch requested (replayed=${summary?.replayed ?? 0}, skipped=${summary?.skipped ?? 0})`,
           meta: {
             route: "/api/ops/remediate-replay",
             mode,
+            authMode,
             limit,
             replayed: summary?.replayed ?? 0,
             skipped: summary?.skipped ?? 0,
@@ -267,16 +287,17 @@ export async function POST(req: Request) {
 
       const replayed = await deps.replayRemediationRun({
         runId,
-        replayedByUserId: access.identity.userId,
+        replayedByUserId: actorUserId,
       });
 
       deps.incrementCounter("ops.remediate_replay.single.total", 1, {
+        authMode,
         ok: replayed?.ok ? "true" : "false",
       });
 
       await deps.writeAuditLog({
         req: safeReq,
-        userId: access.identity.userId,
+        userId: actorUserId,
         action: replayed?.ok ? "ops.remediate_replay.single" : "ops.remediate_replay.single.failed",
         detail: replayed?.ok
           ? `Replay queued for source run ${runId}`
@@ -284,6 +305,7 @@ export async function POST(req: Request) {
         meta: {
           route: "/api/ops/remediate-replay",
           mode,
+          authMode,
           sourceRunId: runId,
           replayRunId: replayed?.replayRunId ?? null,
           ok: Boolean(replayed?.ok),

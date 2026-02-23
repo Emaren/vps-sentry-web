@@ -227,6 +227,14 @@ function sumMaybe(values: Array<number | null | undefined>): number | null {
   return nums.reduce((a, b) => a + b, 0);
 }
 
+function resolveBackendHref(project: Pick<ProjectDef, "subtitle" | "backendHref">): string | undefined {
+  if (project.backendHref?.trim()) return project.backendHref.trim();
+  const subtitle = project.subtitle?.trim();
+  if (!subtitle) return undefined;
+  if (subtitle.startsWith("http://") || subtitle.startsWith("https://")) return subtitle;
+  return `https://${subtitle}`;
+}
+
 /**
  * NOTE: These ports are your current “main project” ports on this VPS.
  * If you ever change service ports, update them here.
@@ -327,6 +335,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
   }
 
   const projectCards = MAIN_PROJECTS.map((proj) => {
+    const backendHrefResolved = resolveBackendHref(proj);
     const services = proj.services.map((svc) => {
       const local = findPort(portsLocal, svc.port);
       const pub = findPort(portsPublic, svc.port);
@@ -370,6 +379,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
 
     return {
       ...proj,
+      backendHrefResolved,
       services,
       up: allRequiredUp,
       requiredUpCount,
@@ -467,8 +477,8 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                       <div className="pm-project-name">{p.name}</div>
                     )}
                     {p.subtitle ? (
-                      p.backendHref || p.href ? (
-                        <a className="pm-project-sub pm-project-sub-link" href={p.backendHref ?? p.href} target="_blank" rel="noreferrer">
+                      p.backendHrefResolved ? (
+                        <a className="pm-project-sub pm-project-sub-link" href={p.backendHrefResolved} target="_blank" rel="noreferrer">
                           {p.subtitle}
                         </a>
                       ) : (
@@ -519,21 +529,16 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                   <div className="pm-project-missing">Missing required: {p.missingRequired.join(", ")}</div>
                 ) : null}
 
-                <div className="pm-project-services" aria-label="Per-service status">
+                <div className="pm-project-services-text" aria-label="Per-service ports and process IDs">
                   {p.services.map((svc) => (
-                    <span
+                    <div
                       key={`${p.key}-${svc.label}-${svc.port}`}
-                      className={
-                        svc.isListening
-                          ? svc.isPublic
-                            ? "pm-project-service-chip pm-project-service-chip-public"
-                            : "pm-project-service-chip pm-project-service-chip-up"
-                          : "pm-project-service-chip pm-project-service-chip-down"
-                      }
+                      className={svc.isListening ? "pm-project-service-line" : "pm-project-service-line pm-project-service-line-down"}
                     >
                       {svc.label}:{svc.port}
                       {typeof svc.pid === "number" ? ` #${svc.pid}` : ""}
-                    </span>
+                      {svc.isPublic ? " (public)" : ""}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -552,8 +557,8 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                     <div className="pm-project-list-title">{p.name}</div>
                   )}
                   {p.subtitle ? (
-                    p.backendHref || p.href ? (
-                      <a className="pm-project-list-backend pm-project-list-backend-link" href={p.backendHref ?? p.href} target="_blank" rel="noreferrer">
+                    p.backendHrefResolved ? (
+                      <a className="pm-project-list-backend pm-project-list-backend-link" href={p.backendHrefResolved} target="_blank" rel="noreferrer">
                         {p.subtitle}
                       </a>
                     ) : (
