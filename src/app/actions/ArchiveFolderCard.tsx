@@ -13,7 +13,7 @@ const localDefaultSourceParent = "~/projects";
 const localDefaultOutdirParent = "~/projects/VPSSentry";
 
 type DirectoryPickerHandle = { name: string };
-type DirectoryPickResult =
+type DirectoryApiPickResult =
   | { kind: "picked"; name: string }
   | { kind: "cancelled" }
   | { kind: "unavailable" };
@@ -63,6 +63,15 @@ function applyPickedFolderName(currentPath: string, folderName: string, fallback
   return `${raw.slice(0, slash)}/${nextName}`;
 }
 
+function folderNameFromFileList(files: FileList | null): string | null {
+  if (!files || files.length === 0) return null;
+  const first = files.item(0) as (File & { webkitRelativePath?: string }) | null;
+  const rel = typeof first?.webkitRelativePath === "string" ? first.webkitRelativePath : "";
+  if (!rel) return null;
+  const top = rel.split("/")[0]?.trim();
+  return top ? top : null;
+}
+
 export default function ArchiveFolderCard(props: { userRole: AppRole }) {
   const canRunServer = hasRequiredRole(props.userRole, "ops");
 
@@ -75,6 +84,8 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
   const [mode, setMode] = React.useState<Mode>("both");
   const [busy, setBusy] = React.useState(false);
   const [serverResult, setServerResult] = React.useState("");
+  const sourcePickerInputRef = React.useRef<HTMLInputElement | null>(null);
+  const outdirPickerInputRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
     setOutdir(target === "local" ? localDefaultOutdir : serverDefaultOutdir);
@@ -99,7 +110,7 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
     }
   }, [command]);
 
-  const pickDirectoryName = React.useCallback(async (): Promise<DirectoryPickResult> => {
+  const pickDirectoryNameWithApi = React.useCallback(async (): Promise<DirectoryApiPickResult> => {
     if (typeof window === "undefined") return { kind: "unavailable" };
     if (!window.isSecureContext || typeof navigator === "undefined") {
       return { kind: "unavailable" };
@@ -126,35 +137,75 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
     }
   }, []);
 
+  const handleSourcePickerFallback = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const folderName = folderNameFromFileList(event.target.files);
+      if (folderName) {
+        setSrc((prev) => applyPickedFolderName(prev, folderName, localDefaultSourceParent));
+        setPickerNote("");
+      } else {
+        setPickerNote("Folder picker did not return a folder. You can type a path manually.");
+      }
+      event.target.value = "";
+    },
+    []
+  );
+
+  const handleOutdirPickerFallback = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const folderName = folderNameFromFileList(event.target.files);
+      if (folderName) {
+        setOutdir((prev) => applyPickedFolderName(prev, folderName, localDefaultOutdirParent));
+        setPickerNote("");
+      } else {
+        setPickerNote("Folder picker did not return a folder. You can type a path manually.");
+      }
+      event.target.value = "";
+    },
+    []
+  );
+
   const pickLocalSource = React.useCallback(async () => {
     if (target !== "local" || manualSource) return;
     setPickerNote("");
     try {
-      const picked = await pickDirectoryName();
+      const picked = await pickDirectoryNameWithApi();
       if (picked.kind === "picked") {
         setSrc((prev) => applyPickedFolderName(prev, picked.name, localDefaultSourceParent));
-      } else if (picked.kind === "unavailable") {
+        return;
+      }
+      if (picked.kind === "cancelled") return;
+
+      if (sourcePickerInputRef.current) {
+        sourcePickerInputRef.current.click();
+      } else {
         setPickerNote("Folder picker unavailable in this browser context. Switch to manual path entry.");
       }
     } catch (error: unknown) {
       setPickerNote(`Folder picker error: ${errorMessage(error)}`);
     }
-  }, [manualSource, pickDirectoryName, target]);
+  }, [manualSource, pickDirectoryNameWithApi, target]);
 
   const pickLocalOutdir = React.useCallback(async () => {
     if (target !== "local" || manualOutdir) return;
     setPickerNote("");
     try {
-      const picked = await pickDirectoryName();
+      const picked = await pickDirectoryNameWithApi();
       if (picked.kind === "picked") {
         setOutdir((prev) => applyPickedFolderName(prev, picked.name, localDefaultOutdirParent));
-      } else if (picked.kind === "unavailable") {
+        return;
+      }
+      if (picked.kind === "cancelled") return;
+
+      if (outdirPickerInputRef.current) {
+        outdirPickerInputRef.current.click();
+      } else {
         setPickerNote("Folder picker unavailable in this browser context. Switch to manual path entry.");
       }
     } catch (error: unknown) {
       setPickerNote(`Folder picker error: ${errorMessage(error)}`);
     }
-  }, [manualOutdir, pickDirectoryName, target]);
+  }, [manualOutdir, pickDirectoryNameWithApi, target]);
 
   const runOnServer = React.useCallback(async () => {
     if (!canRunServer || busy || !src.trim()) return;
@@ -180,8 +231,31 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
     }
   }, [busy, canRunServer, mode, outdir, src]);
 
+  const directoryInputAttrs = {
+    webkitdirectory: "",
+    directory: "",
+  } as React.InputHTMLAttributes<HTMLInputElement>;
+
   return (
     <div style={{ ...boxStyle, marginTop: 10, marginBottom: 12 }}>
+      <input
+        {...directoryInputAttrs}
+        ref={sourcePickerInputRef}
+        type="file"
+        tabIndex={-1}
+        aria-hidden="true"
+        style={{ display: "none" }}
+        onChange={handleSourcePickerFallback}
+      />
+      <input
+        {...directoryInputAttrs}
+        ref={outdirPickerInputRef}
+        type="file"
+        tabIndex={-1}
+        aria-hidden="true"
+        style={{ display: "none" }}
+        onChange={handleOutdirPickerFallback}
+      />
       <div style={{ fontWeight: 900, marginBottom: 6 }}>Archive Folder (ZIP / TGZ / Both)</div>
       <div style={subtleText}>
         Local MBP generates a copy/paste command. Server mode runs the same archive script on VPS.

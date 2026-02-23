@@ -36,6 +36,20 @@ type TrackedRunsSummary = {
   details: string[];
 };
 
+type FixStatusAlert = {
+  code: string | null;
+  title: string;
+  detail: string;
+};
+
+type FixStatusSnapshot = {
+  alerts: FixStatusAlert[];
+  unexpectedPublicPortsCount: number;
+  sshFailedPassword: number;
+  sshInvalidUser: number;
+  threatIndicatorCount: number;
+};
+
 function asRecord(v: unknown): JsonRecord | null {
   return v && typeof v === "object" ? (v as JsonRecord) : null;
 }
@@ -52,6 +66,10 @@ function asString(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
   return t.length ? t : null;
+}
+
+function asStringOrEmpty(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
 }
 
 function asBoolean(v: unknown): boolean | null {
@@ -138,6 +156,81 @@ async function readQueueSnapshot(limit = 80): Promise<JsonRecord | null> {
     if (!res.ok) return null;
     const payload = asRecord(await res.json().catch(() => null)) ?? {};
     return asRecord(payload.snapshot);
+  } catch {
+    return null;
+  }
+}
+
+function asInt(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "string") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return Math.trunc(n);
+  }
+  return 0;
+}
+
+function normalizeAlertCode(alert: FixStatusAlert): string {
+  if (alert.code) return alert.code.trim().toLowerCase();
+  const title = `${alert.title} ${alert.detail}`.toLowerCase();
+  if (/watched files changed/.test(title)) return "watched_files_changed";
+  if (/packages changed/.test(title)) return "packages_changed";
+  if (/user list changed/.test(title)) return "user_list_changed";
+  if (/firewall changed/.test(title)) return "firewall_changed";
+  if (/ports changed|public ports changed/.test(title)) return "ports_changed";
+  return "";
+}
+
+function isBaselineDriftAlert(alert: FixStatusAlert): boolean {
+  const code = normalizeAlertCode(alert);
+  return (
+    code === "watched_files_changed" ||
+    code === "packages_changed" ||
+    code === "user_list_changed" ||
+    code === "firewall_changed" ||
+    code === "ports_changed"
+  );
+}
+
+function isBaselineDriftOnlySnapshot(snapshot: FixStatusSnapshot): boolean {
+  if (snapshot.alerts.length === 0) return false;
+  if (snapshot.unexpectedPublicPortsCount > 0) return false;
+  return snapshot.alerts.every(isBaselineDriftAlert);
+}
+
+async function readFixStatusSnapshot(): Promise<FixStatusSnapshot | null> {
+  try {
+    const res = await fetch("/api/status", {
+      method: "GET",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return null;
+
+    const payload = asRecord(await res.json().catch(() => null)) ?? {};
+    const status = asRecord(payload.status);
+    if (!status) return null;
+
+    const alerts = asArray(status.alerts)
+      .map((item) => asRecord(item))
+      .filter((item): item is JsonRecord => item !== null)
+      .map((item) => ({
+        code: asString(item.code),
+        title: asStringOrEmpty(item.title) || "Alert",
+        detail: asStringOrEmpty(item.detail),
+      }));
+
+    const auth = asRecord(status.auth);
+    const threat = asRecord(status.threat);
+    const indicators = asArray(threat?.indicators);
+
+    return {
+      alerts,
+      unexpectedPublicPortsCount: asInt(status.unexpected_public_ports_count),
+      sshFailedPassword: asInt(auth?.ssh_failed_password),
+      sshInvalidUser: asInt(auth?.ssh_invalid_user),
+      threatIndicatorCount: indicators.length,
+    };
   } catch {
     return null;
   }
@@ -430,6 +523,34 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     }
 
     if (stepId === "alerts") {
+      const statusSnap = await readFixStatusSnapshot();
+      if (statusSnap && isBaselineDriftOnlySnapshot(statusSnap)) {
+        const baselineRun = await postJson("/api/ops/baseline-accept");
+        if (!baselineRun.ok) {
+          return {
+            ok: false,
+            detail: `Baseline reconcile failed: ${baselineRun.error}`,
+          };
+        }
+
+        const accepted = baselineRun.payload.accepted === true;
+        const statusAdvanced = baselineRun.payload.statusAdvanced === true;
+        const statusTs = asString(baselineRun.payload.statusTs);
+        const scan = asRecord(baselineRun.payload.scan);
+        const scanStarted = asBoolean(scan?.started) === true;
+        const scanError = asString(scan?.error);
+        const details: string[] = [];
+        details.push("Drift-only alerts detected; accepted new baseline.");
+        details.push(accepted ? "Baseline was accepted." : "Baseline acceptance did not confirm success.");
+        if (scanStarted) details.push("Immediate VPS scan was started.");
+        if (!scanStarted && scanError) details.push(`Immediate scan start was not confirmed (${scanError}).`);
+        if (statusAdvanced) details.push("Snapshot timestamp advanced.");
+        else details.push("Snapshot timestamp has not advanced yet.");
+        if (statusTs) details.push(`Latest status timestamp: ${statusTs}.`);
+
+        return { ok: accepted, detail: details.join(" ") };
+      }
+
       const hostResolved = await resolveHostIdForName(host);
       if (!hostResolved.hostId) {
         return {
