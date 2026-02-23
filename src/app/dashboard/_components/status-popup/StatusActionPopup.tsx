@@ -46,6 +46,11 @@ function asString(v: unknown): string | null {
   return t.length ? t : null;
 }
 
+function asBoolean(v: unknown): boolean | null {
+  if (typeof v === "boolean") return v;
+  return null;
+}
+
 function toRemediationPlanAction(raw: JsonRecord): RemediationPlanAction | null {
   const id = asString(raw.id);
   if (!id) return null;
@@ -105,10 +110,7 @@ async function resolveHostIdForName(hostName: string): Promise<{ hostId: string 
   if (hostRows.length === 1) {
     const onlyId = asString(hostRows[0]?.id);
     if (onlyId) {
-      return {
-        hostId: onlyId,
-        note: `Host name '${hostName}' did not match exactly; using your only host.`,
-      };
+      return { hostId: onlyId };
     }
   }
 
@@ -116,6 +118,55 @@ async function resolveHostIdForName(hostName: string): Promise<{ hostId: string 
     hostId: null,
     note: `Could not map '${hostName}' to a managed host ID.`,
   };
+}
+
+async function readQueueSnapshot(limit = 80): Promise<JsonRecord | null> {
+  try {
+    const res = await fetch(`/api/ops/remediate-queue?limit=${limit}`, {
+      method: "GET",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const payload = asRecord(await res.json().catch(() => null)) ?? {};
+    return asRecord(payload.snapshot);
+  } catch {
+    return null;
+  }
+}
+
+async function describeTrackedRuns(runIds: string[]): Promise<string | null> {
+  if (runIds.length === 0) return null;
+  const snapshot = await readQueueSnapshot(100);
+  if (!snapshot) return null;
+
+  const runSet = new Set(runIds);
+  const rows = asArray(snapshot.items)
+    .map((row) => asRecord(row))
+    .filter((row): row is JsonRecord => row !== null)
+    .filter((row) => {
+      const runId = asString(row.runId);
+      return Boolean(runId && runSet.has(runId));
+    });
+
+  if (rows.length === 0) return null;
+
+  const states = rows.map((row) => {
+    const actionKey = asString(row.actionKey) ?? "action";
+    const state = asString(row.state) ?? "unknown";
+    const delayed = asBoolean(row.delayed) === true;
+    const approval = asString(row.approvalStatus);
+    const suffix = [
+      delayed ? "delayed" : null,
+      approval && approval !== "none" ? `approval=${approval}` : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+    return suffix ? `${actionKey}=${state} (${suffix})` : `${actionKey}=${state}`;
+  });
+
+  return `Queue state: ${states.join("; ")}.`;
 }
 
 function errorMessage(err: unknown): string {
@@ -363,6 +414,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
 
       let queuedCount = 0;
       const touchedActionIds: string[] = [];
+      const touchedRunIds: string[] = [];
       const failures: string[] = [];
 
       for (const action of candidateActions) {
@@ -395,6 +447,8 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         if (accepted) {
           queuedCount += 1;
           touchedActionIds.push(action.id);
+          const runId = asString(asRecord(executeRun.payload.run)?.id);
+          if (runId) touchedRunIds.push(runId);
         }
       }
 
@@ -406,27 +460,46 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       }
 
       const requestedLimit = Math.min(Math.max(queuedCount, 1), 25);
-      const drainRun = await postJson("/api/ops/remediate-drain", { limit: requestedLimit });
-      if (!drainRun.ok) {
-        return {
-          ok: false,
-          detail: `Queued ${queuedCount} action(s) but drain failed: ${drainRun.error}`,
-        };
+
+      let processedTotal = 0;
+      let requestedSeen = requestedLimit;
+      let queueErrorsTotal = 0;
+
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const drainRun = await postJson("/api/ops/remediate-drain", { limit: requestedLimit });
+        if (!drainRun.ok) {
+          return {
+            ok: false,
+            detail: `Queued ${queuedCount} action(s) but drain failed: ${drainRun.error}`,
+          };
+        }
+
+        const drained = asRecord(drainRun.payload.drained) ?? {};
+        const processed = asNumber(drained.processed);
+        const requested = asNumber(drained.requestedLimit);
+        const queueErrors = asArray(drained.errors).length;
+
+        processedTotal += processed ?? 0;
+        requestedSeen = requested ?? requestedSeen;
+        queueErrorsTotal += queueErrors;
+
+        if (processedTotal > 0) break;
+        await sleep(900);
       }
 
-      const drained = asRecord(drainRun.payload.drained) ?? {};
-      const processed = asNumber(drained.processed);
-      const requested = asNumber(drained.requestedLimit);
-      const queueErrors = asArray(drained.errors).length;
-
       const bits: string[] = [];
-      if (hostResolved.note) bits.push(hostResolved.note);
       bits.push(`Queued ${queuedCount} safe remediation action(s): ${touchedActionIds.join(", ")}.`);
-      bits.push(`Processed ${processed ?? 0}/${requested ?? requestedLimit} queued remediation run(s).`);
-      if (queueErrors > 0) bits.push(`${queueErrors} run(s) reported errors; review remediation queue.`);
+      bits.push(`Processed ${processedTotal}/${requestedSeen} queued remediation run(s).`);
+      if (queueErrorsTotal > 0) bits.push(`${queueErrorsTotal} run(s) reported errors; review remediation queue.`);
       if (failures.length > 0) bits.push(`Action failures: ${failures.slice(0, 2).join(" | ")}`);
 
-      const ok = queueErrors === 0 && failures.length === 0;
+      if (processedTotal <= 0) {
+        const queueState = await describeTrackedRuns(touchedRunIds);
+        if (queueState) bits.push(queueState);
+        bits.push("Runs are queued but not executed yet. They may be running, delayed for retry, or pending approval.");
+      }
+
+      const ok = queueErrorsTotal === 0 && failures.length === 0 && processedTotal > 0;
       return { ok, detail: bits.join(" ") };
     }
 

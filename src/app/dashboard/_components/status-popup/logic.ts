@@ -143,7 +143,7 @@ export function buildExplainText(input: {
 
   lines.push("");
   lines.push(
-    "Fix Now can run the safe automations (queue drain + fresh report). Any risky change, like closing ports, stays manual by design."
+    "Fix Now runs safe automations (build safe remediation plan, queue/execute allowed actions, then drain queue + refresh report). Any risky change, like closing ports, stays manual by design."
   );
 
   return lines.join("\n");
