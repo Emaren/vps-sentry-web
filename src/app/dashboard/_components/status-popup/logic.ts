@@ -57,71 +57,94 @@ export function buildExplainText(input: {
 
   // Try to pull something structured if it exists (best-effort).
   const summaryObj = asRecord(input.summary) ?? {};
-  const maybeArray =
-    asArray(summaryObj.bullets) ||
-    asArray(summaryObj.actions) ||
-    asArray(summaryObj.items) ||
-    null;
+  const reasonsRaw = asArray(summaryObj.reasons) ?? [];
+  const reasonLines = reasonsRaw
+    .filter((r): r is string => typeof r === "string" && r.trim().length > 0)
+    .map((r) => r.trim());
 
-  lines.push("Here’s what this snapshot means:");
+  type ExplainItem = { severity: string; title: string; summary?: string };
+  const itemsRaw = asArray(summaryObj.items) ?? [];
+  const itemLines: ExplainItem[] = [];
+  for (const entry of itemsRaw) {
+    const rec = asRecord(entry);
+    if (!rec) continue;
+    const title = typeof rec.title === "string" ? rec.title.trim() : "";
+    if (!title) continue;
+    itemLines.push({
+      severity: typeof rec.severity === "string" ? rec.severity.trim() : "INFO",
+      title,
+      summary: typeof rec.summary === "string" ? rec.summary.trim() : undefined,
+    });
+  }
+
+  lines.push("Here is the plain-English readout of this snapshot:");
+  lines.push("");
+  lines.push(
+    `Status: ${input.summary.headline}. ${
+      input.summary.needsAction
+        ? "You should review a few things now, but this is still manageable."
+        : "No urgent action is required."
+    }`
+  );
   lines.push("");
 
   if (input.alertsCount > 0) {
     lines.push(
-      `• Alerts: ${input.alertsCount}. These are things the agent flagged (config, perms, integrity, etc.).`
+      `• Alerts: ${input.alertsCount}. The agent noticed changes that could be risky and should be verified.`
     );
   } else {
-    lines.push("• Alerts: 0.");
+    lines.push("• Alerts: 0 (nothing risky flagged by the agent in this snapshot).");
   }
 
   // Ports: actionable first, then optional raw context
   if (input.publicPortsCount > 0) {
     lines.push(
-      `• Unexpected public ports: ${input.publicPortsCount}. These are public-listening ports that are NOT on your allowlist.`
+      `• Unexpected public ports: ${input.publicPortsCount}. Something is listening on the internet that is not on your allowlist.`
     );
   } else {
     lines.push("• Unexpected public ports: 0.");
     if (input.allowlistedTotal !== null) {
       const allowTxt =
         input.expectedPublicPorts && input.expectedPublicPorts.length
-          ? ` Allowlisted: ${input.expectedPublicPorts.join(", ")}.`
+          ? ` Allowlisted ports: ${input.expectedPublicPorts.join(", ")}.`
           : "";
       lines.push(
-        `  (FYI: ${input.allowlistedTotal} public port(s) exist but are allowlisted.)${allowTxt}`
+        `  (FYI: ${input.allowlistedTotal} public port(s) are open, but they match your allowlist.)${allowTxt}`
       );
     }
   }
 
   if (input.stale) {
-    lines.push("• Stale: yes. The dashboard is showing an older scan, so you may be blind to new changes.");
+    lines.push("• Snapshot freshness: stale. Data is older than expected, so newer changes might not be visible yet.");
   } else {
-    lines.push("• Stale: no.");
+    lines.push("• Snapshot freshness: current.");
   }
 
-  lines.push("");
-  lines.push("Recommended next moves:");
-  lines.push(...input.actionsNeeded.map((a) => `• ${a}`));
-
-  if (maybeArray && maybeArray.length) {
+  if (reasonLines.length) {
     lines.push("");
-    lines.push("Extra detail:");
-    for (let i = 0; i < Math.min(maybeArray.length, 6); i++) {
-      const v = maybeArray[i];
-      if (typeof v === "string") {
-        lines.push(`• ${v}`);
-        continue;
-      }
-      const obj = asRecord(v);
-      const s =
-        (typeof obj?.title === "string" && obj.title) ||
-        (typeof obj?.label === "string" && obj.label) ||
-        JSON.stringify(v);
-      lines.push(`• ${s}`);
+    lines.push("Why this was marked:");
+    for (const reason of reasonLines.slice(0, 4)) {
+      lines.push(`• ${reason}`);
+    }
+  }
+
+  if (itemLines.length) {
+    lines.push("");
+    lines.push("Top things to understand first:");
+    for (const item of itemLines.slice(0, 3)) {
+      lines.push(`• [${item.severity}] ${item.title}`);
+      if (item.summary) lines.push(`  ${item.summary}`);
     }
   }
 
   lines.push("");
-  lines.push("If you want, I can walk you through the exact commands for each step.");
+  lines.push("Recommended next moves (safest order):");
+  lines.push(...input.actionsNeeded.map((a) => `• ${a}`));
+
+  lines.push("");
+  lines.push(
+    "Fix Now can run the safe automations (queue drain + fresh report). Any risky change, like closing ports, stays manual by design."
+  );
 
   return lines.join("\n");
 }
@@ -137,7 +160,7 @@ export function buildFixSteps(input: {
   if (input.stale) {
     steps.push({
       id: "stale",
-      label: "Bring scans back online (agent/timer/service health check)",
+      label: "Trigger an immediate fresh scan/report",
       status: "idle",
     });
   }
@@ -145,7 +168,7 @@ export function buildFixSteps(input: {
   if (input.publicPortsCount > 0) {
     steps.push({
       id: "ports",
-      label: "Review unexpected public ports and propose firewall/close actions",
+      label: "Prepare safe containment plan for unexpected public ports",
       status: "idle",
     });
   } else if (input.allowlistedTotal !== null) {
@@ -159,7 +182,7 @@ export function buildFixSteps(input: {
   if (input.alertsCount > 0) {
     steps.push({
       id: "alerts",
-      label: "Summarize alerts and propose the safest fix sequence",
+      label: "Run queued safe remediations for active alerts",
       status: "idle",
     });
   }

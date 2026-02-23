@@ -7,18 +7,19 @@ import { stepIcon } from "../logic";
 export default function FixPanel(props: {
   steps: FixStep[];
   fixResult: FixResult | null;
+  running: boolean;
   onRun: () => void;
   onReset: () => void;
 }) {
-  const { steps, fixResult, onRun, onReset } = props;
+  const { steps, fixResult, running, onRun, onReset } = props;
 
   return (
     <PanelShell title="Fix Now">
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-        <button type="button" onClick={onRun} style={btnStrong()}>
-          Run auto-fix
+        <button type="button" onClick={onRun} style={btnStrong()} disabled={running}>
+          {running ? "Running..." : "Run auto-fix"}
         </button>
-        <button type="button" onClick={onReset} style={btn()}>
+        <button type="button" onClick={onReset} style={btn()} disabled={running}>
           Reset
         </button>
       </div>

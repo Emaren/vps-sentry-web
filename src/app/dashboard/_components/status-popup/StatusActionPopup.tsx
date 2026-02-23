@@ -12,6 +12,50 @@ import ActionsPanel from "./components/ActionsPanel";
 import ExplainPanel from "./components/ExplainPanel";
 import FixPanel from "./components/FixPanel";
 
+type JsonRecord = Record<string, unknown>;
+
+type StepOutcome = {
+  ok: boolean;
+  detail: string;
+};
+
+function asRecord(v: unknown): JsonRecord | null {
+  return v && typeof v === "object" ? (v as JsonRecord) : null;
+}
+
+function asArray(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : [];
+}
+
+function asNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function postJson(path: string, body?: Record<string, unknown>) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const payload = asRecord(await res.json().catch(() => null)) ?? {};
+  const error =
+    (typeof payload.error === "string" && payload.error) ||
+    (typeof payload.detail === "string" && payload.detail) ||
+    `Request failed (${res.status})`;
+
+  return {
+    ok: res.ok,
+    status: res.status,
+    payload,
+    error,
+  };
+}
+
 export default function StatusActionPopup(props: StatusActionPopupProps) {
   const {
     needsAction,
@@ -80,15 +124,100 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     buildFixSteps({ alertsCount, publicPortsCount, stale, allowlistedTotal })
   );
   const [fixResult, setFixResult] = React.useState<null | { ok: boolean; message: string }>(null);
+  const [fixRunning, setFixRunning] = React.useState(false);
+  const reportTriggeredRef = React.useRef(false);
 
   React.useEffect(() => {
     if (panel !== "fix") return;
     setSteps(buildFixSteps({ alertsCount, publicPortsCount, stale, allowlistedTotal }));
     setFixResult(null);
+    setFixRunning(false);
+    reportTriggeredRef.current = false;
   }, [panel, alertsCount, publicPortsCount, stale, allowlistedTotal]);
 
+  async function runReportNowStep(): Promise<StepOutcome> {
+    const run = await postJson("/api/ops/report-now");
+    const triggered = run.payload.triggered === true;
+    const emailed = run.payload.emailed === true;
+    const statusTs = typeof run.payload.statusTs === "string" ? run.payload.statusTs : null;
+    const warning = typeof run.payload.warning === "string" ? run.payload.warning : null;
+
+    if (run.ok || triggered) {
+      reportTriggeredRef.current = true;
+      const parts = [
+        triggered
+          ? "Triggered immediate report generation."
+          : "Report endpoint returned success.",
+      ];
+      if (statusTs) parts.push(`Latest status timestamp: ${statusTs}.`);
+      if (emailed) parts.push("Email delivery succeeded.");
+      if (warning) parts.push(warning);
+      return { ok: true, detail: parts.join(" ") };
+    }
+
+    return { ok: false, detail: run.error };
+  }
+
+  async function runFixStep(stepId: string): Promise<StepOutcome> {
+    if (stepId === "stale") {
+      return runReportNowStep();
+    }
+
+    if (stepId === "ports-allowlisted") {
+      return {
+        ok: true,
+        detail:
+          "No unexpected public ports were detected. Allowlisted ports are informational only.",
+      };
+    }
+
+    if (stepId === "ports") {
+      return {
+        ok: true,
+        detail:
+          "Unexpected public ports require manual confirmation before closure. Auto-fix intentionally avoids auto-closing network ports.",
+      };
+    }
+
+    if (stepId === "alerts") {
+      const requestedLimit = Math.min(Math.max(alertsCount, 1), 25);
+      const run = await postJson("/api/ops/remediate-drain", { limit: requestedLimit });
+      if (!run.ok) {
+        return { ok: false, detail: run.error };
+      }
+
+      const drained = asRecord(run.payload.drained) ?? {};
+      const processed = asNumber(drained.processed);
+      const requested = asNumber(drained.requestedLimit);
+      const queueErrors = asArray(drained.errors).length;
+
+      const bits: string[] = [];
+      bits.push(
+        `Processed ${processed ?? 0}/${requested ?? requestedLimit} queued remediation run(s).`
+      );
+      if (queueErrors > 0) bits.push(`${queueErrors} run(s) reported errors; review remediation queue.`);
+      return { ok: true, detail: bits.join(" ") };
+    }
+
+    if (stepId === "report") {
+      if (reportTriggeredRef.current) {
+        return {
+          ok: true,
+          detail: "Fresh report was already triggered earlier in this auto-fix run.",
+        };
+      }
+      return runReportNowStep();
+    }
+
+    return { ok: true, detail: "No action needed for this step." };
+  }
+
   async function runFixNow() {
+    if (fixRunning) return;
+
     setFixResult(null);
+    setFixRunning(true);
+    reportTriggeredRef.current = false;
 
     // reset to idle first
     setSteps((prev) => prev.map((s) => ({ ...s, status: "idle", detail: undefined })));
@@ -97,24 +226,53 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     const localSteps = buildFixSteps({ alertsCount, publicPortsCount, stale, allowlistedTotal });
     setSteps(localSteps);
 
-    for (let i = 0; i < localSteps.length; i++) {
-      const stepId = localSteps[i]?.id;
-      if (!stepId) continue;
+    let failed = 0;
 
-      setSteps((prev) =>
-        prev.map((s) => (s.id === stepId ? { ...s, status: "running", detail: "Working…" } : s))
-      );
+    try {
+      for (let i = 0; i < localSteps.length; i++) {
+        const stepId = localSteps[i]?.id;
+        if (!stepId) continue;
 
-      await sleep(650);
+        setSteps((prev) =>
+          prev.map((s) => (s.id === stepId ? { ...s, status: "running", detail: "Working..." } : s))
+        );
 
-      setSteps((prev) =>
-        prev.map((s) => (s.id === stepId ? { ...s, status: "success", detail: "Done." } : s))
-      );
+        let outcome: StepOutcome;
+        try {
+          outcome = await runFixStep(stepId);
+        } catch (error: unknown) {
+          outcome = { ok: false, detail: errorMessage(error) };
+        }
 
-      await sleep(200);
+        if (!outcome.ok) failed += 1;
+
+        setSteps((prev) =>
+          prev.map((s) =>
+            s.id === stepId
+              ? {
+                  ...s,
+                  status: outcome.ok ? "success" : "error",
+                  detail: outcome.detail,
+                }
+              : s
+          )
+        );
+
+        await sleep(140);
+      }
+    } finally {
+      setFixRunning(false);
     }
 
-    setFixResult({ ok: true, message: "Auto-fix completed successfully 🎉" });
+    if (failed === 0) {
+      setFixResult({ ok: true, message: "Auto-fix completed successfully." });
+      return;
+    }
+
+    setFixResult({
+      ok: false,
+      message: `Auto-fix finished with ${failed} step(s) needing manual follow-up.`,
+    });
   }
 
   const showExpanded = panel !== null;
@@ -126,7 +284,13 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
 
       {/* CLOSE (X) when expanded */}
       {showExpanded ? (
-        <button type="button" aria-label="Close status panel" onClick={() => setPanel(null)} style={xBtn()}>
+        <button
+          type="button"
+          aria-label="Close status panel"
+          onClick={() => setPanel(null)}
+          style={{ ...xBtn(), opacity: fixRunning ? 0.65 : 1, cursor: fixRunning ? "not-allowed" : "pointer" }}
+          disabled={fixRunning}
+        >
           ×
         </button>
       ) : null}
@@ -145,7 +309,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
               textUnderlineOffset: 3,
             }}
             onClick={() => {
-              if (needsAction) setPanel("actions");
+              if (needsAction && !fixRunning) setPanel("actions");
             }}
             role={needsAction ? "button" : undefined}
             aria-label={needsAction ? "Show action needed summary" : undefined}
@@ -160,10 +324,20 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       {/* BUTTON ROW: AI Explain / Fix Now (only when action needed) */}
       {needsAction ? (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
-          <button type="button" onClick={() => setPanel("explain")} style={btn()}>
+          <button
+            type="button"
+            onClick={() => setPanel("explain")}
+            style={btn()}
+            disabled={fixRunning}
+          >
             AI Explain
           </button>
-          <button type="button" onClick={() => setPanel("fix")} style={btn()}>
+          <button
+            type="button"
+            onClick={() => setPanel("fix")}
+            style={btn()}
+            disabled={fixRunning}
+          >
             Fix Now
           </button>
         </div>
@@ -223,17 +397,25 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
             <FixPanel
               steps={steps}
               fixResult={fixResult}
+              running={fixRunning}
               onRun={runFixNow}
               onReset={() => {
+                if (fixRunning) return;
                 setSteps(buildFixSteps({ alertsCount, publicPortsCount, stale, allowlistedTotal }));
                 setFixResult(null);
+                reportTriggeredRef.current = false;
               }}
             />
           ) : null}
 
           {/* OK button */}
           <div style={{ display: "flex", justifyContent: "center", marginTop: 14 }}>
-            <button type="button" onClick={() => setPanel(null)} style={okBtn()}>
+            <button
+              type="button"
+              onClick={() => setPanel(null)}
+              style={{ ...okBtn(), opacity: fixRunning ? 0.65 : 1, cursor: fixRunning ? "not-allowed" : "pointer" }}
+              disabled={fixRunning}
+            >
               OK
             </button>
           </div>
