@@ -73,6 +73,7 @@ export default function TopArea(props: {
               stale={d.stale}
               host={s.host}
               version={s.version}
+              snapshotTsIso={d.snapshotTs}
               snapshotLabel={fmt(d.snapshotTs)}
               scanLabel={d.scanLabel}
               baselineLabel={fmt(s.baseline_last_accepted_ts)}

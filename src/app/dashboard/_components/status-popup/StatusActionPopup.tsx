@@ -2,6 +2,7 @@
 "use client";
 
 import React from "react";
+import { useRouter } from "next/navigation";
 import type { Panel, StatusActionPopupProps } from "./types";
 import { buildActionsNeeded, buildExplainText, buildFixSteps, sleep } from "./logic";
 import { css, btn, caretBtn, okBtn, xBtn } from "./styles";
@@ -31,8 +32,69 @@ function asNumber(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+function asString(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t.length ? t : null;
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function parseTsMillis(ts: string | null): number | null {
+  if (!ts) return null;
+  const n = Date.parse(ts);
+  return Number.isFinite(n) ? n : null;
+}
+
+function pickSnapshotTs(payload: JsonRecord): string | null {
+  const fromLast = asString(asRecord(payload.last)?.ts);
+  if (fromLast) return fromLast;
+  const fromStatus = asString(asRecord(payload.status)?.ts);
+  if (fromStatus) return fromStatus;
+  return asString(payload.ts);
+}
+
+async function readCurrentSnapshotTs(): Promise<string | null> {
+  try {
+    const res = await fetch("/api/status", {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+      },
+    });
+    if (!res.ok) return null;
+    const payload = asRecord(await res.json().catch(() => null));
+    if (!payload) return null;
+    return pickSnapshotTs(payload);
+  } catch {
+    return null;
+  }
+}
+
+async function waitForSnapshotAdvance(previousSnapshotTs: string): Promise<{ advanced: boolean; current: string | null }> {
+  const deadlineMs = Date.now() + 15_000;
+  const baselineMs = parseTsMillis(previousSnapshotTs);
+  let lastSeen: string | null = null;
+
+  while (Date.now() < deadlineMs) {
+    const currentTs = await readCurrentSnapshotTs();
+    if (currentTs) lastSeen = currentTs;
+
+    const currentMs = parseTsMillis(currentTs);
+    if (baselineMs !== null && currentMs !== null && currentMs > baselineMs) {
+      return { advanced: true, current: currentTs };
+    }
+    if (baselineMs === null && currentTs && currentTs !== previousSnapshotTs) {
+      return { advanced: true, current: currentTs };
+    }
+
+    await sleep(1200);
+  }
+
+  return { advanced: false, current: lastSeen };
 }
 
 async function postJson(path: string, body?: Record<string, unknown>) {
@@ -63,6 +125,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     summary,
     host,
     version,
+    snapshotTsIso,
     snapshotLabel,
     scanLabel,
     baselineLabel,
@@ -74,6 +137,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     expectedPublicPorts,
     stale,
   } = props;
+  const router = useRouter();
 
   const [panel, setPanel] = React.useState<Panel>(null);
 
@@ -196,7 +260,13 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         `Processed ${processed ?? 0}/${requested ?? requestedLimit} queued remediation run(s).`
       );
       if (queueErrors > 0) bits.push(`${queueErrors} run(s) reported errors; review remediation queue.`);
-      return { ok: true, detail: bits.join(" ") };
+
+      if ((processed ?? 0) <= 0 && alertsCount > 0) {
+        bits.push("No queued safe remediations were available for the active alerts in this snapshot.");
+        return { ok: false, detail: bits.join(" ") };
+      }
+
+      return { ok: queueErrors === 0, detail: bits.join(" ") };
     }
 
     if (stepId === "report") {
@@ -227,6 +297,9 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     setSteps(localSteps);
 
     let failed = 0;
+
+    let snapshotAdvanced = false;
+    let postRefreshSnapshotTs: string | null = null;
 
     try {
       for (let i = 0; i < localSteps.length; i++) {
@@ -260,12 +333,35 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
 
         await sleep(140);
       }
+
+      const refreshState = await waitForSnapshotAdvance(snapshotTsIso);
+      snapshotAdvanced = refreshState.advanced;
+      postRefreshSnapshotTs = refreshState.current;
+
+      router.refresh();
+      if (!snapshotAdvanced) {
+        await sleep(900);
+        router.refresh();
+      }
     } finally {
       setFixRunning(false);
     }
 
     if (failed === 0) {
-      setFixResult({ ok: true, message: "Auto-fix completed successfully." });
+      if (snapshotAdvanced) {
+        setFixResult({
+          ok: true,
+          message: `Auto-fix completed. Dashboard refreshed with snapshot ${
+            postRefreshSnapshotTs ?? "update"
+          }.`,
+        });
+      } else {
+        setFixResult({
+          ok: true,
+          message:
+            "Auto-fix completed, but snapshot timestamp has not advanced yet. Status will update once the next snapshot is written.",
+        });
+      }
       return;
     }
 
@@ -304,7 +400,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
           <span
             style={{
               fontWeight: 900,
-              cursor: needsAction ? "pointer" : "default",
+              cursor: needsAction && !fixRunning ? "pointer" : "default",
               textDecoration: needsAction ? "underline" : "none",
               textUnderlineOffset: 3,
             }}
@@ -327,7 +423,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
           <button
             type="button"
             onClick={() => setPanel("explain")}
-            style={btn()}
+            style={{ ...btn(), cursor: fixRunning ? "not-allowed" : "pointer" }}
             disabled={fixRunning}
           >
             AI Explain
@@ -335,7 +431,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
           <button
             type="button"
             onClick={() => setPanel("fix")}
-            style={btn()}
+            style={{ ...btn(), cursor: fixRunning ? "not-allowed" : "pointer" }}
             disabled={fixRunning}
           >
             Fix Now

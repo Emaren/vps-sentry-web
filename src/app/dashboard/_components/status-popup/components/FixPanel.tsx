@@ -16,10 +16,20 @@ export default function FixPanel(props: {
   return (
     <PanelShell title="Fix Now">
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-        <button type="button" onClick={onRun} style={btnStrong()} disabled={running}>
+        <button
+          type="button"
+          onClick={onRun}
+          style={{ ...btnStrong(), cursor: running ? "not-allowed" : "pointer" }}
+          disabled={running}
+        >
           {running ? "Running..." : "Run auto-fix"}
         </button>
-        <button type="button" onClick={onReset} style={btn()} disabled={running}>
+        <button
+          type="button"
+          onClick={onReset}
+          style={{ ...btn(), cursor: running ? "not-allowed" : "pointer" }}
+          disabled={running}
+        >
           Reset
         </button>
       </div>

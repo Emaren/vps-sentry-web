@@ -9,6 +9,14 @@ type Target = "local" | "server";
 
 const localDefaultOutdir = "~/projects/VPSSentry/context";
 const serverDefaultOutdir = "/var/www/VPSSentry/context";
+const localDefaultSourceParent = "~/projects";
+const localDefaultOutdirParent = "~/projects/VPSSentry";
+
+type DirectoryPickerHandle = { name: string };
+type DirectoryPickResult =
+  | { kind: "picked"; name: string }
+  | { kind: "cancelled" }
+  | { kind: "unavailable" };
 
 function shellQuote(value: string): string {
   if (!value) return "''";
@@ -41,18 +49,43 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function applyPickedFolderName(currentPath: string, folderName: string, fallbackParent: string): string {
+  const nextName = folderName.trim().replace(/\//g, "");
+  if (!nextName) return currentPath;
+
+  const raw = currentPath.trim().replace(/\/+$/g, "");
+  if (!raw) return `${fallbackParent}/${nextName}`;
+  if (raw === "~") return `~/${nextName}`;
+
+  const slash = raw.lastIndexOf("/");
+  if (slash < 0) return `${fallbackParent}/${nextName}`;
+  if (slash === 0) return `/${nextName}`;
+  return `${raw.slice(0, slash)}/${nextName}`;
+}
+
 export default function ArchiveFolderCard(props: { userRole: AppRole }) {
   const canRunServer = hasRequiredRole(props.userRole, "ops");
 
   const [target, setTarget] = React.useState<Target>("local");
   const [src, setSrc] = React.useState("");
   const [outdir, setOutdir] = React.useState(localDefaultOutdir);
+  const [manualSource, setManualSource] = React.useState(false);
+  const [manualOutdir, setManualOutdir] = React.useState(false);
+  const [pickerNote, setPickerNote] = React.useState<string>("");
   const [mode, setMode] = React.useState<Mode>("both");
   const [busy, setBusy] = React.useState(false);
   const [serverResult, setServerResult] = React.useState("");
 
   React.useEffect(() => {
     setOutdir(target === "local" ? localDefaultOutdir : serverDefaultOutdir);
+    if (target === "server") {
+      setManualSource(true);
+      setManualOutdir(true);
+      setPickerNote("");
+      return;
+    }
+    setManualSource(false);
+    setManualOutdir(false);
   }, [target]);
 
   const command = React.useMemo(() => buildLocalCommand(src, outdir, mode), [src, outdir, mode]);
@@ -65,6 +98,63 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
       // Clipboard writes can be denied by browser permissions.
     }
   }, [command]);
+
+  const pickDirectoryName = React.useCallback(async (): Promise<DirectoryPickResult> => {
+    if (typeof window === "undefined") return { kind: "unavailable" };
+    if (!window.isSecureContext || typeof navigator === "undefined") {
+      return { kind: "unavailable" };
+    }
+
+    const withPicker = navigator as Navigator & {
+      showDirectoryPicker?: () => Promise<DirectoryPickerHandle>;
+    };
+
+    if (typeof withPicker.showDirectoryPicker !== "function") {
+      return { kind: "unavailable" };
+    }
+
+    try {
+      const picked = await withPicker.showDirectoryPicker();
+      const pickedName = typeof picked?.name === "string" ? picked.name.trim() : "";
+      if (!pickedName) return { kind: "cancelled" };
+      return { kind: "picked", name: pickedName };
+    } catch (error: unknown) {
+      const message = errorMessage(error);
+      // User-cancel is expected behavior; avoid noisy UI.
+      if (/abort|cancel/i.test(message)) return { kind: "cancelled" };
+      throw error;
+    }
+  }, []);
+
+  const pickLocalSource = React.useCallback(async () => {
+    if (target !== "local" || manualSource) return;
+    setPickerNote("");
+    try {
+      const picked = await pickDirectoryName();
+      if (picked.kind === "picked") {
+        setSrc((prev) => applyPickedFolderName(prev, picked.name, localDefaultSourceParent));
+      } else if (picked.kind === "unavailable") {
+        setPickerNote("Folder picker unavailable in this browser context. Switch to manual path entry.");
+      }
+    } catch (error: unknown) {
+      setPickerNote(`Folder picker error: ${errorMessage(error)}`);
+    }
+  }, [manualSource, pickDirectoryName, target]);
+
+  const pickLocalOutdir = React.useCallback(async () => {
+    if (target !== "local" || manualOutdir) return;
+    setPickerNote("");
+    try {
+      const picked = await pickDirectoryName();
+      if (picked.kind === "picked") {
+        setOutdir((prev) => applyPickedFolderName(prev, picked.name, localDefaultOutdirParent));
+      } else if (picked.kind === "unavailable") {
+        setPickerNote("Folder picker unavailable in this browser context. Switch to manual path entry.");
+      }
+    } catch (error: unknown) {
+      setPickerNote(`Folder picker error: ${errorMessage(error)}`);
+    }
+  }, [manualOutdir, pickDirectoryName, target]);
 
   const runOnServer = React.useCallback(async () => {
     if (!canRunServer || busy || !src.trim()) return;
@@ -98,19 +188,21 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
       </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
-        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
           <input
             type="radio"
             checked={target === "local"}
             onChange={() => setTarget("local")}
+            style={{ cursor: "pointer" }}
           />
           <span>Local MBP</span>
         </label>
-        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
           <input
             type="radio"
             checked={target === "server"}
             onChange={() => setTarget("server")}
+            style={{ cursor: "pointer" }}
           />
           <span>Server (VPS)</span>
         </label>
@@ -122,6 +214,10 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
           <input
             value={src}
             onChange={(event) => setSrc(event.target.value)}
+            onClick={() => {
+              if (target === "local" && !manualSource) void pickLocalSource();
+            }}
+            readOnly={target === "local" && !manualSource}
             placeholder={target === "local" ? "/Users/you/projects/..." : "/var/www/..."}
             style={{
               width: "100%",
@@ -130,8 +226,28 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
               border: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))",
               background: "var(--site-input-bg, rgba(255,255,255,0.03))",
               color: "inherit",
+              cursor: target === "local" && !manualSource ? "pointer" : "text",
             }}
           />
+          {target === "local" ? (
+            <button
+              type="button"
+              onClick={() => setManualSource((v) => !v)}
+              style={{
+                marginTop: 6,
+                border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
+                background: "var(--dash-card-bg, rgba(255,255,255,0.03))",
+                color: "inherit",
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: 800,
+                padding: "4px 8px",
+                cursor: "pointer",
+              }}
+            >
+              {manualSource ? "Use picker mode" : "Type path manually"}
+            </button>
+          ) : null}
           <div style={{ ...tinyText, marginTop: 6 }}>
             Uses your existing context scrub/exclude policy (node_modules, .git, .next, secrets, temp files).
           </div>
@@ -142,6 +258,10 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
           <input
             value={outdir}
             onChange={(event) => setOutdir(event.target.value)}
+            onClick={() => {
+              if (target === "local" && !manualOutdir) void pickLocalOutdir();
+            }}
+            readOnly={target === "local" && !manualOutdir}
             placeholder={target === "local" ? localDefaultOutdir : serverDefaultOutdir}
             style={{
               width: "100%",
@@ -150,8 +270,28 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
               border: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))",
               background: "var(--site-input-bg, rgba(255,255,255,0.03))",
               color: "inherit",
+              cursor: target === "local" && !manualOutdir ? "pointer" : "text",
             }}
           />
+          {target === "local" ? (
+            <button
+              type="button"
+              onClick={() => setManualOutdir((v) => !v)}
+              style={{
+                marginTop: 6,
+                border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
+                background: "var(--dash-card-bg, rgba(255,255,255,0.03))",
+                color: "inherit",
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: 800,
+                padding: "4px 8px",
+                cursor: "pointer",
+              }}
+            >
+              {manualOutdir ? "Use picker mode" : "Type path manually"}
+            </button>
+          ) : null}
           <div style={{ ...tinyText, marginTop: 6 }}>Writes .zip/.tgz plus .sha256 sidecars.</div>
         </div>
       </div>
@@ -168,6 +308,7 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
             background: "var(--site-input-bg, rgba(255,255,255,0.03))",
             color: "inherit",
             fontWeight: 800,
+            cursor: "pointer",
           }}
         >
           <option value="zip">ZIP</option>
@@ -186,6 +327,7 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
               background: "var(--dash-btn-bg-strong, rgba(255,255,255,0.06))",
               color: "inherit",
               fontWeight: 900,
+              cursor: "pointer",
             }}
           >
             Copy command
@@ -203,12 +345,21 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
               color: "inherit",
               fontWeight: 900,
               opacity: !canRunServer || busy || !src.trim() ? 0.7 : 1,
+              cursor: !canRunServer || busy || !src.trim() ? "not-allowed" : "pointer",
             }}
           >
             {busy ? "Running..." : "Run on server"}
           </button>
         )}
       </div>
+
+      {target === "local" ? (
+        <div style={{ ...tinyText, marginTop: 8 }}>
+          Click Source/Output fields to pick folders. Browser security only reveals folder name, so the parent path is preserved.
+        </div>
+      ) : null}
+
+      {pickerNote ? <div style={{ ...tinyText, marginTop: 6 }}>{pickerNote}</div> : null}
 
       {target === "local" ? (
         <pre

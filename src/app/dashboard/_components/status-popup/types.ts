@@ -23,6 +23,7 @@ export type StatusActionPopupProps = {
   // meta (for the collapsed/expanded details)
   host: string;
   version: string;
+  snapshotTsIso: string;
   snapshotLabel: string;
   scanLabel: string;
   baselineLabel: string;
