@@ -113,7 +113,7 @@ export default function TopArea(props: {
                   This is remediation pipeline debt. Host security can still be OK while queue/DLQ needs operator cleanup.
                 </div>
                 <div className="dashboard-queue-followup-actions">
-                  <Link href="/hosts" className="dashboard-queue-followup-link">
+                  <Link href="/dashboard#remediations" className="dashboard-queue-followup-link">
                     Open queue console
                   </Link>
                   <Link href="#remediations" className="dashboard-queue-followup-link">

@@ -46,7 +46,7 @@ describe("buildViewScreenMessages", () => {
     expect(out.some((x) => x.id === "port-sentinel" && x.tone === "bad")).toBe(true);
   });
 
-  it("marks queue feed as bad when DLQ is non-zero", () => {
+  it("marks queue feed as informational when queue debt is the only active signal", () => {
     const out = buildViewScreenMessages({
       ...baseInput(),
       queueQueued: 3,
@@ -55,7 +55,7 @@ describe("buildViewScreenMessages", () => {
 
     const queue = out.find((x) => x.id === "response-queue");
     expect(queue).toBeDefined();
-    expect(queue?.tone).toBe("bad");
+    expect(queue?.tone).toBe("info");
   });
 
   it("picks one message per tick and avoids immediate duplicate when options exist", () => {

@@ -115,7 +115,16 @@ export function buildViewScreenMessages(input: ViewScreenModel): ViewScreenMessa
   }
 
   if (input.queueDlq > 0 || input.queueQueued > 0) {
-    const tone: ViewScreenTone = input.queueDlq > 0 ? "bad" : "warn";
+    const queueOnlySignalsClear =
+      input.alertsCount === 0 &&
+      input.unexpectedPorts === 0 &&
+      input.threatSignals === 0 &&
+      input.authFailed === 0 &&
+      input.authInvalidUser === 0 &&
+      input.openBreaches === 0 &&
+      input.incidentsOpen === 0;
+
+    const tone: ViewScreenTone = queueOnlySignalsClear ? "info" : "warn";
     out.push({
       id: "response-queue",
       sensor: "Response Queue",
@@ -123,7 +132,7 @@ export function buildViewScreenMessages(input: ViewScreenModel): ViewScreenMessa
       line1: `Queue status: ${input.queueQueued} queued, ${input.queueDlq} in DLQ.`,
       line2:
         input.queueDlq > 0
-          ? "Queue debt needs operator review. Security status can still be OK if host telemetry is clean."
+          ? "Queue debt needs operator review. This is remediation pipeline follow-up, not direct host compromise."
           : "Queued runs are waiting to execute under safety guardrails.",
     });
   }

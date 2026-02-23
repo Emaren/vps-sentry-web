@@ -33,7 +33,7 @@ describe("status-popup logic", () => {
     expect(text).toContain("allowlisted");
     expect(text).toContain("Why this was marked:");
     expect(text).toContain("[HIGH] Alerts reported by the agent");
-    expect(text).toContain("Fix Now can run the safe automations");
+    expect(text).toContain("Fix Now runs safe automations");
   });
 
   it("builds executable fix steps for allowlisted ports + alerts", () => {

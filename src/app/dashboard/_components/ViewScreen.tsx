@@ -228,13 +228,13 @@ export default function ViewScreen(props: {
           </div>
 
           {queueAttention ? (
-            <div className={pulse.queueDlq > 0 ? "view-screen-queue-callout view-screen-queue-callout-bad" : "view-screen-queue-callout"}>
+            <div className="view-screen-queue-callout">
               <div className="view-screen-queue-copy">
                 Queue health: <b>{pulse.queueQueued}</b> queued · <b>{pulse.queueDlq}</b> in DLQ.
                 {" "}Host status can stay OK while this is non-zero because queue debt is operational follow-up, not active host compromise.
               </div>
               <div className="view-screen-queue-actions">
-                <Link href="/hosts" className="view-screen-action-link">
+                <Link href="/dashboard#remediations" className="view-screen-action-link">
                   Open queue console
                 </Link>
                 <Link href="#remediations" className="view-screen-action-link">

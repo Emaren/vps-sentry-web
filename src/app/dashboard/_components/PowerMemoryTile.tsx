@@ -24,6 +24,7 @@ type ProjectDef = {
   name: string;
   subtitle: string;
   href?: string;
+  backendHref?: string;
   services: ProjectService[];
 };
 
@@ -458,14 +459,22 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
               <div key={p.key} className="pm-project-card" role="listitem">
                 <div className="pm-project-top">
                   <div>
-                    <div className="pm-project-name">{p.name}</div>
                     {p.href ? (
-                      <a className="pm-project-sub pm-project-sub-link" href={p.href} target="_blank" rel="noreferrer">
-                        {p.subtitle}
+                      <a className="pm-project-name pm-project-name-link" href={p.href} target="_blank" rel="noreferrer">
+                        {p.name}
                       </a>
                     ) : (
-                      <div className="pm-project-sub">{p.subtitle}</div>
+                      <div className="pm-project-name">{p.name}</div>
                     )}
+                    {p.subtitle ? (
+                      p.backendHref || p.href ? (
+                        <a className="pm-project-sub pm-project-sub-link" href={p.backendHref ?? p.href} target="_blank" rel="noreferrer">
+                          {p.subtitle}
+                        </a>
+                      ) : (
+                        <div className="pm-project-sub">{p.subtitle}</div>
+                      )
+                    ) : null}
                   </div>
 
                   <div
@@ -527,15 +536,6 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                     </span>
                   ))}
                 </div>
-
-                <div className="pm-project-ports" aria-label="Service ports">
-                  <span className="pm-project-ports-text">{p.portsLabel}</span>
-                  {p.href ? (
-                    <a className="pm-project-link" href={p.href} target="_blank" rel="noreferrer">
-                      Open
-                    </a>
-                  ) : null}
-                </div>
               </div>
             ))}
           </div>
@@ -544,9 +544,24 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
             {projectCards.map((p) => (
               <div key={p.key} className="pm-project-list-row" role="listitem">
                 <div className="pm-project-list-name">
-                  <div className="pm-project-list-title">{p.name}</div>
+                  {p.href ? (
+                    <a className="pm-project-list-title pm-project-list-title-link" href={p.href} target="_blank" rel="noreferrer">
+                      {p.name}
+                    </a>
+                  ) : (
+                    <div className="pm-project-list-title">{p.name}</div>
+                  )}
+                  {p.subtitle ? (
+                    p.backendHref || p.href ? (
+                      <a className="pm-project-list-backend pm-project-list-backend-link" href={p.backendHref ?? p.href} target="_blank" rel="noreferrer">
+                        {p.subtitle}
+                      </a>
+                    ) : (
+                      <div className="pm-project-list-backend">{p.subtitle}</div>
+                    )
+                  ) : null}
                   <div className="pm-project-list-sub">
-                    {p.subtitle} · required {p.requiredUpCount}/{p.requiredCount} · public {p.publicCount}
+                    required {p.requiredUpCount}/{p.requiredCount} · public {p.publicCount}
                   </div>
                 </div>
 
@@ -565,12 +580,6 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                     <span className="pm-project-dot" />
                     {p.up ? "Up" : "Down"}
                   </div>
-
-                  {p.href ? (
-                    <a className="pm-project-link" href={p.href} target="_blank" rel="noreferrer">
-                      Open
-                    </a>
-                  ) : null}
                 </div>
               </div>
             ))}
