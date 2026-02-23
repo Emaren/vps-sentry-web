@@ -8,6 +8,7 @@ import { requireViewerAccess } from "@/lib/rbac";
 import { hasRequiredRole } from "@/lib/rbac-policy";
 
 import ActionsConsole from "./ActionsConsole";
+import ArchiveFolderCard from "./ArchiveFolderCard";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +69,7 @@ export default async function ActionsPage() {
         </div>
       </div>
 
+      <ArchiveFolderCard userRole={access.identity.role} />
       <ActionsConsole userRole={access.identity.role} signedInAs={signedInAs} />
     </main>
   );
