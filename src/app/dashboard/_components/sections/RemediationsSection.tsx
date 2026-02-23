@@ -23,7 +23,7 @@ export default function RemediationsSection(props: {
     queueCounts?.approvalPending ?? remediation?.counts.approvalPending ?? 0;
 
   return (
-    <section style={{ marginTop: 18 }}>
+    <section id="remediations" style={{ marginTop: 18 }}>
       <div className="dashboard-card-title-row">
         <h2 style={{ fontSize: 18, margin: 0 }}>
           <NoobTip text="Live remediation execution ledger: queue/running/DLQ/approval states and latest outcomes.">

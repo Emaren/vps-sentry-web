@@ -123,7 +123,7 @@ export function buildViewScreenMessages(input: ViewScreenModel): ViewScreenMessa
       line1: `Queue status: ${input.queueQueued} queued, ${input.queueDlq} in DLQ.`,
       line2:
         input.queueDlq > 0
-          ? "DLQ means some remediation runs failed and need operator review."
+          ? "Queue debt needs operator review. Security status can still be OK if host telemetry is clean."
           : "Queued runs are waiting to execute under safety guardrails.",
     });
   }

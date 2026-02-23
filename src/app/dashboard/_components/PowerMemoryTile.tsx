@@ -346,9 +346,18 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
 
     const required = services.filter((s) => s.required);
     const allRequiredUp = required.every((s) => s.isListening);
+    const requiredUpCount = required.filter((s) => s.isListening).length;
+    const listeningCount = services.filter((s) => s.isListening).length;
+    const publicCount = services.filter((s) => s.isPublic).length;
+    const missingRequired = required.filter((s) => !s.isListening).map((s) => `${s.label}:${s.port}`);
 
     const cpuSum = sumMaybe(services.map((s) => s.cpuSharePercent));
     const memSum = sumMaybe(services.map((s) => s.memoryMb));
+    const cpuBarPercent = clampBar(cpuSum);
+    const memBarPercent =
+      typeof memSum === "number" && typeof d.memoryTotalMb === "number" && d.memoryTotalMb > 0
+        ? clampBar((memSum / d.memoryTotalMb) * 100)
+        : 0;
 
     const portsLabel = services
       .map((s) => {
@@ -362,8 +371,15 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       ...proj,
       services,
       up: allRequiredUp,
+      requiredUpCount,
+      requiredCount: required.length,
+      listeningCount,
+      publicCount,
+      missingRequired,
       cpuSharePercent: cpuSum,
+      cpuBarPercent,
       memoryMb: memSum,
+      memoryBarPercent: memBarPercent,
       portsLabel,
     };
   });
@@ -443,7 +459,13 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                 <div className="pm-project-top">
                   <div>
                     <div className="pm-project-name">{p.name}</div>
-                    <div className="pm-project-sub">{p.subtitle}</div>
+                    {p.href ? (
+                      <a className="pm-project-sub pm-project-sub-link" href={p.href} target="_blank" rel="noreferrer">
+                        {p.subtitle}
+                      </a>
+                    ) : (
+                      <div className="pm-project-sub">{p.subtitle}</div>
+                    )}
                   </div>
 
                   <div
@@ -455,19 +477,59 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                   </div>
                 </div>
 
+                <div className="pm-project-health-row">
+                  <span className={p.requiredUpCount === p.requiredCount ? "pm-project-health-pill pm-project-health-pill-ok" : "pm-project-health-pill pm-project-health-pill-bad"}>
+                    required {p.requiredUpCount}/{p.requiredCount}
+                  </span>
+                  <span className="pm-project-health-pill">listening {p.listeningCount}/{p.services.length}</span>
+                  <span className={p.publicCount > 0 ? "pm-project-health-pill pm-project-health-pill-warn" : "pm-project-health-pill"}>
+                    public {p.publicCount}
+                  </span>
+                </div>
+
                 <div className="pm-project-metrics">
                   <div className="pm-project-metric">
                     <div className="pm-project-metric-label">CPU</div>
                     <div className="pm-project-metric-value">{fmtPercent(p.cpuSharePercent)}</div>
+                    <div className="pm-project-metric-sub">sampled process share</div>
+                    <div className="pm-project-metric-bar">
+                      <span style={{ width: `${p.cpuBarPercent}%` }} />
+                    </div>
                   </div>
                   <div className="pm-project-metric">
                     <div className="pm-project-metric-label">RAM</div>
                     <div className="pm-project-metric-value">{fmtSizeFromMb(p.memoryMb)}</div>
+                    <div className="pm-project-metric-sub">aggregate service memory</div>
+                    <div className="pm-project-metric-bar">
+                      <span style={{ width: `${p.memoryBarPercent}%` }} />
+                    </div>
                   </div>
                 </div>
 
+                {p.missingRequired.length > 0 ? (
+                  <div className="pm-project-missing">Missing required: {p.missingRequired.join(", ")}</div>
+                ) : null}
+
+                <div className="pm-project-services" aria-label="Per-service status">
+                  {p.services.map((svc) => (
+                    <span
+                      key={`${p.key}-${svc.label}-${svc.port}`}
+                      className={
+                        svc.isListening
+                          ? svc.isPublic
+                            ? "pm-project-service-chip pm-project-service-chip-public"
+                            : "pm-project-service-chip pm-project-service-chip-up"
+                          : "pm-project-service-chip pm-project-service-chip-down"
+                      }
+                    >
+                      {svc.label}:{svc.port}
+                      {typeof svc.pid === "number" ? ` #${svc.pid}` : ""}
+                    </span>
+                  ))}
+                </div>
+
                 <div className="pm-project-ports" aria-label="Service ports">
-                  <span>{p.portsLabel}</span>
+                  <span className="pm-project-ports-text">{p.portsLabel}</span>
                   {p.href ? (
                     <a className="pm-project-link" href={p.href} target="_blank" rel="noreferrer">
                       Open
@@ -483,7 +545,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
               <div key={p.key} className="pm-project-list-row" role="listitem">
                 <div className="pm-project-list-name">
                   <div className="pm-project-list-title">{p.name}</div>
-                  <div className="pm-project-list-sub">{p.portsLabel}</div>
+                  <div className="pm-project-list-sub">
+                    {p.subtitle} · required {p.requiredUpCount}/{p.requiredCount} · public {p.publicCount}
+                  </div>
                 </div>
 
                 <div className="pm-project-list-metric">

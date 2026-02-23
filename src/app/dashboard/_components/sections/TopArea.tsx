@@ -1,5 +1,6 @@
 // /var/www/vps-sentry-web/src/app/dashboard/_components/sections/TopArea.tsx
 import React from "react";
+import Link from "next/link";
 import type { Status } from "@/lib/status";
 import { fmt, fmtAny } from "@/lib/status";
 import type { AppRole } from "@/lib/rbac-policy";
@@ -49,6 +50,9 @@ export default function TopArea(props: {
   const shippingPending = liveShipping?.counts.pending ?? 0;
   const shippingLastError = liveShipping?.lastError ?? d.shipping?.last_ship_error ?? null;
   const shippingLastTs = liveShipping?.lastDeliveredTs ?? d.shipping?.last_ship_ts ?? null;
+  const queueQueuedCount = ops.queue?.counts.queued ?? ops.remediation?.counts.queued ?? 0;
+  const queueDlqCount = ops.queue?.counts.dlq ?? ops.remediation?.counts.dlq ?? 0;
+  const queueHasFollowUp = queueQueuedCount > 0 || queueDlqCount > 0;
 
   return (
     <div className="dashboard-top-stack">
@@ -97,6 +101,25 @@ export default function TopArea(props: {
                 Maintenance mode active
                 {d.maintenanceUntil ? <> until <b>{fmt(d.maintenanceUntil)}</b></> : null}
                 . Non-critical alerts are suppressed.
+              </div>
+            ) : null}
+
+            {queueHasFollowUp ? (
+              <div className="dashboard-queue-followup">
+                <div className="dashboard-queue-followup-title">
+                  Queue follow-up: queued <b>{queueQueuedCount}</b> · dlq <b>{queueDlqCount}</b>
+                </div>
+                <div className="dashboard-queue-followup-copy">
+                  This is remediation pipeline debt. Host security can still be OK while queue/DLQ needs operator cleanup.
+                </div>
+                <div className="dashboard-queue-followup-actions">
+                  <Link href="/hosts" className="dashboard-queue-followup-link">
+                    Open queue console
+                  </Link>
+                  <Link href="#remediations" className="dashboard-queue-followup-link">
+                    Jump to remediations
+                  </Link>
+                </div>
               </div>
             ) : null}
           </Box>

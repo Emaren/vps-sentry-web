@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import type { Status } from "@/lib/status";
 import type { DerivedDashboard } from "../_lib/derive";
 import {
@@ -194,6 +195,7 @@ export default function ViewScreen(props: {
   const ageMin = minutesAgo(pulse.snapshotTs);
   const ageLabel = ageMin === null ? "unknown age" : `${ageMin}m old`;
   const cadenceLabel = "1 update every 5s";
+  const queueAttention = pulse.queueQueued > 0 || pulse.queueDlq > 0;
 
   return (
     <section className="view-screen-wrap">
@@ -224,6 +226,23 @@ export default function ViewScreen(props: {
               </button>
             ) : null}
           </div>
+
+          {queueAttention ? (
+            <div className={pulse.queueDlq > 0 ? "view-screen-queue-callout view-screen-queue-callout-bad" : "view-screen-queue-callout"}>
+              <div className="view-screen-queue-copy">
+                Queue health: <b>{pulse.queueQueued}</b> queued · <b>{pulse.queueDlq}</b> in DLQ.
+                {" "}Host status can stay OK while this is non-zero because queue debt is operational follow-up, not active host compromise.
+              </div>
+              <div className="view-screen-queue-actions">
+                <Link href="/hosts" className="view-screen-action-link">
+                  Open queue console
+                </Link>
+                <Link href="#remediations" className="view-screen-action-link">
+                  Jump to remediations
+                </Link>
+              </div>
+            </div>
+          ) : null}
 
           <div className="view-screen-feed" ref={feedRef} onScroll={onFeedScroll} aria-label="View Screen feed history">
             {entries.length === 0 ? (

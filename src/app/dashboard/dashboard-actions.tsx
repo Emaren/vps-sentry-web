@@ -17,6 +17,17 @@ type JsonResponse = {
   to?: string;
   subject?: string;
   code?: string;
+  drained?: {
+    ok?: boolean;
+    processed?: number;
+    requestedLimit?: number;
+    items?: Array<{ state?: string; dlq?: boolean; error?: string | null }>;
+  };
+  summary?: {
+    ok?: boolean;
+    replayed?: number;
+    skipped?: number;
+  };
 };
 
 const linkStyle: React.CSSProperties = {
@@ -45,8 +56,12 @@ const disabledButtonStyle: React.CSSProperties = {
   cursor: "not-allowed",
 };
 
-async function postJson(path: string) {
-  const res = await fetch(path, { method: "POST" });
+async function postJson(path: string, body?: Record<string, unknown>) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: body ? { "content-type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
   const data: JsonResponse = await res.json().catch(() => ({} as JsonResponse));
   if (!res.ok) {
     const parts = [data?.error, data?.detail, data?.code].filter(Boolean);
@@ -62,7 +77,7 @@ function asErrorMessage(err: unknown, fallback: string) {
 
 export default function DashboardActions(props: { userRole: AppRole }) {
   const canRunOps = hasRequiredRole(props.userRole, "ops");
-  const [busy, setBusy] = React.useState<null | "test-email" | "report-now">(null);
+  const [busy, setBusy] = React.useState<null | "test-email" | "report-now" | "drain-queue" | "replay-dlq">(null);
   const [notice, setNotice] = React.useState<
     null | { tone: "info" | "ok" | "bad"; title: string; detail: string }
   >(null);
@@ -137,6 +152,68 @@ export default function DashboardActions(props: { userRole: AppRole }) {
     }
   }
 
+  async function drainQueueNow() {
+    setBusy("drain-queue");
+    setNotice({
+      tone: "info",
+      title: "Working...",
+      detail: "Draining queued remediation runs now.",
+    });
+
+    try {
+      const data = await postJson("/api/ops/remediate-drain", { limit: 20 });
+      const processed = data?.drained?.processed ?? 0;
+      const requested = data?.drained?.requestedLimit ?? 20;
+      const failed = Array.isArray(data?.drained?.items)
+        ? data.drained.items.filter((x) => x?.state === "failed" || x?.dlq).length
+        : 0;
+      setNotice({
+        tone: data?.ok === false || data?.drained?.ok === false ? "bad" : failed > 0 ? "bad" : "ok",
+        title: failed > 0 ? "Queue drained with failures" : "Queue drained",
+        detail: `Processed ${processed}/${requested} queued run(s).${failed > 0 ? ` ${failed} run(s) still failed/DLQ.` : ""}`,
+      });
+    } catch (e: unknown) {
+      console.error(e);
+      setNotice({
+        tone: "bad",
+        title: "Queue drain failed",
+        detail: asErrorMessage(e, "Failed to drain queue"),
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function replayDlqBatch() {
+    setBusy("replay-dlq");
+    setNotice({
+      tone: "info",
+      title: "Working...",
+      detail: "Replaying DLQ batch now.",
+    });
+
+    try {
+      const data = await postJson("/api/ops/remediate-replay", { mode: "dlq-batch", limit: 10 });
+      const replayed = data?.summary?.replayed ?? 0;
+      const skipped = data?.summary?.skipped ?? 0;
+      const ok = data?.ok !== false && data?.summary?.ok !== false;
+      setNotice({
+        tone: ok ? "ok" : "bad",
+        title: ok ? "DLQ replay queued" : "DLQ replay failed",
+        detail: `Replayed ${replayed} run(s), skipped ${skipped}.`,
+      });
+    } catch (e: unknown) {
+      console.error(e);
+      setNotice({
+        tone: "bad",
+        title: "DLQ replay failed",
+        detail: asErrorMessage(e, "Failed to replay DLQ batch"),
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div style={{ marginTop: 12 }}>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -162,6 +239,24 @@ export default function DashboardActions(props: { userRole: AppRole }) {
               style={busy !== null ? disabledButtonStyle : buttonStyle}
             >
               {busy === "report-now" ? "Working..." : "Send report now"}
+            </button>
+
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={drainQueueNow}
+              style={busy !== null ? disabledButtonStyle : buttonStyle}
+            >
+              {busy === "drain-queue" ? "Working..." : "Drain queue now"}
+            </button>
+
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={replayDlqBatch}
+              style={busy !== null ? disabledButtonStyle : buttonStyle}
+            >
+              {busy === "replay-dlq" ? "Working..." : "Replay DLQ batch"}
             </button>
           </>
         ) : (
