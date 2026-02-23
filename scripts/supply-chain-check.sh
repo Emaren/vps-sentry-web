@@ -11,10 +11,11 @@ fi
 
 ARTIFACT_DIR="${VPS_SUPPLYCHAIN_ARTIFACT_DIR:-$ROOT_DIR/.artifacts/supply-chain}"
 MAX_CRITICAL="${VPS_SUPPLYCHAIN_MAX_CRITICAL:-0}"
-MAX_HIGH="${VPS_SUPPLYCHAIN_MAX_HIGH:-1}"
-MAX_MODERATE="${VPS_SUPPLYCHAIN_MAX_MODERATE:-25}"
+MAX_HIGH="${VPS_SUPPLYCHAIN_MAX_HIGH:-0}"
+MAX_MODERATE="${VPS_SUPPLYCHAIN_MAX_MODERATE:-0}"
 FAIL_UNKNOWN_LICENSE="${VPS_SUPPLYCHAIN_FAIL_UNKNOWN_LICENSE:-0}"
 DENY_LICENSE_REGEX="${VPS_SUPPLYCHAIN_DENY_LICENSE_REGEX:-(^|[^A-Za-z])(AGPL|GPL-3\\.0|SSPL|BUSL)([^A-Za-z]|$)}"
+UNKNOWN_LICENSE_ALLOWLIST="${VPS_SUPPLYCHAIN_UNKNOWN_LICENSE_ALLOWLIST:-@emnapi/runtime,@img/sharp-darwin-x64,@img/sharp-libvips-darwin-x64,@img/sharp-libvips-linux-arm,@img/sharp-libvips-linux-arm64,@img/sharp-libvips-linux-ppc64,@img/sharp-libvips-linux-riscv64,@img/sharp-libvips-linux-s390x,@img/sharp-libvips-linux-x64,@img/sharp-libvips-linuxmusl-arm64,@img/sharp-libvips-linuxmusl-x64,@img/sharp-linux-arm,@img/sharp-linux-arm64,@img/sharp-linux-ppc64,@img/sharp-linux-riscv64,@img/sharp-linux-s390x,@img/sharp-linux-x64,@img/sharp-linuxmusl-arm64,@img/sharp-linuxmusl-x64,@img/sharp-wasm32,@img/sharp-win32-arm64,@img/sharp-win32-ia32,@img/sharp-win32-x64,@next/swc-darwin-x64,@next/swc-linux-arm64-gnu,@next/swc-linux-arm64-musl,@next/swc-linux-x64-gnu,@next/swc-linux-x64-musl,@next/swc-win32-arm64-msvc,@next/swc-win32-x64-msvc}"
 VERIFY_LOCK=1
 SKIP_AUDIT=0
 SKIP_LICENSE_POLICY=0
@@ -37,15 +38,17 @@ Options:
   --skip-audit            Skip vulnerability audit step.
   --skip-license-policy   Do not fail on denied/unknown license policy results.
   --skip-sbom             Skip SBOM generation.
+  --unknown-allowlist STR Comma/newline/|| list of unknown-license package names to allow.
   --artifact-dir PATH     Output artifact directory.
   -h, --help              Show this help.
 
 Env knobs:
   VPS_SUPPLYCHAIN_MAX_CRITICAL       Default 0
-  VPS_SUPPLYCHAIN_MAX_HIGH           Default 1
-  VPS_SUPPLYCHAIN_MAX_MODERATE       Default 25
+  VPS_SUPPLYCHAIN_MAX_HIGH           Default 0
+  VPS_SUPPLYCHAIN_MAX_MODERATE       Default 0
   VPS_SUPPLYCHAIN_FAIL_UNKNOWN_LICENSE Default 0
   VPS_SUPPLYCHAIN_DENY_LICENSE_REGEX Default (^|[^A-Za-z])(AGPL|GPL-3\.0|SSPL|BUSL)([^A-Za-z]|$)
+  VPS_SUPPLYCHAIN_UNKNOWN_LICENSE_ALLOWLIST Default platform binary allowlist (@img/*, @next/swc-*, @emnapi/runtime)
 USAGE
 }
 
@@ -111,6 +114,11 @@ while [[ $# -gt 0 ]]; do
     --skip-sbom)
       SKIP_SBOM=1
       shift
+      ;;
+    --unknown-allowlist)
+      [[ $# -lt 2 ]] && { echo "[supply] missing value for --unknown-allowlist"; usage; exit 1; }
+      UNKNOWN_LICENSE_ALLOWLIST="$2"
+      shift 2
       ;;
     --artifact-dir)
       [[ $# -lt 2 ]] && { echo "[supply] missing value for --artifact-dir"; usage; exit 1; }
@@ -239,6 +247,7 @@ report_args=(
   --report "$LICENSE_JSON"
   --deny-regex "$deny_regex"
   --fail-unknown "$fail_unknown"
+  --allow-unknown-packages "$UNKNOWN_LICENSE_ALLOWLIST"
 )
 
 if [[ "$SKIP_SBOM" -eq 0 ]]; then
@@ -256,14 +265,18 @@ const raw = fs.readFileSync(file, "utf8");
 const data = JSON.parse(raw);
 const denied = Number(data?.totals?.deniedLicenses || 0);
 const unknown = Number(data?.totals?.unknownLicenses || 0);
+const unknownAllowed = Number(data?.totals?.unknownLicensesAllowed || 0);
+const unknownBlocked = Number(data?.totals?.unknownLicensesBlocked || 0);
 const unique = Number(data?.totals?.uniquePackages || 0);
 console.log(`license_denied=${denied}`);
 console.log(`license_unknown=${unknown}`);
+console.log(`license_unknown_allowed=${unknownAllowed}`);
+console.log(`license_unknown_blocked=${unknownBlocked}`);
 console.log(`license_unique=${unique}`);
 NODE
 )"
 
-echo "[supply] license_summary: unique=${license_unique:-0} denied=${license_denied:-0} unknown=${license_unknown:-0}"
+echo "[supply] license_summary: unique=${license_unique:-0} denied=${license_denied:-0} unknown=${license_unknown:-0} unknown_allowed=${license_unknown_allowed:-0} unknown_blocked=${license_unknown_blocked:-0}"
 
 pnpm_version="$(pnpm_cmd --version 2>/dev/null || echo unknown)"
 lock_sha="$(shasum -a 256 "$ROOT_DIR/pnpm-lock.yaml" | awk '{print $1}')"

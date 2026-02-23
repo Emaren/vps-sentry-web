@@ -1,5 +1,6 @@
 // /var/www/vps-sentry-web/src/app/dashboard/_lib/fetch.ts
 import { prisma } from "@/lib/prisma";
+import { headers } from "next/headers";
 import { getBaseUrlFromHeaders } from "@/lib/server-base-url";
 import { hasRequiredRole, type AppRole } from "@/lib/rbac-policy";
 import { getRemediationQueueSnapshot } from "@/lib/remediate/queue";
@@ -51,6 +52,15 @@ function toIso(v: Date | null | undefined): string | null {
   return v.toISOString();
 }
 
+type LegacyPortsEnvelope = {
+  ports_local?: unknown;
+  ports_public?: unknown;
+  ports?: {
+    local?: unknown;
+    public?: unknown;
+  };
+};
+
 function parseStatusObject(raw: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -84,11 +94,18 @@ function signalLabelFromCode(code: string): string {
 
 export async function getStatusEnvelopeSafe() {
   const base = await getBaseUrlFromHeaders();
+  const incomingHeaders = await headers();
+  const forwardedCookie = incomingHeaders.get("cookie");
+  const forwardedAuthorization = incomingHeaders.get("authorization");
 
   try {
     const res = await fetch(`${base}/api/status`, {
       cache: "no-store",
-      headers: { accept: "application/json" },
+      headers: {
+        accept: "application/json",
+        ...(forwardedCookie ? { cookie: forwardedCookie } : {}),
+        ...(forwardedAuthorization ? { authorization: forwardedAuthorization } : {}),
+      },
     });
 
     const ts = new Date().toISOString();
@@ -124,26 +141,26 @@ export async function getStatusEnvelopeSafe() {
     const obj = data as Record<string, unknown>;
     const status =
       obj.status && typeof obj.status === "object" && !Array.isArray(obj.status)
-        ? (obj.status as Record<string, unknown>)
+        ? (obj.status as LegacyPortsEnvelope)
         : null;
 
     const last =
       obj.last && typeof obj.last === "object" && !Array.isArray(obj.last)
-        ? (obj.last as Record<string, unknown>)
+        ? (obj.last as LegacyPortsEnvelope)
         : null;
 
     if (status || last) {
       const safeArr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
       const portsLocal = safeArr(
-        (last as any)?.ports_local ?? (last as any)?.ports?.local
+        last?.ports_local ?? last?.ports?.local
       );
 
       const portsPublicFromStatus = safeArr(
-        (status as any)?.ports_public ?? (status as any)?.ports?.public
+        status?.ports_public ?? status?.ports?.public
       );
       const portsPublicFromLast = safeArr(
-        (last as any)?.ports_public ?? (last as any)?.ports?.public
+        last?.ports_public ?? last?.ports?.public
       );
       const portsPublic =
         portsPublicFromStatus.length > 0 ? portsPublicFromStatus : portsPublicFromLast;

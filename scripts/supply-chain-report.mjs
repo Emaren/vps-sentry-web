@@ -10,6 +10,7 @@ const sbomPath = args["sbom"];
 const reportPath = args["report"];
 const denyRegexValue = args["deny-regex"] ?? "";
 const failUnknown = toBool(args["fail-unknown"] ?? process.env.VPS_SUPPLYCHAIN_FAIL_UNKNOWN_LICENSE ?? "0");
+const allowUnknownPackagesRaw = args["allow-unknown-packages"] ?? process.env.VPS_SUPPLYCHAIN_UNKNOWN_LICENSE_ALLOWLIST ?? "";
 
 if (!lsPath) {
   console.error("[supply] missing required --ls-json path");
@@ -37,6 +38,7 @@ if (!Array.isArray(tree) || tree.length === 0 || !tree[0] || typeof tree[0] !== 
 
 const root = tree[0];
 const denyRegex = denyRegexValue.trim() ? new RegExp(denyRegexValue, "i") : null;
+const allowUnknownPackages = parseAllowUnknownList(allowUnknownPackagesRaw);
 
 const componentMap = new Map();
 const dependencyEdges = new Map();
@@ -137,7 +139,11 @@ for (const component of components) {
   const count = licenseCounts.get(license) || 0;
   licenseCounts.set(license, count + 1);
   if (license === "UNKNOWN") {
-    unknownPackages.push(`${component.name}@${component.version}`);
+    unknownPackages.push({
+      name: component.name,
+      version: component.version,
+      package: `${component.name}@${component.version}`,
+    });
   }
   if (denyRegex && denyRegex.test(license)) {
     deniedPackages.push({
@@ -150,6 +156,9 @@ for (const component of components) {
 const licenseSummary = Object.fromEntries(
   Array.from(licenseCounts.entries()).sort((a, b) => a[0].localeCompare(b[0])),
 );
+
+const unknownAllowedPackages = unknownPackages.filter((item) => isUnknownAllowed(item, allowUnknownPackages));
+const unknownBlockedPackages = unknownPackages.filter((item) => !isUnknownAllowed(item, allowUnknownPackages));
 
 if (reportPath) {
   const report = {
@@ -164,10 +173,15 @@ if (reportPath) {
       uniquePackages: components.length,
       deniedLicenses: deniedPackages.length,
       unknownLicenses: unknownPackages.length,
+      unknownLicensesAllowed: unknownAllowedPackages.length,
+      unknownLicensesBlocked: unknownBlockedPackages.length,
     },
     licenseCounts: licenseSummary,
     deniedPackages,
-    unknownPackages,
+    unknownPackages: unknownPackages.map((item) => item.package),
+    unknownAllowedPackages: unknownAllowedPackages.map((item) => item.package),
+    unknownBlockedPackages: unknownBlockedPackages.map((item) => item.package),
+    unknownAllowlist: Array.from(allowUnknownPackages).sort(),
   };
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
@@ -228,6 +242,8 @@ if (sbomPath) {
 console.log(`[supply] unique_packages:${components.length}`);
 console.log(`[supply] denied_licenses:${deniedPackages.length}`);
 console.log(`[supply] unknown_licenses:${unknownPackages.length}`);
+console.log(`[supply] unknown_licenses_allowed:${unknownAllowedPackages.length}`);
+console.log(`[supply] unknown_licenses_blocked:${unknownBlockedPackages.length}`);
 
 if (deniedPackages.length > 0) {
   for (const item of deniedPackages.slice(0, 25)) {
@@ -236,9 +252,9 @@ if (deniedPackages.length > 0) {
   process.exit(1);
 }
 
-if (failUnknown && unknownPackages.length > 0) {
-  for (const pkg of unknownPackages.slice(0, 25)) {
-    console.error(`[supply] unknown:${pkg}`);
+if (failUnknown && unknownBlockedPackages.length > 0) {
+  for (const pkg of unknownBlockedPackages.slice(0, 25)) {
+    console.error(`[supply] unknown:${pkg.package}`);
   }
   process.exit(1);
 }
@@ -263,6 +279,23 @@ function parseArgs(argv) {
 function toBool(raw) {
   const v = String(raw || "").trim().toLowerCase();
   return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+function parseAllowUnknownList(raw) {
+  const out = new Set();
+  const text = String(raw || "");
+  if (!text.trim()) return out;
+  for (const part of text.split(/\n|,|\|\|/g)) {
+    const token = String(part || "").trim();
+    if (!token) continue;
+    out.add(token);
+  }
+  return out;
+}
+
+function isUnknownAllowed(item, allowSet) {
+  if (!allowSet || allowSet.size === 0) return false;
+  return allowSet.has(item.name) || allowSet.has(item.package);
 }
 
 function stringifyError(err) {

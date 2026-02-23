@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { requireViewerAccess } from "@/lib/rbac";
 import { incrementCounter, logEvent, runObservedRoute } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
@@ -209,7 +210,6 @@ async function enrichVitalsTopForPortPids(vitals: unknown, portsLocal: unknown[]
     if (!d) continue;
 
     const pid = asInt(d["pid"]);
-    const port = asInt(d["port"]);
     const proc = asString(d["proc"]) ?? "process";
 
     if (pid === null || pid <= 1) continue;
@@ -279,6 +279,16 @@ async function enrichVitalsTopForPortPids(vitals: unknown, portsLocal: unknown[]
 
 export async function GET(req: Request) {
   return runObservedRoute(req, { route: "/api/status", source: "status-api" }, async (obsCtx) => {
+    const access = await requireViewerAccess();
+    if (!access.ok) {
+      incrementCounter("status.api.denied.total", 1, {
+        status: String(access.status),
+      });
+      return noStoreJson({ ok: false, error: access.error }, { status: access.status });
+    }
+
+    obsCtx.userId = access.identity.userId;
+
     const cached = readStatusCache();
     if (cached) {
       incrementCounter("status.api.cache.hit.total", 1);

@@ -339,8 +339,8 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
         isListening: Boolean(portEntry),
         isPublic: Boolean(pub),
         pid: pid ?? undefined,
-        cpuSharePercent: (vitals as any)?.cpuSharePercent ?? null,
-        memoryMb: (vitals as any)?.memoryMb ?? null,
+        cpuSharePercent: vitals?.cpuSharePercent ?? null,
+        memoryMb: vitals?.memoryMb ?? null,
       };
     });
 
@@ -544,7 +544,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                   <div className="power-vitals-row-metric">
                     <span className="power-vitals-row-metric-label">RAM</span>
                     <span className="power-vitals-row-metric-value">
-                      {fmtSizeFromMb((row as any).memoryMb)} ({fmtPercent((row as any).memoryCapacityPercent)})
+                      {fmtSizeFromMb(row.memoryMb)} ({fmtPercent(row.memoryCapacityPercent)})
                     </span>
                   </div>
                 </div>
