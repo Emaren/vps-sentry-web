@@ -1,16 +1,22 @@
 // /var/www/vps-sentry-web/src/app/api/ops/report-now/route.ts
 import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const TRIGGER_PATH = "/tmp/vps-sentry-report-now.json";
 const STATUS_PATH = "/var/lib/vps-sentry/public/status.json";
+const SENTRY_SERVICE = "vps-sentry.service";
 
 // Keep API snappy (avoid nginx 504)
 const POLL_MAX_MS = 6_000;
 const POLL_STEP_MS = 400;
+const SCAN_POLL_MAX_MS = 20_000;
+const SCAN_COMMAND_TIMEOUT_MS = 10_000;
+const SCAN_COMMAND_MAX_BUFFER_BYTES = 256_000;
 
 // SMTP guardrails (avoid hanging requests)
 const SMTP_TIMEOUT_MS = 12_000; // overall "give up" ceiling
@@ -36,6 +42,15 @@ type ReportStatusJson = {
 type SendEmailResult =
   | { ok: true }
   | { ok: false; error: string; detail?: string; code?: string };
+
+type ScanKickoffResult = {
+  attempted: boolean;
+  started: boolean;
+  method: string | null;
+  error?: string;
+};
+
+const execFileAsync = promisify(execFile);
 
 // ---------- build-worker / weird Request hardening ----------
 
@@ -158,6 +173,66 @@ async function readJsonSafe<T = unknown>(path: string): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+async function runScanCommand(command: string, args: string[]): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await execFileAsync(command, args, {
+      timeout: SCAN_COMMAND_TIMEOUT_MS,
+      maxBuffer: SCAN_COMMAND_MAX_BUFFER_BYTES,
+    });
+    return { ok: true };
+  } catch (err: unknown) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+async function triggerImmediateScan(): Promise<ScanKickoffResult> {
+  const attempts: Array<{ command: string; args: string[]; method: string }> = [
+    {
+      command: "sudo",
+      args: ["-n", "/bin/systemctl", "start", SENTRY_SERVICE],
+      method: "sudo -n /bin/systemctl start vps-sentry.service",
+    },
+    {
+      command: "sudo",
+      args: ["-n", "systemctl", "start", SENTRY_SERVICE],
+      method: "sudo -n systemctl start vps-sentry.service",
+    },
+    {
+      command: "/bin/systemctl",
+      args: ["start", SENTRY_SERVICE],
+      method: "/bin/systemctl start vps-sentry.service",
+    },
+    {
+      command: "systemctl",
+      args: ["start", SENTRY_SERVICE],
+      method: "systemctl start vps-sentry.service",
+    },
+  ];
+
+  let attempted = false;
+  let lastError: string | undefined;
+
+  for (const attempt of attempts) {
+    attempted = true;
+    const run = await runScanCommand(attempt.command, attempt.args);
+    if (run.ok) {
+      return {
+        attempted,
+        started: true,
+        method: attempt.method,
+      };
+    }
+    lastError = run.error;
+  }
+
+  return {
+    attempted,
+    started: false,
+    method: null,
+    error: lastError ?? "Unable to start scan command.",
+  };
 }
 
 function getBaseUrl(req: Request) {
@@ -474,10 +549,24 @@ export async function POST(req: Request) {
           meta: { rid, triggerPath: TRIGGER_PATH },
         });
 
-        // Poll briefly for a newer status timestamp
+        const scan = await triggerImmediateScan();
+        if (scan.started) {
+          deps.logEvent?.("info", "ops.report_now.scan_started", obsCtx, {
+            rid,
+            method: scan.method,
+          });
+        } else {
+          deps.logEvent?.("warn", "ops.report_now.scan_not_started", obsCtx, {
+            rid,
+            error: scan.error ?? "unknown",
+          });
+        }
+
+        // Poll for a newer status timestamp (longer window if scan was started).
         let after: ReportStatusJson | null = null;
         const start = Date.now();
-        while (Date.now() - start < POLL_MAX_MS) {
+        const pollBudgetMs = scan.started ? SCAN_POLL_MAX_MS : POLL_MAX_MS;
+        while (Date.now() - start < pollBudgetMs) {
           await sleep(POLL_STEP_MS);
           after = await readJsonSafe<ReportStatusJson>(STATUS_PATH);
           if (after?.ts && after.ts !== beforeTs) break;
@@ -485,11 +574,14 @@ export async function POST(req: Request) {
 
         const s =
           after?.ts && after.ts !== beforeTs ? after : after || before;
+        const statusTs = (s?.ts as string | null | undefined) ?? null;
+        const statusAdvanced = Boolean(statusTs && (!beforeTs || statusTs !== beforeTs));
 
         deps.logEvent?.("info", "ops.report_now.status_loaded", obsCtx, {
           rid,
           beforeTs,
-          statusTs: (s?.ts as string | null | undefined) ?? null,
+          statusTs,
+          statusAdvanced,
         });
 
         if (!to) {
@@ -507,7 +599,9 @@ export async function POST(req: Request) {
             triggered: true,
             emailed: false,
             warning: "No session email found; cannot send report email.",
-            statusTs: (s?.ts as string | null | undefined) ?? null,
+            statusTs,
+            statusAdvanced,
+            scan,
           });
         }
 
@@ -552,7 +646,9 @@ export async function POST(req: Request) {
               error: mail.error,
               detail: mail.detail,
               code: mail.code,
-              statusTs: (s?.ts as string | null | undefined) ?? null,
+              statusTs,
+              statusAdvanced,
+              scan,
             },
             { status: 502 }
           );
@@ -585,7 +681,9 @@ export async function POST(req: Request) {
           emailed: true,
           to,
           subject,
-          statusTs: (s?.ts as string | null | undefined) ?? null,
+          statusTs,
+          statusAdvanced,
+          scan,
         });
       } catch (err: unknown) {
         deps.incrementCounter("ops.report_now.errors.total", 1);

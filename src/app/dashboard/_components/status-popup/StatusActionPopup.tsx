@@ -28,6 +28,14 @@ type RemediationPlanAction = {
   confirmPhrase: string;
 };
 
+type TrackedRunsSummary = {
+  total: number;
+  byState: Record<string, number>;
+  delayed: number;
+  approvalPending: number;
+  details: string[];
+};
+
 function asRecord(v: unknown): JsonRecord | null {
   return v && typeof v === "object" ? (v as JsonRecord) : null;
 }
@@ -135,9 +143,25 @@ async function readQueueSnapshot(limit = 80): Promise<JsonRecord | null> {
   }
 }
 
-async function describeTrackedRuns(runIds: string[]): Promise<string | null> {
+function countTrackedState(summary: TrackedRunsSummary, state: string): number {
+  return summary.byState[state] ?? 0;
+}
+
+function formatTrackedSummary(summary: TrackedRunsSummary): string {
+  const chunks: string[] = [];
+  const order = ["succeeded", "running", "queued", "failed", "canceled", "unknown"];
+  for (const key of order) {
+    const count = countTrackedState(summary, key);
+    if (count > 0) chunks.push(`${key}=${count}`);
+  }
+  if (summary.delayed > 0) chunks.push(`delayed=${summary.delayed}`);
+  if (summary.approvalPending > 0) chunks.push(`approvalPending=${summary.approvalPending}`);
+  return chunks.length ? chunks.join(", ") : "no tracked runs";
+}
+
+async function readTrackedRunsSummary(runIds: string[]): Promise<TrackedRunsSummary | null> {
   if (runIds.length === 0) return null;
-  const snapshot = await readQueueSnapshot(100);
+  const snapshot = await readQueueSnapshot(140);
   if (!snapshot) return null;
 
   const runSet = new Set(runIds);
@@ -149,24 +173,42 @@ async function describeTrackedRuns(runIds: string[]): Promise<string | null> {
       return Boolean(runId && runSet.has(runId));
     });
 
-  if (rows.length === 0) return null;
+  const byState: Record<string, number> = {};
+  let delayed = 0;
+  let approvalPending = 0;
+  const details: string[] = [];
 
-  const states = rows.map((row) => {
+  for (const row of rows) {
     const actionKey = asString(row.actionKey) ?? "action";
     const state = asString(row.state) ?? "unknown";
-    const delayed = asBoolean(row.delayed) === true;
+    byState[state] = (byState[state] ?? 0) + 1;
+
+    const isDelayed = asBoolean(row.delayed) === true;
     const approval = asString(row.approvalStatus);
+    if (isDelayed) {
+      delayed += 1;
+    }
+    if (approval === "pending") {
+      approvalPending += 1;
+    }
+
     const suffix = [
-      delayed ? "delayed" : null,
+      isDelayed ? "delayed" : null,
       approval && approval !== "none" ? `approval=${approval}` : null,
     ]
       .filter(Boolean)
       .join(", ");
 
-    return suffix ? `${actionKey}=${state} (${suffix})` : `${actionKey}=${state}`;
-  });
+    details.push(suffix ? `${actionKey}=${state} (${suffix})` : `${actionKey}=${state}`);
+  }
 
-  return `Queue state: ${states.join("; ")}.`;
+  return {
+    total: rows.length,
+    byState,
+    delayed,
+    approvalPending,
+    details,
+  };
 }
 
 function errorMessage(err: unknown): string {
@@ -206,7 +248,7 @@ async function readCurrentSnapshotTs(): Promise<string | null> {
 }
 
 async function waitForSnapshotAdvance(previousSnapshotTs: string): Promise<{ advanced: boolean; current: string | null }> {
-  const deadlineMs = Date.now() + 15_000;
+  const deadlineMs = Date.now() + 25_000;
   const baselineMs = parseTsMillis(previousSnapshotTs);
   let lastSeen: string | null = null;
 
@@ -335,6 +377,11 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     const triggered = run.payload.triggered === true;
     const emailed = run.payload.emailed === true;
     const statusTs = typeof run.payload.statusTs === "string" ? run.payload.statusTs : null;
+    const statusAdvanced = run.payload.statusAdvanced === true;
+    const scan = asRecord(run.payload.scan);
+    const scanStarted = asBoolean(scan?.started) === true;
+    const scanMethod = asString(scan?.method);
+    const scanError = asString(scan?.error);
     const warning = typeof run.payload.warning === "string" ? run.payload.warning : null;
 
     if (run.ok || triggered) {
@@ -344,6 +391,14 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
           ? "Triggered immediate report generation."
           : "Report endpoint returned success.",
       ];
+      if (scanStarted) {
+        parts.push(`Started immediate VPS scan (${scanMethod ?? "systemctl start vps-sentry.service"}).`);
+      } else if (scanError) {
+        parts.push(`Immediate scan start was not confirmed (${scanError}).`);
+      }
+      if (!statusAdvanced) {
+        parts.push("Status timestamp has not advanced yet.");
+      }
       if (statusTs) parts.push(`Latest status timestamp: ${statusTs}.`);
       if (emailed) parts.push("Email delivery succeeded.");
       if (warning) parts.push(warning);
@@ -464,8 +519,9 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       let processedTotal = 0;
       let requestedSeen = requestedLimit;
       let queueErrorsTotal = 0;
+      let trackedSummary: TrackedRunsSummary | null = null;
 
-      for (let attempt = 0; attempt < 4; attempt++) {
+      for (let attempt = 0; attempt < 8; attempt++) {
         const drainRun = await postJson("/api/ops/remediate-drain", { limit: requestedLimit });
         if (!drainRun.ok) {
           return {
@@ -483,23 +539,54 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         requestedSeen = requested ?? requestedSeen;
         queueErrorsTotal += queueErrors;
 
-        if (processedTotal > 0) break;
+        trackedSummary = await readTrackedRunsSummary(touchedRunIds);
+        if (trackedSummary) {
+          const pending =
+            countTrackedState(trackedSummary, "queued") + countTrackedState(trackedSummary, "running");
+          const blocked = trackedSummary.delayed + trackedSummary.approvalPending;
+          if (pending === 0 && blocked === 0) break;
+        }
+
         await sleep(900);
       }
+
+      if (!trackedSummary) {
+        trackedSummary = await readTrackedRunsSummary(touchedRunIds);
+      }
+
+      const succeededCount = trackedSummary ? countTrackedState(trackedSummary, "succeeded") : 0;
+      const failedCount = trackedSummary
+        ? countTrackedState(trackedSummary, "failed") + countTrackedState(trackedSummary, "canceled")
+        : 0;
+      const pendingCount = trackedSummary
+        ? countTrackedState(trackedSummary, "queued") + countTrackedState(trackedSummary, "running")
+        : 0;
+      const blockedCount = trackedSummary ? trackedSummary.delayed + trackedSummary.approvalPending : 0;
+      const missingCount = trackedSummary ? Math.max(0, touchedRunIds.length - trackedSummary.total) : touchedRunIds.length;
 
       const bits: string[] = [];
       bits.push(`Queued ${queuedCount} safe remediation action(s): ${touchedActionIds.join(", ")}.`);
       bits.push(`Processed ${processedTotal}/${requestedSeen} queued remediation run(s).`);
       if (queueErrorsTotal > 0) bits.push(`${queueErrorsTotal} run(s) reported errors; review remediation queue.`);
       if (failures.length > 0) bits.push(`Action failures: ${failures.slice(0, 2).join(" | ")}`);
+      if (trackedSummary) bits.push(`Run states: ${formatTrackedSummary(trackedSummary)}.`);
+      if (failedCount > 0) bits.push(`${failedCount} remediation run(s) failed or were canceled.`);
+      if (pendingCount > 0) bits.push(`${pendingCount} remediation run(s) are still queued/running.`);
+      if (blockedCount > 0) bits.push(`${blockedCount} remediation run(s) are delayed or awaiting approval.`);
+      if (missingCount > 0) bits.push(`${missingCount} tracked run(s) were not visible in the latest queue snapshot.`);
 
-      if (processedTotal <= 0) {
-        const queueState = await describeTrackedRuns(touchedRunIds);
-        if (queueState) bits.push(queueState);
-        bits.push("Runs are queued but not executed yet. They may be running, delayed for retry, or pending approval.");
+      if (!trackedSummary) {
+        bits.push("Unable to read remediation queue state for tracked runs.");
       }
 
-      const ok = queueErrorsTotal === 0 && failures.length === 0 && processedTotal > 0;
+      const ok =
+        queueErrorsTotal === 0 &&
+        failures.length === 0 &&
+        failedCount === 0 &&
+        pendingCount === 0 &&
+        blockedCount === 0 &&
+        missingCount === 0 &&
+        succeededCount >= touchedRunIds.length;
       return { ok, detail: bits.join(" ") };
     }
 
