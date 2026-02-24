@@ -133,6 +133,23 @@ function toTextOrNull(v: unknown, maxLen = 600): string | null {
   return `${t.slice(0, maxLen)}...[truncated ${t.length - maxLen} chars]`;
 }
 
+function migrateLegacyCommandPath(command: string): string {
+  let out = command;
+  out = out.replace(
+    /\/root\/sshd_config\.backup\./g,
+    "/var/lib/vps-sentry/remediation-backups/sshd_config.backup."
+  );
+  out = out.replace(
+    /\/root\/sudoers\.backup\./g,
+    "/var/lib/vps-sentry/remediation-backups/sudoers.backup."
+  );
+  out = out.replace(
+    /\/root\/vps-sentry-forensics-/g,
+    "/var/lib/vps-sentry/remediation-backups/vps-sentry-forensics-"
+  );
+  return out;
+}
+
 export function normalizeQueueRuntimeMeta(
   raw: unknown,
   options: PayloadParseOptions
@@ -201,7 +218,9 @@ export function normalizeQueueRuntimeMeta(
       enabled: rollbackEnabled,
       attempted: toBool(rollbackRaw.attempted, false),
       succeeded: rollbackSucceeded,
-      commands: toStringArray(rollbackRaw.commands).slice(0, 20),
+      commands: toStringArray(rollbackRaw.commands)
+        .map(migrateLegacyCommandPath)
+        .slice(0, 20),
       lastRunAt: toIsoMaybe(rollbackRaw.lastRunAt),
       error: toTextOrNull(rollbackRaw.error, 1000),
     },
@@ -232,7 +251,7 @@ export function parseExecuteRunPayload(
   if (!parsed || parsed.mode !== "execute") return null;
 
   const actionId = typeof parsed.actionId === "string" ? parsed.actionId.trim() : "";
-  const commands = toStringArray(parsed.commands);
+  const commands = toStringArray(parsed.commands).map(migrateLegacyCommandPath);
   const sourceCodes = toStringArray(parsed.sourceCodes);
   const rollbackNotes = toStringArray(parsed.rollbackNotes);
   const profile = typeof parsed.profile === "string" ? parsed.profile.trim() : undefined;
