@@ -15,6 +15,13 @@ export type FixStep = {
 
 export type FixResult = { ok: boolean; message: string };
 
+export type StatusAlertPreview = {
+  title: string;
+  detail?: string;
+  code?: string;
+  severity?: "info" | "warn" | "critical";
+};
+
 export type StatusActionPopupProps = {
   needsAction: boolean;
   headline: string; // "ACTION NEEDED" | "OK" | "ATTENTION"
@@ -41,6 +48,7 @@ export type StatusActionPopupProps = {
   publicPortsCount: number;
   publicPortsTotalCount?: number;
   expectedPublicPorts?: string[] | null;
+  alertsPreview?: StatusAlertPreview[];
 
   stale: boolean;
 };

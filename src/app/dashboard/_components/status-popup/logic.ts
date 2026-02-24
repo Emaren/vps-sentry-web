@@ -10,6 +10,47 @@ function asArray(v: unknown): unknown[] | null {
   return Array.isArray(v) ? v : null;
 }
 
+type ExplainAlertPreview = {
+  title: string;
+  detail?: string;
+  code?: string;
+  severity?: "info" | "warn" | "critical";
+};
+
+function compactAlertDetail(detail?: string): string {
+  if (!detail) return "";
+  const collapsed = detail.replace(/\s+/g, " ").trim();
+  if (!collapsed) return "";
+  if (collapsed.length <= 180) return collapsed;
+  return `${collapsed.slice(0, 177)}...`;
+}
+
+function explainAlertMeaning(alert: ExplainAlertPreview): string {
+  const signal = `${alert.code ?? ""} ${alert.title}`.toLowerCase();
+  if (signal.includes("watched_files_changed") || signal.includes("watched files changed")) {
+    return "Protected system files changed since your accepted baseline. This can be expected maintenance, but verify it was intentional.";
+  }
+  if (signal.includes("packages_changed") || signal.includes("packages changed")) {
+    return "Installed package versions changed. Usually normal updates, but confirm they were planned and from trusted sources.";
+  }
+  if (signal.includes("user_list_changed") || signal.includes("user list changed")) {
+    return "The local user account list changed. Confirm new users or privilege changes are authorized.";
+  }
+  if (signal.includes("firewall_changed") || signal.includes("firewall changed")) {
+    return "Firewall rules changed. Confirm internet exposure still matches your intended policy.";
+  }
+  if (signal.includes("ports_changed") || signal.includes("public ports changed")) {
+    return "Listening ports changed from baseline. Check whether newly exposed services are expected.";
+  }
+  if (signal.includes("ssh_failed_password")) {
+    return "SSH password failures were detected. This is often scanner noise, but repeated spikes can indicate brute-force attempts.";
+  }
+  if (signal.includes("ssh_invalid_user")) {
+    return "SSH login attempts used invalid usernames. This is common internet probing, but still worth monitoring.";
+  }
+  return "The agent detected a change that should be reviewed to confirm it is expected.";
+}
+
 export function buildActionsNeeded(input: {
   alertsCount: number;
   publicPortsCount: number; // actionable (unexpected)
@@ -52,6 +93,7 @@ export function buildExplainText(input: {
   actionsNeeded: string[];
   allowlistedTotal: number | null;
   expectedPublicPorts?: string[] | null;
+  alertsPreview?: ExplainAlertPreview[];
 }): string {
   const lines: string[] = [];
 
@@ -118,6 +160,18 @@ export function buildExplainText(input: {
     lines.push("• Snapshot freshness: stale. Data is older than expected, so newer changes might not be visible yet.");
   } else {
     lines.push("• Snapshot freshness: current.");
+  }
+
+  if (input.alertsPreview && input.alertsPreview.length > 0) {
+    lines.push("");
+    lines.push("Current alert details:");
+    for (const alert of input.alertsPreview.slice(0, 3)) {
+      const severity = alert.severity ? alert.severity.toUpperCase() : "WARN";
+      lines.push(`• [${severity}] ${alert.title}`);
+      lines.push(`  Why it matters: ${explainAlertMeaning(alert)}`);
+      const detail = compactAlertDetail(alert.detail);
+      if (detail) lines.push(`  Evidence: ${detail}`);
+    }
   }
 
   if (reasonLines.length) {

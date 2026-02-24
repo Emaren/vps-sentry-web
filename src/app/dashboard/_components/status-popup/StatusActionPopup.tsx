@@ -401,6 +401,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     publicPortsCount,
     publicPortsTotalCount,
     expectedPublicPorts,
+    alertsPreview,
     stale,
   } = props;
   const router = useRouter();
@@ -444,8 +445,9 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       actionsNeeded,
       allowlistedTotal,
       expectedPublicPorts,
+      alertsPreview,
     });
-  }, [summary, alertsCount, publicPortsCount, stale, actionsNeeded, allowlistedTotal, expectedPublicPorts]);
+  }, [summary, alertsCount, publicPortsCount, stale, actionsNeeded, allowlistedTotal, expectedPublicPorts, alertsPreview]);
 
   const typedExplain = useTypewriter(explainText, panel === "explain");
 

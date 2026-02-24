@@ -53,6 +53,12 @@ export default function TopArea(props: {
   const queueQueuedCount = ops.queue?.counts.queued ?? ops.remediation?.counts.queued ?? 0;
   const queueDlqCount = ops.queue?.counts.dlq ?? ops.remediation?.counts.dlq ?? 0;
   const queueHasFollowUp = queueQueuedCount > 0 || queueDlqCount > 0;
+  const alertPreviews = s.alerts.slice(0, 5).map((alert) => ({
+    title: alert.title,
+    detail: alert.detail,
+    code: alert.code,
+    severity: alert.severity,
+  }));
 
   return (
     <div className="dashboard-top-stack">
@@ -74,6 +80,7 @@ export default function TopArea(props: {
                 typeof totalPublicPorts === "number" ? totalPublicPorts : undefined
               }
               expectedPublicPorts={expectedPublicPorts}
+              alertsPreview={alertPreviews}
               stale={d.stale}
               host={s.host}
               version={s.version}
