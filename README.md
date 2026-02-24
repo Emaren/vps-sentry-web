@@ -3,7 +3,6 @@
 Web control plane for VPS Sentry (dashboard, API, operator workflows, and deploy tooling).
 
 - Host agent/runtime repo: <https://github.com/Emaren/vps-sentry>
-- Public marketing/landing repo: <https://github.com/Emaren/vps-sentry-landing>
 
 ## Repo Map (Layman)
 
@@ -15,9 +14,6 @@ Web control plane for VPS Sentry (dashboard, API, operator workflows, and deploy
   - Runs the app you log into.
   - Think of it as the "command center dashboard + response console."
   - It stores data, scores severity, shows alerts, and controls safe response actions.
-- `vps-sentry-landing`:
-  - Public-facing brochure/entry site.
-  - Think of it as the "front desk website," not the secure operator console.
 
 ## Feature Ranking (Full Capability Set)
 
@@ -219,6 +215,5 @@ make db-pg-rollback
 
 - CI workflow: `.github/workflows/ci.yml`
 - Deploy/runtime knobs: `.vps.example.env`
-- This repo is the operator app/control plane. It is intentionally separate from:
-  - host runtime (`vps-sentry`)
-  - public marketing site (`vps-sentry-landing`)
+- This repo is the operator app/control plane and public entry page.
+- It is intentionally separate from host runtime (`vps-sentry`).

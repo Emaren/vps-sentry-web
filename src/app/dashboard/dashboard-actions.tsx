@@ -218,7 +218,7 @@ export default function DashboardActions(props: { userRole: AppRole }) {
     <div style={{ marginTop: 12 }}>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <Link href="/" style={linkStyle}>
-          ← Back to landing
+          ← Back to home
         </Link>
 
         {canRunOps ? (
