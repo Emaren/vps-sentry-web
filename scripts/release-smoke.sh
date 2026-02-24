@@ -65,16 +65,20 @@ require_positive_int "VPS_SSH_RETRIES" "$VPS_SSH_RETRIES"
 require_positive_int "VPS_SSH_RETRY_DELAY_SECONDS" "$VPS_SSH_RETRY_DELAY_SECONDS"
 
 codes="$(
-  run_remote "curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/; curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/login; curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$VPS_WEB_PORT/api/status"
+  run_remote "curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/; \
+              curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/login; \
+              curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/api/readyz; \
+              curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$VPS_WEB_PORT/api/status"
 )" || {
   echo "[smoke] FAIL: unable to execute remote smoke checks over SSH"
   exit 1
 }
 
-read -r root_code login_code status_code <<<"$codes"
+read -r root_code login_code readyz_code status_code <<<"$codes"
 
 echo "[smoke] / => $root_code"
 echo "[smoke] /login => $login_code"
+echo "[smoke] /api/readyz => $readyz_code"
 echo "[smoke] /api/status => $status_code"
 
 if [[ "$root_code" != "200" && "$root_code" != "307" ]]; then
@@ -87,7 +91,13 @@ if [[ "$login_code" != "200" ]]; then
   exit 1
 fi
 
-if [[ "$status_code" != "200" ]]; then
+if [[ "$readyz_code" != "200" ]]; then
+  echo "[smoke] FAIL: unexpected /api/readyz status $readyz_code"
+  exit 1
+fi
+
+# /api/status may be auth-protected; accept 200 or 401
+if [[ "$status_code" != "200" && "$status_code" != "401" ]]; then
   echo "[smoke] FAIL: unexpected /api/status status $status_code"
   exit 1
 fi
