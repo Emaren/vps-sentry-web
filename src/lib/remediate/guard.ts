@@ -19,7 +19,7 @@ export type CommandGuardOverrides = Partial<{
 }>;
 
 const DEFAULT_ALLOWLIST: RegExp[] = [
-  /^sudo(\s+-n)?\s+(cp|ls|journalctl|ufw|nft|ss|lsof|getent|systemctl|vps-sentry|grep)\b/i,
+  /^sudo(\s+-n)?\s+(cp|install|ls|journalctl|ufw|nft|ss|lsof|getent|systemctl|vps-sentry|grep)\b/i,
   /^grep\b/i,
 ];
 
