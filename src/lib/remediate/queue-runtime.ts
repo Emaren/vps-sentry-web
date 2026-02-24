@@ -150,6 +150,20 @@ function migrateLegacyCommandPath(command: string): string {
   return out;
 }
 
+function ensureBackupDirCommand(commands: string[]): string[] {
+  const needsBackupDir = commands.some((command) =>
+    command.includes("/var/lib/vps-sentry/remediation-backups/")
+  );
+  if (!needsBackupDir) return commands;
+
+  const hasEnsure = commands.some((command) =>
+    command.includes("install -d -m 700 /var/lib/vps-sentry/remediation-backups")
+  );
+  if (hasEnsure) return commands;
+
+  return ["sudo install -d -m 700 /var/lib/vps-sentry/remediation-backups", ...commands];
+}
+
 export function normalizeQueueRuntimeMeta(
   raw: unknown,
   options: PayloadParseOptions
@@ -251,7 +265,9 @@ export function parseExecuteRunPayload(
   if (!parsed || parsed.mode !== "execute") return null;
 
   const actionId = typeof parsed.actionId === "string" ? parsed.actionId.trim() : "";
-  const commands = toStringArray(parsed.commands).map(migrateLegacyCommandPath);
+  const commands = ensureBackupDirCommand(
+    toStringArray(parsed.commands).map(migrateLegacyCommandPath)
+  );
   const sourceCodes = toStringArray(parsed.sourceCodes);
   const rollbackNotes = toStringArray(parsed.rollbackNotes);
   const profile = typeof parsed.profile === "string" ? parsed.profile.trim() : undefined;
