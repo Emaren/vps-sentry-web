@@ -243,15 +243,17 @@ const MAIN_PROJECTS: ProjectDef[] = [
   {
     key: "vps-sentry",
     name: "VPS Sentry",
-    subtitle: "vps-sentry.tokentap.ca",
+    subtitle: "vps-sentry.tokentap.ca/api/status",
     href: "https://vps-sentry.tokentap.ca",
+    backendHref: "https://vps-sentry.tokentap.ca/api/status",
     services: [{ label: "web", port: 3035, required: true }],
   },
   {
     key: "tokentap",
     name: "TokenTap",
-    subtitle: "tokentap.ca",
+    subtitle: "api.tokentap.ca",
     href: "https://tokentap.ca",
+    backendHref: "https://api.tokentap.ca",
     services: [
       { label: "web", port: 3020, required: true },
       { label: "api", port: 3320, required: true },
@@ -260,8 +262,9 @@ const MAIN_PROJECTS: ProjectDef[] = [
   {
     key: "pulse",
     name: "Pulse",
-    subtitle: "pulse.tokentap.ca",
+    subtitle: "api.pulse.tokentap.ca",
     href: "https://pulse.tokentap.ca",
+    backendHref: "https://api.pulse.tokentap.ca",
     services: [
       { label: "web", port: 3090, required: true },
       { label: "api", port: 3390, required: true },
@@ -270,8 +273,9 @@ const MAIN_PROJECTS: ProjectDef[] = [
   {
     key: "llama",
     name: "Llama",
-    subtitle: "llama.tokentap.ca",
+    subtitle: "llama-api.tokentap.ca",
     href: "https://llama.tokentap.ca",
+    backendHref: "https://llama-api.tokentap.ca",
     services: [
       { label: "api", port: 3360, required: true },
       { label: "chat-api", port: 3350, required: true },
@@ -281,8 +285,9 @@ const MAIN_PROJECTS: ProjectDef[] = [
   {
     key: "aoe2hdbets",
     name: "AoE2HDBets",
-    subtitle: "aoe2hdbets.com",
+    subtitle: "api-prodn.aoe2hdbets.com",
     href: "https://aoe2hdbets.com",
+    backendHref: "https://api-prodn.aoe2hdbets.com",
     services: [
       { label: "web", port: 3030, required: true },
       { label: "api", port: 3330, required: true },
@@ -291,8 +296,9 @@ const MAIN_PROJECTS: ProjectDef[] = [
   {
     key: "wheatandstone",
     name: "Wheat & Stone",
-    subtitle: "wheatandstone.ca",
+    subtitle: "api.wheatandstone.ca",
     href: "https://wheatandstone.ca",
+    backendHref: "https://api.wheatandstone.ca",
     services: [
       { label: "web", port: 3010, required: true },
       { label: "api", port: 3310, required: true },
@@ -301,8 +307,9 @@ const MAIN_PROJECTS: ProjectDef[] = [
   {
     key: "redlinelegal",
     name: "Redline Legal",
-    subtitle: "redlinelegal.ca",
+    subtitle: "api.redlinelegal.ca",
     href: "https://redlinelegal.ca",
+    backendHref: "https://api.redlinelegal.ca",
     services: [
       { label: "web", port: 3040, required: true },
       { label: "api", port: 3340, required: true },
@@ -468,7 +475,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
             {projectCards.map((p) => (
               <div key={p.key} className="pm-project-card" role="listitem">
                 <div className="pm-project-top">
-                  <div>
+                  <div className="pm-project-title-stack">
                     {p.href ? (
                       <a className="pm-project-name pm-project-name-link" href={p.href} target="_blank" rel="noreferrer">
                         {p.name}

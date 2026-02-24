@@ -1181,6 +1181,12 @@ html[data-site-theme="sepia"] .dashboard-shell {
   gap: 10px;
 }
 
+.pm-project-title-stack {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
 .pm-project-name {
   font-size: 1.02rem;
   font-weight: 900;
@@ -1377,7 +1383,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 .pm-project-service-line {
   color: var(--dash-fg);
   font-size: 14px;
-  font-weight: 680;
+  font-weight: 400;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }

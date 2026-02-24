@@ -51,3 +51,6 @@ vps-sentry-web-*.zip
 *.zip
 *.zip.sha256
 *.bak.*
+
+# local ops logs
+.ops-alerts.log

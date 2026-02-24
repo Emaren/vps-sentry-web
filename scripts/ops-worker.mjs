@@ -36,11 +36,30 @@ function sleep(ms) {
   });
 }
 
+function parseBool(value, fallback = false) {
+  if (value == null) return fallback;
+  const raw = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  return fallback;
+}
+
+function isLoopbackBaseUrl(value) {
+  try {
+    const url = new URL(value);
+    const host = String(url.hostname || "").trim().toLowerCase();
+    return host === "127.0.0.1" || host === "localhost" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
 const once = hasFlag("once");
 const baseUrl = (parseArg("base-url", process.env.OPS_WORKER_BASE_URL || DEFAULT_BASE_URL) || DEFAULT_BASE_URL).replace(/\/+$/, "");
 const token = (
   parseArg("token", process.env.OPS_WORKER_TOKEN || process.env.VPS_REMEDIATE_QUEUE_TOKEN || "")
 ).trim();
+const allowLoopbackWithoutToken = parseBool(process.env.OPS_WORKER_ALLOW_LOOPBACK_NO_TOKEN ?? "1", true);
 const limit = clampInt(parseArg("limit", process.env.OPS_WORKER_DRAIN_LIMIT || "5"), 1, 50, 5);
 const intervalSeconds = clampInt(
   parseArg("interval", process.env.OPS_WORKER_INTERVAL_SECONDS || "15"),
@@ -61,19 +80,24 @@ const maxBackoffSeconds = clampInt(
   120
 );
 
-if (!token) {
+const tokenRequired = !(allowLoopbackWithoutToken && isLoopbackBaseUrl(baseUrl));
+if (!token && tokenRequired) {
   console.error(`[ops-worker] ${nowIso()} missing token: set OPS_WORKER_TOKEN or VPS_REMEDIATE_QUEUE_TOKEN`);
   process.exit(1);
 }
 
 async function drainOnce() {
   const url = `${baseUrl}/api/ops/remediate-drain`;
+  const headers = {
+    "content-type": "application/json",
+  };
+  if (token) {
+    headers["x-remediate-queue-token"] = token;
+  }
+
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-remediate-queue-token": token,
-    },
+    headers,
     body: JSON.stringify({ limit }),
   });
   const data = await res.json().catch(() => ({}));
@@ -98,7 +122,7 @@ async function drainOnce() {
 
 async function main() {
   console.log(
-    `[ops-worker] ${nowIso()} start once=${once} baseUrl=${baseUrl} limit=${limit} interval=${intervalSeconds}s idleInterval=${idleIntervalSeconds}s`
+    `[ops-worker] ${nowIso()} start once=${once} baseUrl=${baseUrl} auth=${token ? "token" : "loopback"} limit=${limit} interval=${intervalSeconds}s idleInterval=${idleIntervalSeconds}s`
   );
 
   let failureBackoffSeconds = intervalSeconds;

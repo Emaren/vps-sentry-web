@@ -125,6 +125,46 @@ function hasValidQueueToken(req: Request): boolean {
   return timingSafeEqual(a, b);
 }
 
+function isLoopbackProbeAllowed(): boolean {
+  const raw = String(process.env.VPS_REMEDIATE_QUEUE_ALLOW_LOOPBACK_PROBE ?? "1")
+    .trim()
+    .toLowerCase();
+  return !(raw === "0" || raw === "false" || raw === "no" || raw === "off");
+}
+
+function normalizeHost(value: string | null): string {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw.startsWith("[::1]")) return "::1";
+  return raw.split(":")[0] ?? "";
+}
+
+function isLoopbackValue(value: string | null): boolean {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return false;
+  const first = raw.split(",")[0]?.trim() ?? "";
+  return first === "127.0.0.1" || first === "::1" || first === "localhost";
+}
+
+function isTrustedLoopbackProbe(req: Request): boolean {
+  if (!isLoopbackProbeAllowed()) return false;
+
+  const host =
+    normalizeHost(req.headers.get("host")) ||
+    normalizeHost(req.headers.get("x-forwarded-host"));
+  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") return false;
+
+  const forwardedFor = req.headers.get("x-forwarded-for");
+  const realIp = req.headers.get("x-real-ip");
+  const cfIp = req.headers.get("cf-connecting-ip");
+
+  if (forwardedFor && !isLoopbackValue(forwardedFor)) return false;
+  if (realIp && !isLoopbackValue(realIp)) return false;
+  if (cfIp && !isLoopbackValue(cfIp)) return false;
+
+  return true;
+}
+
 function clampInt(v: number, min: number, max: number): number {
   if (!Number.isFinite(v)) return min;
   const t = Math.trunc(v);
@@ -192,37 +232,41 @@ export async function POST(req: Request) {
     { route: "/api/ops/remediate-drain", source: "ops-remediate-drain" },
     async (obsCtx: any) => {
       let actorUserId: string | null = null;
-      let authMode: "token" | "ops" = "token";
+      let authMode: "token" | "ops" | "loopback" = "token";
 
       if (!hasValidQueueToken(req)) {
-        const access = await deps.requireOpsAccess();
-        if (!access?.ok) {
-          deps.incrementCounter("ops.remediate_drain.denied.total", 1, {
-            status: String(access?.status ?? 403),
-          });
+        if (isTrustedLoopbackProbe(req)) {
+          authMode = "loopback";
+        } else {
+          const access = await deps.requireOpsAccess();
+          if (!access?.ok) {
+            deps.incrementCounter("ops.remediate_drain.denied.total", 1, {
+              status: String(access?.status ?? 403),
+            });
 
-          await deps.writeAuditLog({
-            req: safeReq,
-            action: "ops.remediate_queue_drain.denied",
-            detail: `status=${access?.status ?? 403} email=${access?.email ?? "unknown"}`,
-            meta: {
-              route: "/api/ops/remediate-drain",
-              status: access?.status ?? 403,
-              requiredRole: "ops",
-              email: access?.email ?? null,
-              role: access?.role ?? null,
-            },
-          });
+            await deps.writeAuditLog({
+              req: safeReq,
+              action: "ops.remediate_queue_drain.denied",
+              detail: `status=${access?.status ?? 403} email=${access?.email ?? "unknown"}`,
+              meta: {
+                route: "/api/ops/remediate-drain",
+                status: access?.status ?? 403,
+                requiredRole: "ops",
+                email: access?.email ?? null,
+                role: access?.role ?? null,
+              },
+            });
 
-          return NextResponse.json(
-            { ok: false, error: access?.error ?? "Access denied" },
-            { status: typeof access?.status === "number" ? access.status : 403 }
-          );
+            return NextResponse.json(
+              { ok: false, error: access?.error ?? "Access denied" },
+              { status: typeof access?.status === "number" ? access.status : 403 }
+            );
+          }
+
+          actorUserId = access.identity.userId;
+          obsCtx.userId = actorUserId;
+          authMode = "ops";
         }
-
-        actorUserId = access.identity.userId;
-        obsCtx.userId = actorUserId;
-        authMode = "ops";
       }
 
       const body: any = await req.json().catch(() => ({}));

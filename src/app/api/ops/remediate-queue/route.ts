@@ -1,5 +1,6 @@
 // /var/www/vps-sentry-web/src/app/api/ops/remediate-queue/route.ts
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -96,6 +97,7 @@ function stubGet() {
   return NextResponse.json({
     ok: true,
     buildPhase: true,
+    authMode: "token",
     snapshot: {
       items: [],
       counts: { queued: 0, processing: 0, done: 0, failed: 0, dlq: 0 },
@@ -134,6 +136,59 @@ function parseBool(v: string | null, fallback = false): boolean {
   if (["1", "true", "yes", "on"].includes(t)) return true;
   if (["0", "false", "no", "off"].includes(t)) return false;
   return fallback;
+}
+
+function hasValidQueueToken(req: Request): boolean {
+  const expected = process.env.VPS_REMEDIATE_QUEUE_TOKEN?.trim();
+  if (!expected) return false;
+
+  const provided = req.headers.get("x-remediate-queue-token")?.trim();
+  if (!provided) return false;
+
+  const a = Buffer.from(expected);
+  const b = Buffer.from(provided);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function isLoopbackProbeAllowed(): boolean {
+  const raw = String(process.env.VPS_REMEDIATE_QUEUE_ALLOW_LOOPBACK_PROBE ?? "1")
+    .trim()
+    .toLowerCase();
+  return !(raw === "0" || raw === "false" || raw === "no" || raw === "off");
+}
+
+function normalizeHost(value: string | null): string {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw.startsWith("[::1]")) return "::1";
+  return raw.split(":")[0] ?? "";
+}
+
+function isLoopbackValue(value: string | null): boolean {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return false;
+  const first = raw.split(",")[0]?.trim() ?? "";
+  return first === "127.0.0.1" || first === "::1" || first === "localhost";
+}
+
+function isTrustedLoopbackProbe(req: Request): boolean {
+  if (!isLoopbackProbeAllowed()) return false;
+
+  const host =
+    normalizeHost(req.headers.get("host")) ||
+    normalizeHost(req.headers.get("x-forwarded-host"));
+  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") return false;
+
+  const forwardedFor = req.headers.get("x-forwarded-for");
+  const realIp = req.headers.get("x-real-ip");
+  const cfIp = req.headers.get("cf-connecting-ip");
+
+  if (forwardedFor && !isLoopbackValue(forwardedFor)) return false;
+  if (realIp && !isLoopbackValue(realIp)) return false;
+  if (cfIp && !isLoopbackValue(cfIp)) return false;
+
+  return true;
 }
 
 type ApprovalMode = "approve" | "reject";
@@ -224,32 +279,43 @@ export async function GET(req: Request) {
     safeReq,
     { route: "/api/ops/remediate-queue", source: "ops-remediate-queue" },
     async (obsCtx: any) => {
-      const access = await deps.requireOpsAccess();
-      if (!access?.ok) {
-        deps.incrementCounter("ops.remediate_queue.denied.total", 1, {
-          status: String(access?.status ?? 403),
-        });
+      let actorUserId: string | null = null;
+      let authMode: "token" | "ops" | "loopback" = "token";
 
-        await deps.writeAuditLog({
-          req: safeReq,
-          action: "ops.remediate_queue_view.denied",
-          detail: `status=${access?.status ?? 403} email=${access?.email ?? "unknown"}`,
-          meta: {
-            route: "/api/ops/remediate-queue",
-            status: access?.status ?? 403,
-            requiredRole: "ops",
-            email: access?.email ?? null,
-            role: access?.role ?? null,
-          },
-        });
+      if (!hasValidQueueToken(req)) {
+        if (isTrustedLoopbackProbe(req)) {
+          authMode = "loopback";
+        } else {
+          const access = await deps.requireOpsAccess();
+          if (!access?.ok) {
+            deps.incrementCounter("ops.remediate_queue.denied.total", 1, {
+              status: String(access?.status ?? 403),
+            });
 
-        return NextResponse.json(
-          { ok: false, error: access?.error ?? "Access denied" },
-          { status: typeof access?.status === "number" ? access.status : 403 }
-        );
+            await deps.writeAuditLog({
+              req: safeReq,
+              action: "ops.remediate_queue_view.denied",
+              detail: `status=${access?.status ?? 403} email=${access?.email ?? "unknown"}`,
+              meta: {
+                route: "/api/ops/remediate-queue",
+                status: access?.status ?? 403,
+                requiredRole: "ops",
+                email: access?.email ?? null,
+                role: access?.role ?? null,
+              },
+            });
+
+            return NextResponse.json(
+              { ok: false, error: access?.error ?? "Access denied" },
+              { status: typeof access?.status === "number" ? access.status : 403 }
+            );
+          }
+
+          actorUserId = access.identity.userId;
+          obsCtx.userId = actorUserId;
+          authMode = "ops";
+        }
       }
-
-      obsCtx.userId = access.identity.userId;
 
       const url = new URL(String((safeReq as any).url ?? "/"), FALLBACK_BASE);
       const limit = parseLimit(url.searchParams.get("limit"), 25);
@@ -258,23 +324,25 @@ export async function GET(req: Request) {
       const snapshot = await deps.getRemediationQueueSnapshot({ limit, dlqOnly });
 
       deps.incrementCounter("ops.remediate_queue.view.total", 1, {
+        authMode,
         dlqOnly: dlqOnly ? "true" : "false",
       });
 
       await deps.writeAuditLog({
         req: safeReq,
-        userId: access.identity.userId,
+        userId: actorUserId,
         action: "ops.remediate_queue_view",
         detail: `Queue snapshot viewed (items=${snapshot?.items?.length ?? 0}, dlqOnly=${dlqOnly})`,
         meta: {
           route: "/api/ops/remediate-queue",
+          authMode,
           limit,
           dlqOnly,
           counts: snapshot?.counts ?? null,
         },
       });
 
-      return NextResponse.json({ ok: true, snapshot });
+      return NextResponse.json({ ok: true, authMode, snapshot });
     }
   );
 }
