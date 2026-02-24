@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: vps-check vps-doctor vps-ssh-stability-check vps-hygiene-check vps-prune-archives vps-monitor vps-monitor-alert vps-slo-check vps-slo-alert vps-backup vps-backup-dry-run vps-restore-drill vps-rpo-rto-report vps-rpo-rto-report-alert vps-backup-automation-status vps-backup-automation-install vps-backup-automation-remove vps-restore-drill-automation-status vps-restore-drill-automation-install vps-restore-drill-automation-remove security-headers-check perf-load-smoke supply-chain-check supply-chain-check-strict chaos-certify chaos-certify-fast sentinel-scorecard sentinel-scorecard-fast sentinel-scorecard-strict deploy restart logs rollback release-gate smoke release db-generate-sqlite db-generate-postgres db-pg-init db-pg-copy db-pg-verify db-pg-shadow db-pg-acceptance db-pg-migrate db-pg-cutover db-pg-rollback ops-worker ops-worker-once host-key-verify
+.PHONY: vps-check vps-doctor vps-ssh-stability-check vps-hygiene-check vps-prune-archives vps-monitor vps-monitor-alert vps-slo-check vps-slo-alert vps-queue-alert vps-backup vps-backup-dry-run vps-restore-drill vps-rpo-rto-report vps-rpo-rto-report-alert vps-backup-automation-status vps-backup-automation-install vps-backup-automation-remove vps-restore-drill-automation-status vps-restore-drill-automation-install vps-restore-drill-automation-remove vps-ops-safety-automation-status vps-ops-safety-automation-install vps-ops-safety-automation-remove vps-ops-worker-status vps-ops-worker-install vps-ops-worker-remove vps-ops-worker-restart vps-ops-worker-logs security-headers-check perf-load-smoke supply-chain-check supply-chain-check-strict chaos-certify chaos-certify-fast sentinel-scorecard sentinel-scorecard-fast sentinel-scorecard-strict deploy restart logs rollback release-gate smoke release db-generate-sqlite db-generate-postgres db-pg-init db-pg-copy db-pg-verify db-pg-shadow db-pg-acceptance db-pg-migrate db-pg-cutover db-pg-rollback ops-worker ops-worker-once host-key-verify
 
 vps-check:
 	./scripts/vps.sh check
@@ -28,6 +28,9 @@ vps-slo-check:
 
 vps-slo-alert:
 	./scripts/vps-slo-burn-rate.sh --alert
+
+vps-queue-alert:
+	./scripts/vps-queue-alert.sh --alert
 
 vps-backup:
 	./scripts/vps-backup.sh
@@ -61,6 +64,30 @@ vps-restore-drill-automation-install:
 
 vps-restore-drill-automation-remove:
 	./scripts/vps-restore-drill-automation.sh remove
+
+vps-ops-safety-automation-status:
+	./scripts/vps-ops-safety-automation.sh status
+
+vps-ops-safety-automation-install:
+	./scripts/vps-ops-safety-automation.sh install
+
+vps-ops-safety-automation-remove:
+	./scripts/vps-ops-safety-automation.sh remove
+
+vps-ops-worker-status:
+	./scripts/vps-ops-worker-service.sh status
+
+vps-ops-worker-install:
+	./scripts/vps-ops-worker-service.sh install
+
+vps-ops-worker-remove:
+	./scripts/vps-ops-worker-service.sh remove
+
+vps-ops-worker-restart:
+	./scripts/vps-ops-worker-service.sh restart
+
+vps-ops-worker-logs:
+	./scripts/vps-ops-worker-service.sh logs
 
 security-headers-check:
 	./scripts/security-headers-check.sh

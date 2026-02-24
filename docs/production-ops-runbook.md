@@ -212,3 +212,50 @@ The scheduled job runs:
 - weekly: restore drill automation
 - daily: objective report check (`make vps-rpo-rto-report`)
 - before release: `make release-gate` + `make vps-monitor`
+
+## 10) Durable Queue Worker (Recommended)
+
+Install persistent remediation worker on VPS:
+
+```bash
+make vps-ops-worker-install
+```
+
+Operational commands:
+
+```bash
+make vps-ops-worker-status
+make vps-ops-worker-restart
+make vps-ops-worker-logs
+```
+
+Remove:
+
+```bash
+make vps-ops-worker-remove
+```
+
+## 11) Queue + SLO Alert Automation
+
+Install combined queue-pressure and SLO burn-rate cron:
+
+```bash
+make vps-ops-safety-automation-install
+```
+
+Check status:
+
+```bash
+make vps-ops-safety-automation-status
+```
+
+Remove:
+
+```bash
+make vps-ops-safety-automation-remove
+```
+
+The scheduled job runs both:
+
+1. `./scripts/vps-queue-alert.sh --alert --soft`
+2. `./scripts/vps-slo-burn-rate.sh --alert --soft`

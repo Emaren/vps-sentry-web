@@ -68,6 +68,20 @@ make ops-worker
 make ops-worker-once
 ```
 
+Persistent worker on VPS (recommended for production):
+
+```bash
+make vps-ops-worker-install
+make vps-ops-worker-status
+make vps-ops-worker-logs
+```
+
+Remove if needed:
+
+```bash
+make vps-ops-worker-remove
+```
+
 Worker env knobs:
 
 - `OPS_WORKER_BASE_URL` (default `http://127.0.0.1:3035`)
