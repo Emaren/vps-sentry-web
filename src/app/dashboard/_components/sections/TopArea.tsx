@@ -81,6 +81,8 @@ export default function TopArea(props: {
               }
               expectedPublicPorts={expectedPublicPorts}
               alertsPreview={alertPreviews}
+              queueQueuedCount={queueQueuedCount}
+              queueDlqCount={queueDlqCount}
               stale={d.stale}
               host={s.host}
               version={s.version}
@@ -123,7 +125,7 @@ export default function TopArea(props: {
                   <Link href="/dashboard#remediations" className="dashboard-queue-followup-link">
                     Open queue console
                   </Link>
-                  <Link href="#remediations" className="dashboard-queue-followup-link">
+                  <Link href="/dashboard#remediations" className="dashboard-queue-followup-link">
                     Jump to remediations
                   </Link>
                 </div>

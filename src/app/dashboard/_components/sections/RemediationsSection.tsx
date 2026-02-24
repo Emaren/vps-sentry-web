@@ -3,6 +3,7 @@ import { fmt } from "@/lib/status";
 import Box from "../Box";
 import NoobTip from "../NoobTip";
 import PanelStateBanner from "../PanelStateBanner";
+import RemediationQueueControls from "./RemediationQueueControls";
 import type { DashboardOpsSnapshot } from "../../_lib/types";
 
 export default function RemediationsSection(props: {
@@ -53,6 +54,12 @@ export default function RemediationsSection(props: {
             </span>
             <span className="dashboard-chip">runs {remediation?.counts.total ?? 0}</span>
           </div>
+
+          <RemediationQueueControls
+            queuedCount={queuedCount}
+            dlqCount={dlqCount}
+            approvalPendingCount={approvalPendingCount}
+          />
 
           {rows.length === 0 ? (
             <Box>No remediation runs recorded yet.</Box>

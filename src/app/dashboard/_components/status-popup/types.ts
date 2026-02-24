@@ -49,6 +49,8 @@ export type StatusActionPopupProps = {
   publicPortsTotalCount?: number;
   expectedPublicPorts?: string[] | null;
   alertsPreview?: StatusAlertPreview[];
+  queueQueuedCount?: number;
+  queueDlqCount?: number;
 
   stale: boolean;
 };

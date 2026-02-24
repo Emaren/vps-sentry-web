@@ -191,6 +191,11 @@ async function triggerImmediateScan(): Promise<ScanKickoffResult> {
   const attempts: Array<{ command: string; args: string[]; method: string }> = [
     {
       command: "sudo",
+      args: ["-n", "/usr/bin/systemctl", "start", SENTRY_SERVICE],
+      method: "sudo -n /usr/bin/systemctl start vps-sentry.service",
+    },
+    {
+      command: "sudo",
       args: ["-n", "/bin/systemctl", "start", SENTRY_SERVICE],
       method: "sudo -n /bin/systemctl start vps-sentry.service",
     },
@@ -198,6 +203,11 @@ async function triggerImmediateScan(): Promise<ScanKickoffResult> {
       command: "sudo",
       args: ["-n", "systemctl", "start", SENTRY_SERVICE],
       method: "sudo -n systemctl start vps-sentry.service",
+    },
+    {
+      command: "/usr/bin/systemctl",
+      args: ["start", SENTRY_SERVICE],
+      method: "/usr/bin/systemctl start vps-sentry.service",
     },
     {
       command: "/bin/systemctl",

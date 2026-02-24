@@ -308,6 +308,33 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function classifyDeferredExecuteError(status: number, rawError: string): string | null {
+  const text = rawError.trim().toLowerCase();
+  if (!text) return null;
+
+  if (status === 429) {
+    if (text.includes("execute rate limit reached")) {
+      return "execute rate limit reached";
+    }
+    if (text.includes("execute cooldown active")) {
+      return "execute cooldown active";
+    }
+    if (text.includes("queue backlog limit reached")) {
+      return "queue backlog limit reached";
+    }
+    if (text.includes("global queue backlog limit reached")) {
+      return "global queue backlog limit reached";
+    }
+  }
+
+  if (text.includes("execute rate limit reached")) return "execute rate limit reached";
+  if (text.includes("execute cooldown active")) return "execute cooldown active";
+  if (text.includes("queue backlog limit reached")) return "queue backlog limit reached";
+  if (text.includes("global queue backlog limit reached")) return "global queue backlog limit reached";
+
+  return null;
+}
+
 function parseTsMillis(ts: string | null): number | null {
   if (!ts) return null;
   const n = Date.parse(ts);
@@ -402,6 +429,8 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     publicPortsTotalCount,
     expectedPublicPorts,
     alertsPreview,
+    queueQueuedCount = 0,
+    queueDlqCount = 0,
     stale,
   } = props;
   const router = useRouter();
@@ -423,6 +452,9 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       ? publicPortsTotalCount
       : null;
   }, [publicPortsTotalCount, publicPortsCount]);
+  const queueQueued = Math.max(0, Math.trunc(queueQueuedCount));
+  const queueDlq = Math.max(0, Math.trunc(queueDlqCount));
+  const hasQueueFollowUp = queueQueued > 0 || queueDlq > 0;
 
   // --------- Action list (instant, no typing) ----------
   const actionsNeeded = React.useMemo(() => {
@@ -432,8 +464,11 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       stale,
       allowlistedTotal,
       expectedPublicPorts,
+      alertsPreview,
+      queueQueuedCount: queueQueued,
+      queueDlqCount: queueDlq,
     });
-  }, [alertsCount, publicPortsCount, stale, allowlistedTotal, expectedPublicPorts]);
+  }, [alertsCount, publicPortsCount, stale, allowlistedTotal, expectedPublicPorts, alertsPreview, queueQueued, queueDlq]);
 
   // --------- AI Explain (typed) ----------
   const explainText = React.useMemo(() => {
@@ -453,7 +488,15 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
 
   // --------- Fix Now (step list + progress) ----------
   const [steps, setSteps] = React.useState(() =>
-    buildFixSteps({ alertsCount, publicPortsCount, stale, allowlistedTotal })
+    buildFixSteps({
+      alertsCount,
+      publicPortsCount,
+      stale,
+      allowlistedTotal,
+      alertsPreview,
+      queueQueuedCount: queueQueued,
+      queueDlqCount: queueDlq,
+    })
   );
   const [fixResult, setFixResult] = React.useState<null | { ok: boolean; message: string }>(null);
   const [fixRunning, setFixRunning] = React.useState(false);
@@ -461,11 +504,21 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
 
   React.useEffect(() => {
     if (panel !== "fix") return;
-    setSteps(buildFixSteps({ alertsCount, publicPortsCount, stale, allowlistedTotal }));
+    setSteps(
+      buildFixSteps({
+        alertsCount,
+        publicPortsCount,
+        stale,
+        allowlistedTotal,
+        alertsPreview,
+        queueQueuedCount: queueQueued,
+        queueDlqCount: queueDlq,
+      })
+    );
     setFixResult(null);
     setFixRunning(false);
     reportTriggeredRef.current = false;
-  }, [panel, alertsCount, publicPortsCount, stale, allowlistedTotal]);
+  }, [panel, alertsCount, publicPortsCount, stale, allowlistedTotal, alertsPreview, queueQueued, queueDlq]);
 
   async function runReportNowStep(): Promise<StepOutcome> {
     const run = await postJson("/api/ops/report-now");
@@ -521,6 +574,57 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         ok: true,
         detail:
           "Unexpected public ports require manual confirmation before closure. Auto-fix intentionally avoids auto-closing network ports.",
+      };
+    }
+
+    if (stepId === "contain-runtime-ioc") {
+      const run = await postJson("/api/ops/contain-runtime-ioc");
+      if (!run.ok) {
+        return {
+          ok: false,
+          detail: run.error,
+        };
+      }
+
+      const considered = Math.max(0, asInt(run.payload.considered));
+      const containable = Math.max(0, asInt(run.payload.containable));
+      const contained = Math.max(0, asInt(run.payload.contained));
+      const failed = Math.max(0, asInt(run.payload.failed));
+      const skipped = Math.max(0, asInt(run.payload.skipped));
+
+      if (considered === 0) {
+        return {
+          ok: true,
+          detail: "No containable runtime IOC process candidates were present in the latest snapshot.",
+        };
+      }
+
+      const parts: string[] = [];
+      parts.push(
+        `Runtime IOC containment processed ${considered} candidate(s): contained=${contained}, failed=${failed}, skipped=${skipped}.`
+      );
+      if (containable > 0) {
+        parts.push(`Containable by policy: ${containable}.`);
+      }
+      const host = asString(run.payload.host);
+      if (host) {
+        parts.push(`Host: ${host}.`);
+      }
+      const snapshotTs = asString(run.payload.snapshotTs);
+      if (snapshotTs) {
+        parts.push(`Snapshot: ${snapshotTs}.`);
+      }
+
+      if (failed > 0) {
+        return {
+          ok: false,
+          detail: parts.join(" "),
+        };
+      }
+
+      return {
+        ok: true,
+        detail: parts.join(" "),
       };
     }
 
@@ -594,6 +698,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       const touchedActionIds: string[] = [];
       const touchedRunIds: string[] = [];
       const failures: string[] = [];
+      const deferredByPolicy: string[] = [];
 
       for (const action of candidateActions) {
         const dryRun = await postJson("/api/remediate", {
@@ -614,6 +719,11 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
           confirmPhrase: action.confirmPhrase,
         });
         if (!executeRun.ok) {
+          const deferredReason = classifyDeferredExecuteError(executeRun.status, executeRun.error);
+          if (deferredReason) {
+            deferredByPolicy.push(`${action.id}: ${deferredReason}`);
+            continue;
+          }
           failures.push(`${action.id}: execute failed (${executeRun.error})`);
           continue;
         }
@@ -631,6 +741,15 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       }
 
       if (queuedCount <= 0) {
+        if (failures.length === 0 && deferredByPolicy.length > 0) {
+          return {
+            ok: true,
+            detail: `No new execute runs were started this cycle because remediation policy throttled execution (${deferredByPolicy
+              .slice(0, 3)
+              .join(" | ")}). This is expected operational follow-up; retry after cooldown or queue drain.`,
+          };
+        }
+
         const reason = failures.length
           ? failures.slice(0, 3).join(" | ")
           : "No safe actions were queued.";
@@ -677,7 +796,6 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         trackedSummary = await readTrackedRunsSummary(touchedRunIds);
       }
 
-      const succeededCount = trackedSummary ? countTrackedState(trackedSummary, "succeeded") : 0;
       const failedCount = trackedSummary
         ? countTrackedState(trackedSummary, "failed") + countTrackedState(trackedSummary, "canceled")
         : 0;
@@ -692,6 +810,9 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       bits.push(`Processed ${processedTotal}/${requestedSeen} queued remediation run(s).`);
       if (queueErrorsTotal > 0) bits.push(`${queueErrorsTotal} run(s) reported errors; review remediation queue.`);
       if (failures.length > 0) bits.push(`Action failures: ${failures.slice(0, 2).join(" | ")}`);
+      if (deferredByPolicy.length > 0) {
+        bits.push(`Policy-deferred executes: ${deferredByPolicy.slice(0, 3).join(" | ")}.`);
+      }
       if (trackedSummary) bits.push(`Run states: ${formatTrackedSummary(trackedSummary)}.`);
       if (failedCount > 0) bits.push(`${failedCount} remediation run(s) failed or were canceled.`);
       if (pendingCount > 0) bits.push(`${pendingCount} remediation run(s) are still queued/running.`);
@@ -702,15 +823,56 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         bits.push("Unable to read remediation queue state for tracked runs.");
       }
 
-      const ok =
-        queueErrorsTotal === 0 &&
-        failures.length === 0 &&
-        failedCount === 0 &&
-        pendingCount === 0 &&
-        blockedCount === 0 &&
-        missingCount === 0 &&
-        succeededCount >= touchedRunIds.length;
+      const hardFailure =
+        queueErrorsTotal > 0 ||
+        failures.length > 0 ||
+        failedCount > 0 ||
+        missingCount > 0 ||
+        !trackedSummary;
+      const ok = !hardFailure;
       return { ok, detail: bits.join(" ") };
+    }
+
+    if (stepId === "queue-followup") {
+      const run = await postJson("/api/ops/remediate-hygiene", {
+        drainLimit: 50,
+        replayLimit: 20,
+      });
+      if (!run.ok) {
+        return {
+          ok: false,
+          detail: run.error,
+        };
+      }
+
+      const hadDebt = asBoolean(run.payload.hadDebt) === true;
+      const improved = asBoolean(run.payload.improved) === true;
+      const cleared = asBoolean(run.payload.cleared) === true;
+      const detail =
+        asString(run.payload.detail) ??
+        "Queue hygiene run completed.";
+
+      if (!hadDebt) {
+        return {
+          ok: true,
+          detail: "No queued remediation backlog or DLQ debt was detected.",
+        };
+      }
+
+      if (cleared || improved) {
+        return {
+          ok: true,
+          detail,
+        };
+      }
+
+      const after = asRecord(run.payload.after);
+      const afterQueued = asInt(after?.queued);
+      const afterDlq = asInt(after?.dlq);
+      return {
+        ok: false,
+        detail: `${detail} Queue still has queued=${afterQueued}, dlq=${afterDlq}; manual follow-up required.`,
+      };
     }
 
     if (stepId === "report") {
@@ -737,7 +899,15 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     setSteps((prev) => prev.map((s) => ({ ...s, status: "idle", detail: undefined })));
 
     // Snapshot steps length must be read fresh (React state updates async)
-    const localSteps = buildFixSteps({ alertsCount, publicPortsCount, stale, allowlistedTotal });
+    const localSteps = buildFixSteps({
+      alertsCount,
+      publicPortsCount,
+      stale,
+      allowlistedTotal,
+      alertsPreview,
+      queueQueuedCount: queueQueued,
+      queueDlqCount: queueDlq,
+    });
     setSteps(localSteps);
 
     let failed = 0;
@@ -816,6 +986,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
   }
 
   const showExpanded = panel !== null;
+  const showActionControls = needsAction || hasQueueFollowUp;
 
   return (
     <div style={{ position: "relative" }}>
@@ -857,12 +1028,16 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
             {headline}
           </span>
 
-          {needsAction ? <span style={{ opacity: 0.65, fontSize: 12, marginLeft: 8 }}>(tap)</span> : null}
+          {needsAction ? (
+            <span style={{ opacity: 0.65, fontSize: 12, marginLeft: 8 }}>(tap)</span>
+          ) : hasQueueFollowUp ? (
+            <span style={{ opacity: 0.65, fontSize: 12, marginLeft: 8 }}>(queue follow-up)</span>
+          ) : null}
         </div>
       </div>
 
       {/* BUTTON ROW: AI Explain / Fix Now (only when action needed) */}
-      {needsAction ? (
+      {showActionControls ? (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
           <button
             type="button"
@@ -941,7 +1116,17 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
               onRun={runFixNow}
               onReset={() => {
                 if (fixRunning) return;
-                setSteps(buildFixSteps({ alertsCount, publicPortsCount, stale, allowlistedTotal }));
+                setSteps(
+                  buildFixSteps({
+                    alertsCount,
+                    publicPortsCount,
+                    stale,
+                    allowlistedTotal,
+                    alertsPreview,
+                    queueQueuedCount: queueQueued,
+                    queueDlqCount: queueDlq,
+                  })
+                );
                 setFixResult(null);
                 reportTriggeredRef.current = false;
               }}

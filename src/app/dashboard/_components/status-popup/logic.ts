@@ -17,6 +17,25 @@ type ExplainAlertPreview = {
   severity?: "info" | "warn" | "critical";
 };
 
+function normalizeAlertSignal(alert: Pick<ExplainAlertPreview, "title" | "detail" | "code">): string {
+  return `${alert.code ?? ""} ${alert.title ?? ""} ${alert.detail ?? ""}`.toLowerCase();
+}
+
+function hasRuntimeContainmentSignal(alertsPreview?: ExplainAlertPreview[]): boolean {
+  if (!alertsPreview || alertsPreview.length === 0) return false;
+  return alertsPreview.some((alert) => {
+    const signal = normalizeAlertSignal(alert);
+    return (
+      signal.includes("suspicious_process_ioc") ||
+      signal.includes("suspicious process ioc") ||
+      signal.includes("outbound_scan_ioc") ||
+      signal.includes("outbound scan ioc") ||
+      signal.includes("cpu_hotspot") ||
+      signal.includes("cpu hotspot")
+    );
+  });
+}
+
 function compactAlertDetail(detail?: string): string {
   if (!detail) return "";
   const collapsed = detail.replace(/\s+/g, " ").trim();
@@ -26,7 +45,7 @@ function compactAlertDetail(detail?: string): string {
 }
 
 function explainAlertMeaning(alert: ExplainAlertPreview): string {
-  const signal = `${alert.code ?? ""} ${alert.title}`.toLowerCase();
+  const signal = normalizeAlertSignal(alert);
   if (signal.includes("watched_files_changed") || signal.includes("watched files changed")) {
     return "Protected system files changed since your accepted baseline. This can be expected maintenance, but verify it was intentional.";
   }
@@ -41,6 +60,15 @@ function explainAlertMeaning(alert: ExplainAlertPreview): string {
   }
   if (signal.includes("ports_changed") || signal.includes("public ports changed")) {
     return "Listening ports changed from baseline. Check whether newly exposed services are expected.";
+  }
+  if (signal.includes("cpu_hotspot") || signal.includes("cpu hotspot")) {
+    return "A single process is saturating CPU. Availability can stay up, but response times and stability can degrade until the hotspot is addressed.";
+  }
+  if (signal.includes("suspicious_process_ioc") || signal.includes("suspicious process ioc")) {
+    return "A process matched runtime IOC heuristics (command/path/network behavior). Treat this as potentially hostile until confirmed safe.";
+  }
+  if (signal.includes("outbound_scan_ioc") || signal.includes("outbound scan ioc")) {
+    return "A process showed outbound fanout behavior that can indicate scanning or abuse. Validate process ownership and intended behavior.";
   }
   if (signal.includes("ssh_failed_password")) {
     return "SSH password failures were detected. This is often scanner noise, but repeated spikes can indicate brute-force attempts.";
@@ -57,8 +85,14 @@ export function buildActionsNeeded(input: {
   stale: boolean;
   allowlistedTotal: number | null;
   expectedPublicPorts?: string[] | null;
+  alertsPreview?: ExplainAlertPreview[];
+  queueQueuedCount?: number;
+  queueDlqCount?: number;
 }): string[] {
   const out: string[] = [];
+  const queueQueued = Math.max(0, Math.trunc(input.queueQueuedCount ?? 0));
+  const queueDlq = Math.max(0, Math.trunc(input.queueDlqCount ?? 0));
+  const runtimeContainmentNeeded = hasRuntimeContainmentSignal(input.alertsPreview);
 
   if (input.alertsCount > 0) {
     out.push(`Review ${input.alertsCount} alert${input.alertsCount === 1 ? "" : "s"} below.`);
@@ -78,6 +112,18 @@ export function buildActionsNeeded(input: {
 
   if (input.stale) {
     out.push("Status is stale (last scan is 15m+ old). Check the agent/timer/service and logs.");
+  }
+
+  if (queueQueued > 0 || queueDlq > 0) {
+    out.push(
+      `Queue follow-up: ${queueQueued} queued, ${queueDlq} in DLQ. Clear remediation backlog so auto-healing stays reliable.`
+    );
+  }
+
+  if (runtimeContainmentNeeded) {
+    out.push(
+      "Runtime IOC follow-up: contain suspicious process candidates before normal remediation so hostile/runtime-degraded workloads cannot keep burning CPU."
+    );
   }
 
   if (out.length === 0) out.push("No immediate action detected.");
@@ -208,8 +254,14 @@ export function buildFixSteps(input: {
   publicPortsCount: number; // actionable (unexpected)
   stale: boolean;
   allowlistedTotal: number | null;
+  alertsPreview?: ExplainAlertPreview[];
+  queueQueuedCount?: number;
+  queueDlqCount?: number;
 }): FixStep[] {
   const steps: FixStep[] = [];
+  const queueQueued = Math.max(0, Math.trunc(input.queueQueuedCount ?? 0));
+  const queueDlq = Math.max(0, Math.trunc(input.queueDlqCount ?? 0));
+  const runtimeContainmentNeeded = hasRuntimeContainmentSignal(input.alertsPreview);
 
   if (input.stale) {
     steps.push({
@@ -233,10 +285,26 @@ export function buildFixSteps(input: {
     });
   }
 
+  if (runtimeContainmentNeeded) {
+    steps.push({
+      id: "contain-runtime-ioc",
+      label: "Contain suspicious runtime IOC process(es) and quarantine executable path",
+      status: "idle",
+    });
+  }
+
   if (input.alertsCount > 0) {
     steps.push({
       id: "alerts",
       label: "Run queued safe remediations for active alerts",
+      status: "idle",
+    });
+  }
+
+  if (queueQueued > 0 || queueDlq > 0) {
+    steps.push({
+      id: "queue-followup",
+      label: `Stabilize remediation queue debt (queued ${queueQueued} · dlq ${queueDlq})`,
       status: "idle",
     });
   }

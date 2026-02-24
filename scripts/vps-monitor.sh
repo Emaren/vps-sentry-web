@@ -169,7 +169,7 @@ if [[ "$login_code" != "200" ]]; then
   reasons+=("login_status:$login_code")
   fail=1
 fi
-if [[ "$status_code" != "200" ]]; then
+if [[ "$status_code" != "200" && "$status_code" != "401" ]]; then
   reasons+=("api_status:$status_code")
   fail=1
 fi

@@ -237,7 +237,7 @@ export default function ViewScreen(props: {
                 <Link href="/dashboard#remediations" className="view-screen-action-link">
                   Open queue console
                 </Link>
-                <Link href="#remediations" className="view-screen-action-link">
+                <Link href="/dashboard#remediations" className="view-screen-action-link">
                   Jump to remediations
                 </Link>
               </div>

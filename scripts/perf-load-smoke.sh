@@ -18,7 +18,7 @@ VPS_SSH_SERVER_ALIVE_COUNT_MAX="${VPS_SSH_SERVER_ALIVE_COUNT_MAX:-3}"
 VPS_SSH_RETRIES="${VPS_SSH_RETRIES:-4}"
 VPS_SSH_RETRY_DELAY_SECONDS="${VPS_SSH_RETRY_DELAY_SECONDS:-5}"
 
-url="http://127.0.0.1:${VPS_WEB_PORT}/api/status"
+url="http://127.0.0.1:${VPS_WEB_PORT}/api/readyz"
 requests="200"
 concurrency="20"
 expected_code="200"
@@ -31,7 +31,7 @@ Usage: ./scripts/perf-load-smoke.sh [--url URL] [--requests N] [--concurrency N]
 Quick load/perf smoke for API endpoints.
 
 Defaults:
-  --url http://127.0.0.1:$VPS_WEB_PORT/api/status
+  --url http://127.0.0.1:$VPS_WEB_PORT/api/readyz
   --requests 200
   --concurrency 20
   --expect 200

@@ -697,6 +697,26 @@ html[data-site-theme="sepia"] .dashboard-shell {
   );
 }
 
+.pm-cpu-hotspot {
+  border: 1px solid color-mix(in srgb, var(--dash-sev-warning-border, #f59e0b) 62%, transparent 38%);
+  background: color-mix(in srgb, var(--dash-sev-warning-bg, #f59e0b22) 42%, transparent 58%);
+  border-radius: 12px;
+  padding: 9px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.pm-cpu-hotspot-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--dash-fg);
+}
+
+.pm-cpu-hotspot-sub {
+  font-size: 12px;
+  color: var(--dash-meta);
+}
+
 .power-vitals-list-head {
   color: var(--dash-meta);
   font-size: 12px;
@@ -1187,6 +1207,10 @@ html[data-site-theme="sepia"] .dashboard-shell {
   min-width: 0;
 }
 
+.pm-project-title-stack > * {
+  display: block;
+}
+
 .pm-project-name {
   font-size: 1.02rem;
   font-weight: 900;
@@ -1381,9 +1405,10 @@ html[data-site-theme="sepia"] .dashboard-shell {
 }
 
 .pm-project-service-line {
-  color: var(--dash-fg);
-  font-size: 14px;
+  color: var(--dash-meta);
+  font-size: 12px;
   font-weight: 400;
+  letter-spacing: 0.01em;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }

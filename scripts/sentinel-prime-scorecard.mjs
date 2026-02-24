@@ -120,7 +120,7 @@ if (!skipPerf && !fast) {
     label: "Load smoke",
     weight: 10,
     required: false,
-    cmd: "./scripts/perf-load-smoke.sh --remote --requests 120 --concurrency 20 --expect 200",
+    cmd: "./scripts/perf-load-smoke.sh --remote --url http://127.0.0.1:$VPS_WEB_PORT/api/readyz --requests 120 --concurrency 20 --expect 200",
     retryOnSshRefusal: true,
   });
 }

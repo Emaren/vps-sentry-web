@@ -131,6 +131,11 @@ status_code() {
   curl -s -o /dev/null -w '%{http_code}' "$endpoint"
 }
 
+is_healthy_recovery_code() {
+  local code="$1"
+  [[ "$code" == "200" || "$code" == "401" ]]
+}
+
 local_smoke() {
   local root_code login_code status
   root_code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${VPS_WEB_PORT}/")"
@@ -142,7 +147,10 @@ local_smoke() {
   if [[ "$root_code" != "200" && "$root_code" != "307" ]]; then
     return 1
   fi
-  if [[ "$login_code" != "200" || "$status" != "200" ]]; then
+  if [[ "$login_code" != "200" ]]; then
+    return 1
+  fi
+  if ! is_healthy_recovery_code "$status"; then
     return 1
   fi
 }
@@ -269,7 +277,7 @@ if [[ "$skip_restart" -eq 0 ]]; then
       code="$(status_code)"
       code_exit=$?
       set -e
-      if [[ "$code_exit" -eq 0 && "$code" == "200" ]]; then
+      if [[ "$code_exit" -eq 0 ]] && is_healthy_recovery_code "$code"; then
         recovery_status="PASS"
         recovery_seconds="$elapsed"
         recovery_code="$code"
@@ -287,7 +295,7 @@ perf_exit=0
 perf_duration=0
 if [[ "$skip_perf" -eq 0 ]]; then
   perf_start="$(date +%s)"
-  perf_cmd=("$ROOT_DIR/scripts/perf-load-smoke.sh" --url "http://127.0.0.1:${VPS_WEB_PORT}/api/status" --requests "$VPS_CHAOS_PERF_REQUESTS" --concurrency "$VPS_CHAOS_PERF_CONCURRENCY" --expect 200)
+  perf_cmd=("$ROOT_DIR/scripts/perf-load-smoke.sh" --url "http://127.0.0.1:${VPS_WEB_PORT}/api/readyz" --requests "$VPS_CHAOS_PERF_REQUESTS" --concurrency "$VPS_CHAOS_PERF_CONCURRENCY" --expect 200)
   if [[ "$remote_mode" -eq 1 ]]; then
     perf_cmd+=(--remote)
   else

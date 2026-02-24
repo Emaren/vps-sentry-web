@@ -235,6 +235,22 @@ function resolveBackendHref(project: Pick<ProjectDef, "subtitle" | "backendHref"
   return `https://${subtitle}`;
 }
 
+function backendLabelFromHref(href: string): string {
+  try {
+    const u = new URL(href);
+    const path = u.pathname && u.pathname !== "/" ? u.pathname : "";
+    return `${u.hostname}${path}`;
+  } catch {
+    return href.replace(/^https?:\/\//i, "");
+  }
+}
+
+function resolveBackendLabel(project: Pick<ProjectDef, "subtitle" | "backendHref">): string {
+  const resolved = resolveBackendHref(project);
+  if (resolved) return backendLabelFromHref(resolved);
+  return project.subtitle?.trim() ?? "";
+}
+
 /**
  * NOTE: These ports are your current “main project” ports on this VPS.
  * If you ever change service ports, update them here.
@@ -343,6 +359,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
 
   const projectCards = MAIN_PROJECTS.map((proj) => {
     const backendHrefResolved = resolveBackendHref(proj);
+    const backendLabel = resolveBackendLabel(proj);
     const services = proj.services.map((svc) => {
       const local = findPort(portsLocal, svc.port);
       const pub = findPort(portsPublic, svc.port);
@@ -387,6 +404,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
     return {
       ...proj,
       backendHrefResolved,
+      backendLabel,
       services,
       up: allRequiredUp,
       requiredUpCount,
@@ -401,6 +419,13 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       portsLabel,
     };
   });
+
+  const topCpuProcess = d.vitalsProcesses
+    .filter((row) => !row.isOther)
+    .slice()
+    .sort((a, b) => (b.cpuCapacityPercent ?? -1) - (a.cpuCapacityPercent ?? -1))[0];
+  const topCpuCapacity = typeof topCpuProcess?.cpuCapacityPercent === "number" ? topCpuProcess.cpuCapacityPercent : null;
+  const showCpuHotspot = (d.cpuUsedPercent ?? 0) >= 90 && typeof topCpuCapacity === "number" && topCpuCapacity >= 50;
 
   return (
     <section className="power-vitals-wrap">
@@ -441,6 +466,17 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
           </div>
         </div>
 
+        {showCpuHotspot ? (
+          <div className="pm-cpu-hotspot">
+            <div className="pm-cpu-hotspot-title">
+              CPU hotspot right now: {topCpuProcess?.name ?? "unknown"} ({fmtPercent(topCpuCapacity)} CPU cap)
+            </div>
+            <div className="pm-cpu-hotspot-sub">
+              This is usually transient during builds/deploys. If it persists, check the Processes tab and restart or tune the hottest service.
+            </div>
+          </div>
+        ) : null}
+
         {/* CSS-only toggles (no client JS) */}
         <input className="pm-toggle-input" type="radio" id="pm-mode-projects" name="pm-mode" defaultChecked />
         <input className="pm-toggle-input" type="radio" id="pm-mode-processes" name="pm-mode" />
@@ -469,7 +505,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
 
         {/* PROJECTS VIEW */}
         <div className="pm-view pm-view-projects" aria-label="Projects overview">
-          <div className="power-vitals-list-head">8 main projects (status + CPU share + RAM by bound port/PID)</div>
+          <div className="power-vitals-list-head">
+            {projectCards.length} main project{projectCards.length === 1 ? "" : "s"} (status + CPU share + RAM by bound port/PID)
+          </div>
 
           <div className="pm-projects-tiles" role="list" aria-label="Projects tiles">
             {projectCards.map((p) => (
@@ -483,13 +521,13 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                     ) : (
                       <div className="pm-project-name">{p.name}</div>
                     )}
-                    {p.subtitle ? (
+                    {p.backendLabel ? (
                       p.backendHrefResolved ? (
                         <a className="pm-project-sub pm-project-sub-link" href={p.backendHrefResolved} target="_blank" rel="noreferrer">
-                          {p.subtitle}
+                          {p.backendLabel}
                         </a>
                       ) : (
-                        <div className="pm-project-sub">{p.subtitle}</div>
+                        <div className="pm-project-sub">{p.backendLabel}</div>
                       )
                     ) : null}
                   </div>
@@ -563,13 +601,13 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                   ) : (
                     <div className="pm-project-list-title">{p.name}</div>
                   )}
-                  {p.subtitle ? (
+                  {p.backendLabel ? (
                     p.backendHrefResolved ? (
                       <a className="pm-project-list-backend pm-project-list-backend-link" href={p.backendHrefResolved} target="_blank" rel="noreferrer">
-                        {p.subtitle}
+                        {p.backendLabel}
                       </a>
                     ) : (
-                      <div className="pm-project-list-backend">{p.subtitle}</div>
+                      <div className="pm-project-list-backend">{p.backendLabel}</div>
                     )
                   ) : null}
                   <div className="pm-project-list-sub">
