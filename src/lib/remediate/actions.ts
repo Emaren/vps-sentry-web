@@ -57,8 +57,9 @@ function firewallAndAccessActions(signals: IncidentSignal[]): RemediationAction[
       why: "Critical config drift was detected in sensitive access-control paths.",
       sourceCodes: ["config_tamper", "firewall_drift"],
       commands: [
-        "sudo cp -a /etc/ssh/sshd_config /root/sshd_config.backup.$(date +%Y%m%d-%H%M%S)",
-        "sudo cp -a /etc/sudoers /root/sudoers.backup.$(date +%Y%m%d-%H%M%S)",
+        "sudo install -d -m 700 /var/lib/vps-sentry/remediation-backups",
+        "sudo cp -a /etc/ssh/sshd_config /var/lib/vps-sentry/remediation-backups/sshd_config.backup.$(date +%Y%m%d-%H%M%S)",
+        "sudo cp -a /etc/sudoers /var/lib/vps-sentry/remediation-backups/sudoers.backup.$(date +%Y%m%d-%H%M%S)",
         "sudo ls -la /etc/ssh/sshd_config.d /etc/sudoers.d /etc/systemd/system /etc/ufw",
         "sudo journalctl -u ssh -n 200 --no-pager | grep -Ei 'failed password|invalid user|accepted'",
         "sudo ufw status verbose",
@@ -73,8 +74,8 @@ function firewallAndAccessActions(signals: IncidentSignal[]): RemediationAction[
         "Use a second SSH session before reloading sshd so you cannot lock yourself out.",
       ],
       rollbackCommands: [
-        "sudo bash -lc 'latest=$(ls -1t /root/sshd_config.backup.* 2>/dev/null | head -n 1); [ -n \"$latest\" ] && sudo cp -a \"$latest\" /etc/ssh/sshd_config || true'",
-        "sudo bash -lc 'latest=$(ls -1t /root/sudoers.backup.* 2>/dev/null | head -n 1); [ -n \"$latest\" ] && sudo cp -a \"$latest\" /etc/sudoers || true'",
+        "sudo bash -lc 'latest=$(ls -1t /var/lib/vps-sentry/remediation-backups/sshd_config.backup.* 2>/dev/null | head -n 1); [ -n \"$latest\" ] && sudo cp -a \"$latest\" /etc/ssh/sshd_config || true'",
+        "sudo bash -lc 'latest=$(ls -1t /var/lib/vps-sentry/remediation-backups/sudoers.backup.* 2>/dev/null | head -n 1); [ -n \"$latest\" ] && sudo cp -a \"$latest\" /etc/sudoers || true'",
         "sudo systemctl reload ssh || sudo systemctl reload sshd",
       ],
     }),
@@ -207,7 +208,7 @@ export function buildRemediationActions(
         sourceCodes: topSignalCodes(signals),
         commands: [
           "sudo vps-sentry --format text",
-          "sudo cp -a /var/lib/vps-sentry /root/vps-sentry-forensics-$(date +%Y%m%d-%H%M%S)",
+          "sudo install -d -m 700 /var/lib/vps-sentry/remediation-backups && sudo cp -a /var/lib/vps-sentry /var/lib/vps-sentry/remediation-backups/vps-sentry-forensics-$(date +%Y%m%d-%H%M%S)",
           "sudo journalctl -u vps-sentry.service -n 200 --no-pager",
         ],
       }),
