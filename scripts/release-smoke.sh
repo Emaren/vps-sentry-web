@@ -66,9 +66,9 @@ require_positive_int "VPS_SSH_RETRY_DELAY_SECONDS" "$VPS_SSH_RETRY_DELAY_SECONDS
 
 codes="$(
   run_remote "curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/; \
-              curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/login; \
-              curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/api/readyz; \
-              curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$VPS_WEB_PORT/api/status"
+             curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/login; \
+             curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/api/readyz; \
+             curl -s -o /dev/null -w '%{http_code}'  http://127.0.0.1:$VPS_WEB_PORT/api/status"
 )" || {
   echo "[smoke] FAIL: unable to execute remote smoke checks over SSH"
   exit 1
@@ -96,7 +96,7 @@ if [[ "$readyz_code" != "200" ]]; then
   exit 1
 fi
 
-# /api/status may be auth-protected; accept 200 or 401
+# /api/status may be auth-protected (401) or open (200). Both are acceptable for smoke.
 if [[ "$status_code" != "200" && "$status_code" != "401" ]]; then
   echo "[smoke] FAIL: unexpected /api/status status $status_code"
   exit 1
