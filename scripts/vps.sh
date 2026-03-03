@@ -369,6 +369,8 @@ EOF
 install_and_build_block() {
   cat <<'EOF'
 if [ -f pnpm-lock.yaml ]; then
+  # Non-interactive SSH deploys can run without a TTY; force CI semantics for pnpm.
+  export CI="\${CI:-true}"
   if command -v pnpm >/dev/null 2>&1; then
     pnpm install --frozen-lockfile
   elif command -v corepack >/dev/null 2>&1; then
