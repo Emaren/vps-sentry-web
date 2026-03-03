@@ -15,6 +15,7 @@ VPS_SERVICE="${VPS_SERVICE:-}"
 VPS_WEB_PORT="${VPS_WEB_PORT:-3035}"
 VPS_BACKUP_BASE="${VPS_BACKUP_BASE:-/home/tony/_backup/vps-sentry-web}"
 VPS_MONITOR_DISK_WARN_PCT="${VPS_MONITOR_DISK_WARN_PCT:-85}"
+VPS_MONITOR_DISK_FAIL_PCT="${VPS_MONITOR_DISK_FAIL_PCT:-95}"
 VPS_MONITOR_BACKUP_MAX_AGE_HOURS="${VPS_MONITOR_BACKUP_MAX_AGE_HOURS:-26}"
 VPS_MONITOR_CHECK_BACKUP="${VPS_MONITOR_CHECK_BACKUP:-1}"
 
@@ -34,7 +35,7 @@ Usage: ./scripts/vps-monitor.sh [--alert] [--no-backup-check]
 Checks production health over SSH:
 - service state (if VPS_SERVICE configured)
 - local app endpoint status on VPS (:VPS_WEB_PORT)
-- root filesystem usage threshold
+- root filesystem usage thresholds (warn/fail)
 - backup freshness from VPS_BACKUP_BASE/last_success_epoch
 
 Flags:
@@ -114,6 +115,7 @@ done
 require_app_dir
 require_positive_int "VPS_WEB_PORT" "$VPS_WEB_PORT"
 require_positive_int "VPS_MONITOR_DISK_WARN_PCT" "$VPS_MONITOR_DISK_WARN_PCT"
+require_positive_int "VPS_MONITOR_DISK_FAIL_PCT" "$VPS_MONITOR_DISK_FAIL_PCT"
 require_positive_int "VPS_MONITOR_BACKUP_MAX_AGE_HOURS" "$VPS_MONITOR_BACKUP_MAX_AGE_HOURS"
 require_positive_int "VPS_SSH_CONNECT_TIMEOUT" "$VPS_SSH_CONNECT_TIMEOUT"
 require_positive_int "VPS_SSH_CONNECTION_ATTEMPTS" "$VPS_SSH_CONNECTION_ATTEMPTS"
@@ -121,6 +123,14 @@ require_positive_int "VPS_SSH_SERVER_ALIVE_INTERVAL" "$VPS_SSH_SERVER_ALIVE_INTE
 require_positive_int "VPS_SSH_SERVER_ALIVE_COUNT_MAX" "$VPS_SSH_SERVER_ALIVE_COUNT_MAX"
 require_positive_int "VPS_SSH_RETRIES" "$VPS_SSH_RETRIES"
 require_positive_int "VPS_SSH_RETRY_DELAY_SECONDS" "$VPS_SSH_RETRY_DELAY_SECONDS"
+if (( VPS_MONITOR_DISK_WARN_PCT >= VPS_MONITOR_DISK_FAIL_PCT )); then
+  echo "[monitor] VPS_MONITOR_DISK_WARN_PCT must be less than VPS_MONITOR_DISK_FAIL_PCT."
+  exit 1
+fi
+if (( VPS_MONITOR_DISK_FAIL_PCT > 100 )); then
+  echo "[monitor] VPS_MONITOR_DISK_FAIL_PCT must be <= 100."
+  exit 1
+fi
 
 echo "[monitor] host: $VPS_HOST"
 echo "[monitor] app_dir: $VPS_APP_DIR"
@@ -128,7 +138,7 @@ echo "[monitor] web_port: $VPS_WEB_PORT"
 
 monitor_output=""
 if ! monitor_output="$(
-  remote "VPS_APP_DIR=$(printf %q "$VPS_APP_DIR") VPS_SERVICE=$(printf %q "$VPS_SERVICE") VPS_WEB_PORT=$(printf %q "$VPS_WEB_PORT") VPS_BACKUP_BASE=$(printf %q "$VPS_BACKUP_BASE") VPS_MONITOR_DISK_WARN_PCT=$(printf %q "$VPS_MONITOR_DISK_WARN_PCT") VPS_MONITOR_BACKUP_MAX_AGE_HOURS=$(printf %q "$VPS_MONITOR_BACKUP_MAX_AGE_HOURS") VPS_MONITOR_CHECK_BACKUP=$(printf %q "$VPS_MONITOR_CHECK_BACKUP") bash -s" <<'REMOTE_EOF'
+  remote "VPS_APP_DIR=$(printf %q "$VPS_APP_DIR") VPS_SERVICE=$(printf %q "$VPS_SERVICE") VPS_WEB_PORT=$(printf %q "$VPS_WEB_PORT") VPS_BACKUP_BASE=$(printf %q "$VPS_BACKUP_BASE") VPS_MONITOR_DISK_WARN_PCT=$(printf %q "$VPS_MONITOR_DISK_WARN_PCT") VPS_MONITOR_DISK_FAIL_PCT=$(printf %q "$VPS_MONITOR_DISK_FAIL_PCT") VPS_MONITOR_BACKUP_MAX_AGE_HOURS=$(printf %q "$VPS_MONITOR_BACKUP_MAX_AGE_HOURS") VPS_MONITOR_CHECK_BACKUP=$(printf %q "$VPS_MONITOR_CHECK_BACKUP") bash -s" <<'REMOTE_EOF'
 set -euo pipefail
 
 fail=0
@@ -180,10 +190,12 @@ if [[ -z "$use_pct" ]]; then
   reasons+=("disk_parse_failed")
   fail=1
 else
-  echo "check_disk=usage_pct:$use_pct threshold:$VPS_MONITOR_DISK_WARN_PCT"
-  if (( use_pct >= VPS_MONITOR_DISK_WARN_PCT )); then
-    reasons+=("disk_high:${use_pct}%")
+  echo "check_disk=usage_pct:$use_pct warn:$VPS_MONITOR_DISK_WARN_PCT fail:$VPS_MONITOR_DISK_FAIL_PCT"
+  if (( use_pct >= VPS_MONITOR_DISK_FAIL_PCT )); then
+    reasons+=("disk_critical:${use_pct}%")
     fail=1
+  elif (( use_pct >= VPS_MONITOR_DISK_WARN_PCT )); then
+    echo "check_disk_warn=usage_pct:$use_pct"
   fi
 fi
 
