@@ -276,6 +276,41 @@ const MAIN_PROJECTS: ProjectDef[] = [
     ],
   },
   {
+    key: "tokenchain",
+    name: "TokenChain",
+    subtitle: "tokenchain core services",
+    services: [
+      { label: "web", port: 3021, required: true },
+      { label: "p2p", port: 26656, required: true },
+    ],
+  },
+  {
+    key: "tokenchain-bigdipper",
+    name: "TokenChain BigDipper",
+    subtitle: "tokenchain explorer",
+    services: [
+      { label: "web", port: 3032, required: true },
+      { label: "worker", port: 37891 },
+    ],
+  },
+  {
+    key: "tokenchain-indexer",
+    name: "TokenChain Indexer",
+    subtitle: "tokenchain indexer",
+    services: [{ label: "api", port: 3321, required: true }],
+  },
+  {
+    key: "tmail",
+    name: "TMail",
+    subtitle: "tmail.tokentap.ca",
+    href: "https://tmail.tokentap.ca",
+    backendHref: "https://tmail-api.tokentap.ca",
+    services: [
+      { label: "web", port: 3100, required: true },
+      { label: "api", port: 3400, required: true },
+    ],
+  },
+  {
     key: "pulse",
     name: "Pulse",
     subtitle: "api.pulse.tokentap.ca",
