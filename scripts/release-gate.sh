@@ -10,7 +10,7 @@ echo "[gate] test"
 npm test
 
 echo "[gate] typecheck"
-npx tsc --noEmit
+npx tsc --noEmit --incremental false
 
 echo "[gate] supply-chain-check"
 ./scripts/supply-chain-check.sh --no-lock-verify
@@ -23,6 +23,9 @@ echo "[gate] vps-ssh-stability-check"
 
 echo "[gate] vps-hygiene-check"
 ./scripts/vps-hygiene-check.sh
+
+echo "[gate] vps-monitor"
+./scripts/vps-monitor.sh
 
 echo "[gate] smoke"
 ./scripts/release-smoke.sh

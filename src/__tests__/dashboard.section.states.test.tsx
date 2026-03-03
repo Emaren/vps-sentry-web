@@ -1,6 +1,6 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import BreachesSection from "@/app/dashboard/_components/sections/BreachesSection";
 import ShippingSection from "@/app/dashboard/_components/sections/ShippingSection";
 import RemediationsSection from "@/app/dashboard/_components/sections/RemediationsSection";
@@ -14,6 +14,12 @@ import {
   panelForbidden,
   panelReady,
 } from "@/app/dashboard/_lib/panel-health";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    refresh: () => {},
+  }),
+}));
 
 function baseOps(): DashboardOpsSnapshot {
   const ready = panelReady("ok", "2026-02-09T00:00:00.000Z");

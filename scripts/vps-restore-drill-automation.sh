@@ -41,6 +41,40 @@ require_app_dir() {
   fi
 }
 
+resolve_remote_app_dir() {
+  local configured="${VPS_APP_DIR:-}"
+  local candidates=()
+
+  if [[ -n "$configured" ]]; then
+    candidates+=("$configured")
+  fi
+  candidates+=("/var/www/VPSSentry/vps-sentry-web" "/var/www/vps-sentry-web")
+
+  local remote_probe="set -euo pipefail;"
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    remote_probe+=" if [[ -d $(printf '%q' "$candidate") ]]; then printf '%s\n' $(printf '%q' "$candidate"); exit 0; fi;"
+  done
+  remote_probe+=" exit 1;"
+
+  local resolved=""
+  if ! resolved="$(remote "bash -lc $(printf '%q' "$remote_probe")" 2>/dev/null)"; then
+    echo "[restore-automation] unable to locate VPS app dir. Tried: ${candidates[*]}"
+    exit 1
+  fi
+
+  resolved="$(printf '%s' "$resolved" | tr -d '\r' | sed -n '1p')"
+  if [[ -z "$resolved" ]]; then
+    echo "[restore-automation] unable to locate VPS app dir. Empty probe response."
+    exit 1
+  fi
+
+  if [[ -n "$configured" && "$resolved" != "$configured" ]]; then
+    echo "[restore-automation] resolved VPS_APP_DIR=$resolved (configured was $configured)"
+  fi
+  VPS_APP_DIR="$resolved"
+}
+
 require_positive_int() {
   local name="$1"
   local value="$2"
@@ -129,6 +163,7 @@ require_positive_int "VPS_SSH_SERVER_ALIVE_INTERVAL" "$VPS_SSH_SERVER_ALIVE_INTE
 require_positive_int "VPS_SSH_SERVER_ALIVE_COUNT_MAX" "$VPS_SSH_SERVER_ALIVE_COUNT_MAX"
 require_positive_int "VPS_SSH_RETRIES" "$VPS_SSH_RETRIES"
 require_positive_int "VPS_SSH_RETRY_DELAY_SECONDS" "$VPS_SSH_RETRY_DELAY_SECONDS"
+resolve_remote_app_dir
 
 echo "[restore-automation] host: $VPS_HOST"
 echo "[restore-automation] action: $action"
