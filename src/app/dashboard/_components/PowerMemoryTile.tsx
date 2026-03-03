@@ -265,6 +265,35 @@ const MAIN_PROJECTS: ProjectDef[] = [
     services: [{ label: "web", port: 3035, required: true }],
   },
   {
+    key: "aoe2hdbets",
+    name: "AoE2HDBets",
+    subtitle: "api-prodn.aoe2hdbets.com",
+    href: "https://aoe2hdbets.com",
+    backendHref: "https://api-prodn.aoe2hdbets.com",
+    services: [
+      { label: "web", port: 3030, required: true },
+      { label: "api", port: 3330, required: true },
+    ],
+  },
+  {
+    key: "4o",
+    name: "4o API",
+    subtitle: "api.4o.tokentap.ca",
+    href: "https://api.4o.tokentap.ca",
+    services: [{ label: "api", port: 3380, required: true }],
+  },
+  {
+    key: "wheatandstone",
+    name: "Wheat & Stone",
+    subtitle: "api.wheatandstone.ca",
+    href: "https://wheatandstone.ca",
+    backendHref: "https://api.wheatandstone.ca",
+    services: [
+      { label: "web", port: 3010, required: true },
+      { label: "api", port: 3310, required: true },
+    ],
+  },
+  {
     key: "tokentap",
     name: "TokenTap",
     subtitle: "api.tokentap.ca",
@@ -300,14 +329,15 @@ const MAIN_PROJECTS: ProjectDef[] = [
     services: [{ label: "api", port: 3321, required: true }],
   },
   {
-    key: "tmail",
-    name: "TMail",
-    subtitle: "tmail.tokentap.ca",
-    href: "https://tmail.tokentap.ca",
-    backendHref: "https://tmail-api.tokentap.ca",
+    key: "llama",
+    name: "Llama",
+    subtitle: "llama-api.tokentap.ca",
+    href: "https://llama.tokentap.ca",
+    backendHref: "https://llama-api.tokentap.ca",
     services: [
-      { label: "web", port: 3100, required: true },
-      { label: "api", port: 3400, required: true },
+      { label: "api", port: 3360, required: true },
+      { label: "chat-api", port: 3350, required: true },
+      { label: "landing", port: 3070 },
     ],
   },
   {
@@ -322,40 +352,6 @@ const MAIN_PROJECTS: ProjectDef[] = [
     ],
   },
   {
-    key: "llama",
-    name: "Llama",
-    subtitle: "llama-api.tokentap.ca",
-    href: "https://llama.tokentap.ca",
-    backendHref: "https://llama-api.tokentap.ca",
-    services: [
-      { label: "api", port: 3360, required: true },
-      { label: "chat-api", port: 3350, required: true },
-      { label: "landing", port: 3070 },
-    ],
-  },
-  {
-    key: "aoe2hdbets",
-    name: "AoE2HDBets",
-    subtitle: "api-prodn.aoe2hdbets.com",
-    href: "https://aoe2hdbets.com",
-    backendHref: "https://api-prodn.aoe2hdbets.com",
-    services: [
-      { label: "web", port: 3030, required: true },
-      { label: "api", port: 3330, required: true },
-    ],
-  },
-  {
-    key: "wheatandstone",
-    name: "Wheat & Stone",
-    subtitle: "api.wheatandstone.ca",
-    href: "https://wheatandstone.ca",
-    backendHref: "https://api.wheatandstone.ca",
-    services: [
-      { label: "web", port: 3010, required: true },
-      { label: "api", port: 3310, required: true },
-    ],
-  },
-  {
     key: "redlinelegal",
     name: "Redline Legal",
     subtitle: "api.redlinelegal.ca",
@@ -367,11 +363,15 @@ const MAIN_PROJECTS: ProjectDef[] = [
     ],
   },
   {
-    key: "4o",
-    name: "4o API",
-    subtitle: "api.4o.tokentap.ca",
-    href: "https://api.4o.tokentap.ca",
-    services: [{ label: "api", port: 3380, required: true }],
+    key: "tmail",
+    name: "TMail",
+    subtitle: "tmail.tokentap.ca",
+    href: "https://tmail.tokentap.ca",
+    backendHref: "https://tmail-api.tokentap.ca",
+    services: [
+      { label: "web", port: 3100, required: true },
+      { label: "api", port: 3400, required: true },
+    ],
   },
 ];
 
