@@ -1522,6 +1522,39 @@ html[data-site-theme="sepia"] .dashboard-shell {
   text-transform: uppercase;
 }
 
+.pm-project-telemetry-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 70%, transparent 30%);
+  background: color-mix(in srgb, var(--dash-btn-bg) 88%, transparent 12%);
+  color: var(--dash-meta);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.pm-project-telemetry-badge-live {
+  border-color: color-mix(in srgb, var(--dash-sev-ok-border) 78%, transparent 22%);
+  background: color-mix(in srgb, var(--dash-sev-ok-bg) 88%, transparent 12%);
+  color: var(--dash-sev-ok-text);
+}
+
+.pm-project-telemetry-badge-partial {
+  border-color: color-mix(in srgb, var(--dash-sev-high-border) 78%, transparent 22%);
+  background: color-mix(in srgb, var(--dash-sev-high-bg) 88%, transparent 12%);
+  color: var(--dash-sev-high-text);
+}
+
+.pm-project-telemetry-badge-snapshot {
+  color: color-mix(in srgb, var(--dash-meta) 88%, transparent 12%);
+}
+
 .pm-project-metric-value {
   font-size: 1.45rem;
   font-weight: 950;
@@ -1564,6 +1597,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 }
 
 .pm-project-metric-bar {
+  position: relative;
   height: 6px;
   width: 100%;
   border-radius: 999px;
@@ -1575,11 +1609,25 @@ html[data-site-theme="sepia"] .dashboard-shell {
   display: block;
   height: 100%;
   border-radius: inherit;
+  transition: width 260ms ease;
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--dash-link) 84%, #22c55e 16%),
     color-mix(in srgb, var(--dash-link) 54%, #f59e0b 46%)
   );
+}
+
+.pm-project-metric-marker {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--dash-bg) 88%, transparent 12%);
+  background: color-mix(in srgb, var(--dash-link) 74%, #f8fafc 26%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-link) 18%, transparent 82%);
+  transform: translate(-50%, -50%);
+  transition: left 260ms ease;
 }
 
 .pm-project-missing {

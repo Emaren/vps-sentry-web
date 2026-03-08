@@ -1,7 +1,5 @@
 "use client";
 
-import React from "react";
-
 type HostVitals = {
   source: "live" | "snapshot";
   updatedTs: string | null;
@@ -16,11 +14,6 @@ type HostVitals = {
   diskUsedBytes: number | null;
   diskTotalBytes: number | null;
   diskAvailableBytes: number | null;
-};
-
-type LivePulsePayload = {
-  ts?: string;
-  hostVitals?: Partial<HostVitals>;
 };
 
 function clampPercent(value: number | null): number {
@@ -57,16 +50,6 @@ function fmtBytes(value: number | null): string {
   return `${amount.toFixed(decimals)}${units[unitIndex]}`;
 }
 
-function mergeHostVitals(previous: HostVitals, next: Partial<HostVitals> | null | undefined): HostVitals {
-  if (!next) return previous;
-  return {
-    ...previous,
-    ...next,
-    source: next.source === "live" || next.source === "snapshot" ? next.source : previous.source,
-    updatedTs: typeof next.updatedTs === "string" ? next.updatedTs : previous.updatedTs,
-  };
-}
-
 function liveBadgeClass(connected: boolean, source: HostVitals["source"]): string {
   if (connected && source === "live") return "power-vitals-live-badge power-vitals-live-badge-live";
   if (connected) return "power-vitals-live-badge power-vitals-live-badge-snapshot";
@@ -74,49 +57,11 @@ function liveBadgeClass(connected: boolean, source: HostVitals["source"]): strin
 }
 
 export default function PowerVitalsLiveGrid(props: {
-  initial: HostVitals;
+  hostVitals: HostVitals;
+  connected: boolean;
+  streamLabel: string;
 }) {
-  const [hostVitals, setHostVitals] = React.useState<HostVitals>(props.initial);
-  const [connected, setConnected] = React.useState(false);
-  const [lastError, setLastError] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    const es = new EventSource("/api/dashboard/live?intervalMs=4000");
-
-    const onOpen = () => {
-      setConnected(true);
-      setLastError(null);
-    };
-    const onError = () => {
-      setConnected(false);
-      setLastError("reconnecting");
-    };
-    const onPulse = (event: MessageEvent<string>) => {
-      try {
-        const payload = JSON.parse(event.data) as LivePulsePayload;
-        if (!payload || typeof payload !== "object") return;
-        React.startTransition(() => {
-          setHostVitals((current) => mergeHostVitals(current, payload.hostVitals));
-        });
-      } catch {
-        // ignore malformed events
-      }
-    };
-
-    es.addEventListener("open", onOpen as EventListener);
-    es.addEventListener("error", onError as EventListener);
-    es.addEventListener("pulse", onPulse as EventListener);
-
-    return () => {
-      es.close();
-    };
-  }, []);
-
-  const streamLabel = connected
-    ? hostVitals.source === "live"
-      ? "live"
-      : "snapshot"
-    : lastError ?? "offline";
+  const { connected, hostVitals, streamLabel } = props;
 
   return (
     <div className="power-vitals-kpi-grid">
@@ -132,7 +77,9 @@ export default function PowerVitalsLiveGrid(props: {
         <div className="power-vitals-gauge" aria-hidden="true">
           <div className="power-vitals-gauge-track">
             <span className="power-vitals-gauge-fill" style={{ width: `${clampPercent(hostVitals.cpuUsedPercent)}%` }} />
-            <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.cpuUsedPercent)}%` }} />
+            {typeof hostVitals.cpuUsedPercent === "number" ? (
+              <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.cpuUsedPercent)}%` }} />
+            ) : null}
           </div>
         </div>
       </div>
@@ -148,7 +95,9 @@ export default function PowerVitalsLiveGrid(props: {
         <div className="power-vitals-gauge" aria-hidden="true">
           <div className="power-vitals-gauge-track">
             <span className="power-vitals-gauge-fill" style={{ width: `${clampPercent(hostVitals.memoryUsedPercent)}%` }} />
-            <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.memoryUsedPercent)}%` }} />
+            {typeof hostVitals.memoryUsedPercent === "number" ? (
+              <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.memoryUsedPercent)}%` }} />
+            ) : null}
           </div>
         </div>
       </div>
@@ -164,7 +113,9 @@ export default function PowerVitalsLiveGrid(props: {
         <div className="power-vitals-gauge" aria-hidden="true">
           <div className="power-vitals-gauge-track">
             <span className="power-vitals-gauge-fill" style={{ width: `${clampPercent(hostVitals.diskUsedPercent)}%` }} />
-            <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.diskUsedPercent)}%` }} />
+            {typeof hostVitals.diskUsedPercent === "number" ? (
+              <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.diskUsedPercent)}%` }} />
+            ) : null}
           </div>
         </div>
       </div>

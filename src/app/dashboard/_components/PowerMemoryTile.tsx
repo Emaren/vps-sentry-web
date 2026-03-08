@@ -1,6 +1,9 @@
+"use client";
+
 import React from "react";
 import type { DerivedDashboard } from "../_lib/derive";
 import type { ProjectStorageSnapshot } from "@/lib/status";
+import { MAIN_PROJECTS, type ProjectDef } from "../_lib/project-catalog";
 import Box from "./Box";
 import PowerVitalsLiveGrid from "./PowerVitalsLiveGrid";
 
@@ -13,21 +16,6 @@ type PortEntry = {
   public?: boolean;
   raw?: string;
   sig?: string;
-};
-
-type ProjectService = {
-  label: string;
-  port: number;
-  required?: boolean;
-};
-
-type ProjectDef = {
-  key: string;
-  name: string;
-  subtitle: string;
-  href?: string;
-  backendHref?: string;
-  services: ProjectService[];
 };
 
 type ProjectStorageLargestDir = {
@@ -79,14 +67,40 @@ type ProjectStoragePayload = {
   projects: Record<string, ProjectStorageProject>;
 };
 
+type HostVitals = {
+  source: "live" | "snapshot";
+  updatedTs: string | null;
+  cpuUsedPercent: number | null;
+  cpuCapacityPercent: number;
+  cpuCores: number | null;
+  memoryUsedPercent: number | null;
+  memoryCapacityPercent: number;
+  memoryUsedMb: number | null;
+  memoryTotalMb: number | null;
+  diskUsedPercent: number | null;
+  diskUsedBytes: number | null;
+  diskTotalBytes: number | null;
+  diskAvailableBytes: number | null;
+};
+
+type ProjectLiveVitals = {
+  source: "live" | "partial" | "snapshot";
+  updatedTs: string | null;
+  cpuSharePercent: number | null;
+  memoryMb: number | null;
+  servicesSeen: number;
+  servicesExpected: number;
+};
+
+type LivePulsePayload = {
+  ts?: string;
+  hostVitals?: Partial<HostVitals>;
+  projectVitals?: Record<string, Partial<ProjectLiveVitals>>;
+};
+
 function fmtPercent(v: number | null): string {
   if (typeof v !== "number" || !Number.isFinite(v)) return "—";
   return `${Math.max(0, Math.min(100, Math.round(v)))}%`;
-}
-
-function fmtRatio(used: number | null, capacity: number): string {
-  if (typeof used !== "number" || !Number.isFinite(used)) return `—/${Math.round(capacity)}%`;
-  return `${Math.max(0, Math.min(100, Math.round(used)))}/${Math.round(capacity)}%`;
 }
 
 function fmtSizeFromMb(v: number | null): string {
@@ -140,6 +154,81 @@ function fmtFileCount(v: number | null): string {
 function clampBar(v: number | null): number {
   if (typeof v !== "number" || !Number.isFinite(v)) return 0;
   return Math.max(0, Math.min(100, v));
+}
+
+function markerPercent(v: number | null): number {
+  return Math.max(3, Math.min(97, clampBar(v)));
+}
+
+function mergeHostVitals(previous: HostVitals, next: Partial<HostVitals> | null | undefined): HostVitals {
+  if (!next) return previous;
+  return {
+    ...previous,
+    ...next,
+    source: next.source === "live" || next.source === "snapshot" ? next.source : previous.source,
+    updatedTs: typeof next.updatedTs === "string" ? next.updatedTs : previous.updatedTs,
+  };
+}
+
+function mergeProjectVitals(
+  previous: Record<string, ProjectLiveVitals>,
+  next: Record<string, Partial<ProjectLiveVitals>> | null | undefined
+): Record<string, ProjectLiveVitals> {
+  if (!next) return previous;
+  const merged = { ...previous };
+
+  for (const [projectKey, rawValue] of Object.entries(next)) {
+    const current = merged[projectKey] ?? {
+      source: "snapshot",
+      updatedTs: null,
+      cpuSharePercent: null,
+      memoryMb: null,
+      servicesSeen: 0,
+      servicesExpected: 0,
+    };
+    const source =
+      rawValue.source === "live" || rawValue.source === "partial" || rawValue.source === "snapshot"
+        ? rawValue.source
+        : current.source;
+    merged[projectKey] = {
+      ...current,
+      ...rawValue,
+      source,
+      updatedTs: typeof rawValue.updatedTs === "string" ? rawValue.updatedTs : current.updatedTs,
+      servicesSeen: typeof rawValue.servicesSeen === "number" ? rawValue.servicesSeen : current.servicesSeen,
+      servicesExpected: typeof rawValue.servicesExpected === "number" ? rawValue.servicesExpected : current.servicesExpected,
+    };
+  }
+
+  return merged;
+}
+
+function projectTelemetryBadge(vitals: ProjectLiveVitals | undefined): {
+  label: string;
+  className: string;
+  title: string;
+} {
+  if (!vitals || vitals.source === "snapshot") {
+    return {
+      label: "snapshot",
+      className: "pm-project-telemetry-badge pm-project-telemetry-badge-snapshot",
+      title: "Using the last trusted snapshot for CPU and RAM.",
+    };
+  }
+
+  if (vitals.source === "live") {
+    return {
+      label: "live",
+      className: "pm-project-telemetry-badge pm-project-telemetry-badge-live",
+      title: `Live telemetry from ${vitals.servicesSeen}/${vitals.servicesExpected} visible service port${vitals.servicesExpected === 1 ? "" : "s"}.`,
+    };
+  }
+
+  return {
+    label: `${vitals.servicesSeen}/${vitals.servicesExpected} live`,
+    className: "pm-project-telemetry-badge pm-project-telemetry-badge-partial",
+    title: "Partial live telemetry. Linux exposed some, but not all, service PIDs for this project.",
+  };
 }
 
 function parseUsedPercent(v: unknown): number | null {
@@ -447,130 +536,6 @@ function resolveBackendLabel(project: Pick<ProjectDef, "subtitle" | "backendHref
   return project.subtitle?.trim() ?? "";
 }
 
-/**
- * NOTE: These ports are your current “main project” ports on this VPS.
- * If you ever change service ports, update them here.
- */
-const MAIN_PROJECTS: ProjectDef[] = [
-  {
-    key: "vps-sentry",
-    name: "VPS Sentry",
-    subtitle: "vps-sentry.tokentap.ca/api/status",
-    href: "https://vps-sentry.tokentap.ca",
-    backendHref: "https://vps-sentry.tokentap.ca/api/status",
-    services: [{ label: "web", port: 3035, required: true }],
-  },
-  {
-    key: "aoe2hdbets",
-    name: "AoE2HDBets",
-    subtitle: "api-prodn.aoe2hdbets.com",
-    href: "https://aoe2hdbets.com",
-    backendHref: "https://api-prodn.aoe2hdbets.com",
-    services: [
-      { label: "web", port: 3030, required: true },
-      { label: "api", port: 3330, required: true },
-    ],
-  },
-  {
-    key: "4o",
-    name: "4o API",
-    subtitle: "api.4o.tokentap.ca",
-    href: "https://api.4o.tokentap.ca",
-    services: [{ label: "api", port: 3380, required: true }],
-  },
-  {
-    key: "wheatandstone",
-    name: "Wheat & Stone",
-    subtitle: "api.wheatandstone.ca",
-    href: "https://wheatandstone.ca",
-    backendHref: "https://api.wheatandstone.ca",
-    services: [
-      { label: "web", port: 3010, required: true },
-      { label: "api", port: 3310, required: true },
-    ],
-  },
-  {
-    key: "tokentap",
-    name: "TokenTap",
-    subtitle: "api.tokentap.ca",
-    href: "https://tokentap.ca",
-    backendHref: "https://api.tokentap.ca",
-    services: [
-      { label: "web", port: 3020, required: true },
-      { label: "api", port: 3320, required: true },
-    ],
-  },
-  {
-    key: "tokenchain",
-    name: "TokenChain",
-    subtitle: "tokenchain core services",
-    services: [
-      { label: "web", port: 3021, required: true },
-      { label: "p2p", port: 26656, required: true },
-    ],
-  },
-  {
-    key: "tokenchain-bigdipper",
-    name: "TokenChain BigDipper",
-    subtitle: "tokenchain explorer",
-    services: [
-      { label: "web", port: 3032, required: true },
-      { label: "worker", port: 37891 },
-    ],
-  },
-  {
-    key: "tokenchain-indexer",
-    name: "TokenChain Indexer",
-    subtitle: "tokenchain indexer",
-    services: [{ label: "api", port: 3321, required: true }],
-  },
-  {
-    key: "llama",
-    name: "Llama",
-    subtitle: "llama-api.tokentap.ca",
-    href: "https://llama.tokentap.ca",
-    backendHref: "https://llama-api.tokentap.ca",
-    services: [
-      { label: "api", port: 3360, required: true },
-      { label: "chat-api", port: 3350, required: true },
-      { label: "landing", port: 3070 },
-    ],
-  },
-  {
-    key: "pulse",
-    name: "Pulse",
-    subtitle: "api.pulse.tokentap.ca",
-    href: "https://pulse.tokentap.ca",
-    backendHref: "https://api.pulse.tokentap.ca",
-    services: [
-      { label: "web", port: 3090, required: true },
-      { label: "api", port: 3390, required: true },
-    ],
-  },
-  {
-    key: "redlinelegal",
-    name: "Redline Legal",
-    subtitle: "api.redlinelegal.ca",
-    href: "https://redlinelegal.ca",
-    backendHref: "https://api.redlinelegal.ca",
-    services: [
-      { label: "web", port: 3040, required: true },
-      { label: "api", port: 3340, required: true },
-    ],
-  },
-  {
-    key: "tmail",
-    name: "TMail",
-    subtitle: "tmail.tokentap.ca",
-    href: "https://tmail.tokentap.ca",
-    backendHref: "https://tmail-api.tokentap.ca",
-    services: [
-      { label: "web", port: 3100, required: true },
-      { label: "api", port: 3400, required: true },
-    ],
-  },
-];
-
 export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
   const { derived: d } = props;
 
@@ -579,18 +544,71 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
   const otherRow = d.vitalsProcesses.find((x) => x.isOther);
   const rows = otherRow ? [...topRows, otherRow] : topRows;
 
-  const { local: portsLocal, pub: portsPublic, debug: portsDebug } = pickPortsFromDerived(d);
+  const { local: portsLocal, pub: portsPublic } = pickPortsFromDerived(d);
   const projectStorage = pickProjectStorageFromDerived(d);
   const totalTrackedDisk = Object.values(projectStorage?.projects ?? {}).reduce(
     (sum, project) => sum + (project.diskBytes ?? 0),
     0
   );
   const storageTtlLabel =
-      typeof projectStorage?.ttlSeconds === "number" && projectStorage.ttlSeconds > 0
+    typeof projectStorage?.ttlSeconds === "number" && projectStorage.ttlSeconds > 0
       ? `${Math.round(projectStorage.ttlSeconds / 60)}m`
       : null;
   const storageBucketOrder = projectStorage?.bucketOrder ?? [];
   const hostFilesystem = projectStorage?.hostFilesystem ?? null;
+  const initialHostVitals: HostVitals = {
+    source: "snapshot",
+    updatedTs: projectStorage?.measuredAt ?? d.snapshotTs,
+    cpuUsedPercent: d.cpuUsedPercent,
+    cpuCapacityPercent: d.cpuCapacityPercent,
+    cpuCores: d.cpuCores,
+    memoryUsedPercent: d.memoryUsedPercent,
+    memoryCapacityPercent: d.memoryCapacityPercent,
+    memoryUsedMb: d.memoryUsedMb,
+    memoryTotalMb: d.memoryTotalMb,
+    diskUsedPercent: hostFilesystem?.usedPercent ?? null,
+    diskUsedBytes: hostFilesystem?.usedBytes ?? null,
+    diskTotalBytes: hostFilesystem?.totalBytes ?? null,
+    diskAvailableBytes: hostFilesystem?.availableBytes ?? null,
+  };
+  const [hostVitals, setHostVitals] = React.useState<HostVitals>(initialHostVitals);
+  const [projectLiveVitals, setProjectLiveVitals] = React.useState<Record<string, ProjectLiveVitals>>({});
+  const [liveConnected, setLiveConnected] = React.useState(false);
+  const [liveLastError, setLiveLastError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const es = new EventSource("/api/dashboard/live?intervalMs=4000");
+
+    const onOpen = () => {
+      setLiveConnected(true);
+      setLiveLastError(null);
+    };
+    const onError = () => {
+      setLiveConnected(false);
+      setLiveLastError("reconnecting");
+    };
+    const onPulse = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as LivePulsePayload;
+        if (!payload || typeof payload !== "object") return;
+        React.startTransition(() => {
+          setHostVitals((current) => mergeHostVitals(current, payload.hostVitals));
+          setProjectLiveVitals((current) => mergeProjectVitals(current, payload.projectVitals));
+        });
+      } catch {
+        // ignore malformed events
+      }
+    };
+
+    es.addEventListener("open", onOpen as EventListener);
+    es.addEventListener("error", onError as EventListener);
+    es.addEventListener("pulse", onPulse as EventListener);
+
+    return () => {
+      es.close();
+    };
+  }, []);
+
   // PID -> vitals row (handle pid being number OR string)
   const pidToVitals = new Map<number, (typeof d.vitalsProcesses)[number]>();
   for (const vp of d.vitalsProcesses) {
@@ -627,12 +645,22 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
     const publicCount = services.filter((s) => s.isPublic).length;
     const missingRequired = required.filter((s) => !s.isListening).map((s) => `${s.label}:${s.port}`);
 
-    const cpuSum = sumMaybe(services.map((s) => s.cpuSharePercent));
-    const memSum = sumMaybe(services.map((s) => s.memoryMb));
-    const cpuBarPercent = clampBar(cpuSum);
+    const snapshotCpuSharePercent = sumMaybe(services.map((s) => s.cpuSharePercent));
+    const snapshotMemoryMb = sumMaybe(services.map((s) => s.memoryMb));
+    const liveTelemetry = projectLiveVitals[proj.key];
+    const cpuSharePercent =
+      liveTelemetry && liveTelemetry.source !== "snapshot" && typeof liveTelemetry.cpuSharePercent === "number"
+        ? liveTelemetry.cpuSharePercent
+        : snapshotCpuSharePercent;
+    const memoryMb =
+      liveTelemetry && liveTelemetry.source !== "snapshot" && typeof liveTelemetry.memoryMb === "number"
+        ? liveTelemetry.memoryMb
+        : snapshotMemoryMb;
+    const telemetryBadge = projectTelemetryBadge(liveTelemetry);
+    const cpuBarPercent = clampBar(cpuSharePercent);
     const memBarPercent =
-      typeof memSum === "number" && typeof d.memoryTotalMb === "number" && d.memoryTotalMb > 0
-        ? clampBar((memSum / d.memoryTotalMb) * 100)
+      typeof memoryMb === "number" && typeof d.memoryTotalMb === "number" && d.memoryTotalMb > 0
+        ? clampBar((memoryMb / d.memoryTotalMb) * 100)
         : 0;
     const diskBarPercent =
       totalTrackedDisk > 0 && typeof storage?.diskBytes === "number"
@@ -692,9 +720,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       listeningCount,
       publicCount,
       missingRequired,
-      cpuSharePercent: cpuSum,
+      cpuSharePercent,
       cpuBarPercent,
-      memoryMb: memSum,
+      memoryMb,
       memoryBarPercent: memBarPercent,
       diskBytes: storage?.diskBytes ?? null,
       diskBarPercent,
@@ -704,6 +732,10 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       bucketHighlights,
       largestDirHighlights,
       portsLabel,
+      telemetryBadge,
+      hasCpuTelemetry: typeof cpuSharePercent === "number" && Number.isFinite(cpuSharePercent),
+      hasMemoryTelemetry: typeof memoryMb === "number" && Number.isFinite(memoryMb),
+      hasDiskTelemetry: typeof storage?.diskBytes === "number" && totalTrackedDisk > 0,
     };
   });
 
@@ -712,7 +744,21 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
     .slice()
     .sort((a, b) => (b.cpuCapacityPercent ?? -1) - (a.cpuCapacityPercent ?? -1))[0];
   const topCpuCapacity = typeof topCpuProcess?.cpuCapacityPercent === "number" ? topCpuProcess.cpuCapacityPercent : null;
-  const showCpuHotspot = (d.cpuUsedPercent ?? 0) >= 90 && typeof topCpuCapacity === "number" && topCpuCapacity >= 50;
+  const showCpuHotspot =
+    (hostVitals.cpuUsedPercent ?? d.cpuUsedPercent ?? 0) >= 90 &&
+    typeof topCpuCapacity === "number" &&
+    topCpuCapacity >= 50;
+  const overviewChipClass = liveConnected
+    ? "dashboard-chip dashboard-chip-ok"
+    : d.hasVitals
+      ? "dashboard-chip dashboard-chip-warn"
+      : "dashboard-chip dashboard-chip-warn";
+  const overviewChipLabel = liveConnected ? "live feed" : d.hasVitals ? "snapshot ready" : "waiting telemetry";
+  const liveStreamLabel = liveConnected
+    ? hostVitals.source === "live"
+      ? "live"
+      : "snapshot"
+    : liveLastError ?? "offline";
 
   return (
     <section className="power-vitals-wrap">
@@ -724,28 +770,10 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
               VPS health at-a-glance, with per-project status, process vitals, and tracked disk footprint.
             </p>
           </div>
-          <span className={d.hasVitals ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip dashboard-chip-warn"}>
-            {d.hasVitals ? "snapshot ready" : "waiting telemetry"}
-          </span>
+          <span className={overviewChipClass}>{overviewChipLabel}</span>
         </div>
 
-        <PowerVitalsLiveGrid
-          initial={{
-            source: "snapshot",
-            updatedTs: projectStorage?.measuredAt ?? d.snapshotTs,
-            cpuUsedPercent: d.cpuUsedPercent,
-            cpuCapacityPercent: d.cpuCapacityPercent,
-            cpuCores: d.cpuCores,
-            memoryUsedPercent: d.memoryUsedPercent,
-            memoryCapacityPercent: d.memoryCapacityPercent,
-            memoryUsedMb: d.memoryUsedMb,
-            memoryTotalMb: d.memoryTotalMb,
-            diskUsedPercent: hostFilesystem?.usedPercent ?? null,
-            diskUsedBytes: hostFilesystem?.usedBytes ?? null,
-            diskTotalBytes: hostFilesystem?.totalBytes ?? null,
-            diskAvailableBytes: hostFilesystem?.availableBytes ?? null,
-          }}
-        />
+        <PowerVitalsLiveGrid hostVitals={hostVitals} connected={liveConnected} streamLabel={liveStreamLabel} />
 
         {showCpuHotspot ? (
           <div className="pm-cpu-hotspot">
@@ -834,19 +862,32 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
 
                 <div className="pm-project-metrics">
                   <div className="pm-project-metric">
-                    <div className="pm-project-metric-label">CPU</div>
+                    <div className="pm-project-metric-headline">
+                      <div className="pm-project-metric-label">CPU</div>
+                      <span className={p.telemetryBadge.className} title={p.telemetryBadge.title}>
+                        {p.telemetryBadge.label}
+                      </span>
+                    </div>
                     <div className="pm-project-metric-value">{fmtPercent(p.cpuSharePercent)}</div>
                     <div className="pm-project-metric-sub">sampled process share</div>
                     <div className="pm-project-metric-bar">
                       <span style={{ width: `${p.cpuBarPercent}%` }} />
+                      {p.hasCpuTelemetry ? (
+                        <i className="pm-project-metric-marker" style={{ left: `${markerPercent(p.cpuBarPercent)}%` }} />
+                      ) : null}
                     </div>
                   </div>
                   <div className="pm-project-metric">
-                    <div className="pm-project-metric-label">RAM</div>
+                    <div className="pm-project-metric-headline">
+                      <div className="pm-project-metric-label">RAM</div>
+                    </div>
                     <div className="pm-project-metric-value">{fmtSizeFromMb(p.memoryMb)}</div>
                     <div className="pm-project-metric-sub">aggregate service memory</div>
                     <div className="pm-project-metric-bar">
                       <span style={{ width: `${p.memoryBarPercent}%` }} />
+                      {p.hasMemoryTelemetry ? (
+                        <i className="pm-project-metric-marker" style={{ left: `${markerPercent(p.memoryBarPercent)}%` }} />
+                      ) : null}
                     </div>
                   </div>
                   <div className="pm-project-metric pm-project-metric-disk">
@@ -859,6 +900,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                     {p.diskStatusLabel ? <div className="pm-project-metric-sub pm-project-metric-sub-alert">{p.diskStatusLabel}</div> : null}
                     <div className="pm-project-metric-bar">
                       <span style={{ width: `${p.diskBarPercent}%` }} />
+                      {p.hasDiskTelemetry ? (
+                        <i className="pm-project-metric-marker" style={{ left: `${markerPercent(p.diskBarPercent)}%` }} />
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -966,10 +1010,10 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
           </div>
 
           <div className="power-vitals-foot">
-            Ports seen in UI: local {portsLocal.length}, public {portsPublic.length}. ({portsDebug}) Tip: CPU/RAM are derived by matching
-            the project’s local ports to a PID, then looking up that PID in the vitals list. If a PID isn’t in the
-            current top vitals sample, you’ll see “—”. Project disk comes from cached host-side tree scans
-            {storageTtlLabel ? ` (refresh target ${storageTtlLabel})` : ""}, while host free space is refreshed every patrol run.
+            Project CPU and RAM now refresh about every 4 seconds by matching service ports to live PIDs. When Linux
+            hides a PID, the card falls back to the last trusted snapshot instead of guessing. Disk still comes from
+            cached host-side tree scans{storageTtlLabel ? ` (target refresh ${storageTtlLabel})` : ""}, while host
+            free space is refreshed separately by the patrol worker.
           </div>
         </div>
 
