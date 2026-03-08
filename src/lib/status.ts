@@ -72,12 +72,21 @@ export type ProjectStorageLargestDir = {
   disk_bytes?: number;
 };
 
+export type ProjectStorageBucket = {
+  label?: string;
+  disk_bytes?: number;
+  apparent_bytes?: number;
+  file_count?: number;
+  match_count?: number;
+};
+
 export type ProjectStorageRoot = {
   label?: string;
   exists?: boolean;
   disk_bytes?: number;
   apparent_bytes?: number;
   file_count?: number;
+  buckets?: Record<string, ProjectStorageBucket>;
   largest_dirs?: ProjectStorageLargestDir[];
 };
 
@@ -91,14 +100,17 @@ export type ProjectStorageProject = {
   apparent_bytes?: number;
   file_count?: number;
   roots?: ProjectStorageRoot[];
+  buckets?: Record<string, ProjectStorageBucket>;
   largest_dirs?: ProjectStorageLargestDir[];
 };
 
 export type ProjectStorageSnapshot = {
+  schema_version?: number;
   measured_at?: string;
   ttl_seconds?: number;
   top_dirs_limit?: number;
   top_dirs_depth?: number;
+  bucket_order?: string[];
   projects?: Record<string, ProjectStorageProject>;
 };
 

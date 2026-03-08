@@ -34,6 +34,14 @@ type ProjectStorageLargestDir = {
   diskBytes: number | null;
 };
 
+type ProjectStorageBucket = {
+  label: string;
+  diskBytes: number | null;
+  apparentBytes: number | null;
+  fileCount: number | null;
+  matchCount: number | null;
+};
+
 type ProjectStorageProject = {
   measuredAt: string | null;
   rootsConfigured: number | null;
@@ -41,12 +49,15 @@ type ProjectStorageProject = {
   diskBytes: number | null;
   apparentBytes: number | null;
   fileCount: number | null;
+  buckets: Record<string, ProjectStorageBucket>;
   largestDirs: ProjectStorageLargestDir[];
 };
 
 type ProjectStoragePayload = {
+  schemaVersion: number | null;
   measuredAt: string | null;
   ttlSeconds: number | null;
+  bucketOrder: string[];
   projects: Record<string, ProjectStorageProject>;
 };
 
@@ -263,6 +274,7 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
   const rec = asRecord(value);
   const projectsRec = asRecord(rec?.projects);
   if (!projectsRec) return null;
+  const bucketOrder = safeArray<string>(rec?.bucket_order).filter((entry) => typeof entry === "string" && entry.trim().length > 0);
 
   const projects: Record<string, ProjectStorageProject> = {};
   for (const [key, rawProject] of Object.entries(projectsRec)) {
@@ -277,6 +289,20 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
         };
       })
       .filter((entry) => entry.label.length > 0);
+    const bucketsRec = asRecord(project.buckets);
+    const buckets: Record<string, ProjectStorageBucket> = {};
+    for (const [bucketId, rawBucket] of Object.entries(bucketsRec)) {
+      const bucket = asRecord(rawBucket);
+      if (!bucket) continue;
+      const label = typeof bucket.label === "string" && bucket.label.trim().length > 0 ? bucket.label.trim() : bucketId;
+      buckets[bucketId] = {
+        label,
+        diskBytes: toInt(bucket.disk_bytes),
+        apparentBytes: toInt(bucket.apparent_bytes),
+        fileCount: toInt(bucket.file_count),
+        matchCount: toInt(bucket.match_count),
+      };
+    }
 
     projects[key] = {
       measuredAt: typeof project.measured_at === "string" ? project.measured_at : null,
@@ -285,13 +311,16 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
       diskBytes: toInt(project.disk_bytes),
       apparentBytes: toInt(project.apparent_bytes),
       fileCount: toInt(project.file_count),
+      buckets,
       largestDirs,
     };
   }
 
   return {
+    schemaVersion: toInt(rec?.schema_version),
     measuredAt: typeof rec?.measured_at === "string" ? rec.measured_at : null,
     ttlSeconds: toInt(rec?.ttl_seconds),
+    bucketOrder,
     projects,
   };
 }
@@ -491,6 +520,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
     typeof projectStorage?.ttlSeconds === "number" && projectStorage.ttlSeconds > 0
       ? `${Math.round(projectStorage.ttlSeconds / 60)}m`
       : null;
+  const storageBucketOrder = projectStorage?.bucketOrder ?? [];
 
   // PID -> vitals row (handle pid being number OR string)
   const pidToVitals = new Map<number, (typeof d.vitalsProcesses)[number]>();
@@ -554,6 +584,21 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
           .map((entry) => `${entry.label} ${fmtBytes(entry.diskBytes)}`)
           .join(" · ")
       : null;
+    const sortedBuckets = Object.entries(storage?.buckets ?? {})
+      .map(([bucketId, bucket]) => ({ bucketId, ...bucket }))
+      .filter((bucket) => typeof bucket.diskBytes === "number" && bucket.diskBytes > 0)
+      .sort((a, b) => {
+        const diskDiff = (b.diskBytes ?? 0) - (a.diskBytes ?? 0);
+        if (diskDiff !== 0) return diskDiff;
+        const orderDiff = storageBucketOrder.indexOf(a.bucketId) - storageBucketOrder.indexOf(b.bucketId);
+        return orderDiff;
+      });
+    const bucketSummary = sortedBuckets.length
+      ? sortedBuckets
+          .slice(0, 3)
+          .map((bucket) => `${bucket.label} ${fmtBytes(bucket.diskBytes)}`)
+          .join(" · ")
+      : null;
 
     const portsLabel = services
       .map((s) => {
@@ -581,6 +626,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       diskBytes: storage?.diskBytes ?? null,
       diskBarPercent,
       diskMeta,
+      bucketSummary,
       largestDirsSummary,
       portsLabel,
     };
@@ -746,6 +792,10 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
 
                 {p.missingRequired.length > 0 ? (
                   <div className="pm-project-missing">Missing required: {p.missingRequired.join(", ")}</div>
+                ) : null}
+
+                {p.bucketSummary ? (
+                  <div className="pm-project-storage-note">Buckets: {p.bucketSummary}</div>
                 ) : null}
 
                 {p.largestDirsSummary ? (
