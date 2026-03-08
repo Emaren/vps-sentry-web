@@ -49,6 +49,18 @@ describe("deriveDashboard", () => {
             cpu_share_total_percent: 100,
           },
         },
+        project_storage: {
+          measured_at: "2026-02-07T00:00:00.000Z",
+          ttl_seconds: 3600,
+          projects: {
+            "vps-sentry": {
+              disk_bytes: 123456789,
+              apparent_bytes: 130000000,
+              file_count: 4200,
+              largest_dirs: [{ label: "VPSSentry/vps-sentry-web/node_modules", disk_bytes: 45678901 }],
+            },
+          },
+        },
       } as Status,
     });
 
@@ -59,5 +71,6 @@ describe("deriveDashboard", () => {
     expect(out.cpuUsedPercent).toBe(47.2);
     expect(out.memoryUsedPercent).toBe(61.1);
     expect(out.vitalsProcesses.length).toBe(2);
+    expect((out.canonicalStatus as Status).project_storage).toBeDefined();
   });
 });

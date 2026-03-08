@@ -22,6 +22,8 @@ OPS_WORKER_INTERVAL_SECONDS="${OPS_WORKER_INTERVAL_SECONDS:-15}"
 OPS_WORKER_IDLE_INTERVAL_SECONDS="${OPS_WORKER_IDLE_INTERVAL_SECONDS:-30}"
 OPS_WORKER_MAX_BACKOFF_SECONDS="${OPS_WORKER_MAX_BACKOFF_SECONDS:-120}"
 VPS_OPS_WORKER_LOG_LINES="${VPS_OPS_WORKER_LOG_LINES:-120}"
+VPS_DEPLOY_USE_MAINTENANCE="${VPS_DEPLOY_USE_MAINTENANCE:-1}"
+VPS_DEPLOY_MAINTENANCE_TTL="${VPS_DEPLOY_MAINTENANCE_TTL:-10m}"
 
 VPS_SSH_CONNECT_TIMEOUT="${VPS_SSH_CONNECT_TIMEOUT:-10}"
 VPS_SSH_CONNECTION_ATTEMPTS="${VPS_SSH_CONNECTION_ATTEMPTS:-2}"
@@ -207,7 +209,7 @@ echo "[ops-worker-service] host: $VPS_HOST"
 echo "[ops-worker-service] action: $action"
 echo "[ops-worker-service] unit: $VPS_OPS_WORKER_SERVICE"
 
-remote "VPS_APP_DIR=$(printf %q "$VPS_APP_DIR") VPS_SERVICE=$(printf %q "$VPS_SERVICE") VPS_OPS_WORKER_SERVICE=$(printf %q "$VPS_OPS_WORKER_SERVICE") VPS_OPS_WORKER_USER=$(printf %q "$VPS_OPS_WORKER_USER") VPS_OPS_WORKER_ENV_FILE=$(printf %q "$VPS_OPS_WORKER_ENV_FILE") OPS_WORKER_BASE_URL=$(printf %q "$OPS_WORKER_BASE_URL") OPS_WORKER_DRAIN_LIMIT=$(printf %q "$OPS_WORKER_DRAIN_LIMIT") OPS_WORKER_INTERVAL_SECONDS=$(printf %q "$OPS_WORKER_INTERVAL_SECONDS") OPS_WORKER_IDLE_INTERVAL_SECONDS=$(printf %q "$OPS_WORKER_IDLE_INTERVAL_SECONDS") OPS_WORKER_MAX_BACKOFF_SECONDS=$(printf %q "$OPS_WORKER_MAX_BACKOFF_SECONDS") VPS_OPS_WORKER_LOG_LINES=$(printf %q "$VPS_OPS_WORKER_LOG_LINES") VPS_OPS_WORKER_ACTION=$(printf %q "$action") bash -s" <<'REMOTE_EOF'
+remote "VPS_APP_DIR=$(printf %q "$VPS_APP_DIR") VPS_SERVICE=$(printf %q "$VPS_SERVICE") VPS_OPS_WORKER_SERVICE=$(printf %q "$VPS_OPS_WORKER_SERVICE") VPS_OPS_WORKER_USER=$(printf %q "$VPS_OPS_WORKER_USER") VPS_OPS_WORKER_ENV_FILE=$(printf %q "$VPS_OPS_WORKER_ENV_FILE") OPS_WORKER_BASE_URL=$(printf %q "$OPS_WORKER_BASE_URL") OPS_WORKER_DRAIN_LIMIT=$(printf %q "$OPS_WORKER_DRAIN_LIMIT") OPS_WORKER_INTERVAL_SECONDS=$(printf %q "$OPS_WORKER_INTERVAL_SECONDS") OPS_WORKER_IDLE_INTERVAL_SECONDS=$(printf %q "$OPS_WORKER_IDLE_INTERVAL_SECONDS") OPS_WORKER_MAX_BACKOFF_SECONDS=$(printf %q "$OPS_WORKER_MAX_BACKOFF_SECONDS") VPS_OPS_WORKER_LOG_LINES=$(printf %q "$VPS_OPS_WORKER_LOG_LINES") VPS_OPS_WORKER_ACTION=$(printf %q "$action") VPS_DEPLOY_USE_MAINTENANCE=$(printf %q "$VPS_DEPLOY_USE_MAINTENANCE") VPS_DEPLOY_MAINTENANCE_TTL=$(printf %q "$VPS_DEPLOY_MAINTENANCE_TTL") bash -s" <<'REMOTE_EOF'
 set -euo pipefail
 
 require_sudo() {
@@ -220,10 +222,39 @@ require_sudo() {
 }
 
 unit_path="/etc/systemd/system/${VPS_OPS_WORKER_SERVICE}"
+maintenance_started=0
+
+stop_maintenance() {
+  if [[ "$maintenance_started" -ne 1 ]]; then
+    return 0
+  fi
+  sudo -n /usr/local/bin/vps-sentry-maintenance stop --scope "$VPS_OPS_WORKER_SERVICE" >/dev/null 2>&1 || true
+  echo "[ops-worker-service] maintenance cleared for $VPS_OPS_WORKER_SERVICE"
+}
+
+start_maintenance() {
+  local reason="$1"
+  if [[ "${VPS_DEPLOY_USE_MAINTENANCE:-1}" != "1" ]]; then
+    echo "[ops-worker-service] maintenance skipped"
+    return 0
+  fi
+
+  if [[ ! -x /usr/local/bin/vps-sentry-maintenance ]]; then
+    echo "[ops-worker-service] maintenance helper missing: /usr/local/bin/vps-sentry-maintenance"
+    exit 1
+  fi
+
+  sudo -n /usr/local/bin/vps-sentry-maintenance start --scope "$VPS_OPS_WORKER_SERVICE" --ttl "${VPS_DEPLOY_MAINTENANCE_TTL:-10m}" --reason "$reason"
+  maintenance_started=1
+  echo "[ops-worker-service] maintenance active for $VPS_OPS_WORKER_SERVICE ttl=${VPS_DEPLOY_MAINTENANCE_TTL:-10m}"
+}
+
+trap stop_maintenance EXIT
 
 case "$VPS_OPS_WORKER_ACTION" in
   install)
     require_sudo
+    start_maintenance "ops-worker-install:${VPS_OPS_WORKER_SERVICE}"
     if [[ ! -d "$VPS_APP_DIR" ]]; then
       echo "[ops-worker-service] app dir missing: $VPS_APP_DIR"
       exit 1
@@ -277,6 +308,7 @@ EOF
 
   remove)
     require_sudo
+    start_maintenance "ops-worker-remove:${VPS_OPS_WORKER_SERVICE}"
     sudo -n systemctl disable --now "$VPS_OPS_WORKER_SERVICE" >/dev/null 2>&1 || true
     sudo -n rm -f "$unit_path"
     sudo -n systemctl daemon-reload
@@ -285,6 +317,7 @@ EOF
 
   restart)
     require_sudo
+    start_maintenance "ops-worker-restart:${VPS_OPS_WORKER_SERVICE}"
     sudo -n systemctl restart "$VPS_OPS_WORKER_SERVICE"
     sudo -n systemctl --no-pager --full status "$VPS_OPS_WORKER_SERVICE" | sed -n '1,40p'
     ;;

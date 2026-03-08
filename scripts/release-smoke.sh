@@ -63,22 +63,75 @@ require_positive_int "VPS_SSH_SERVER_ALIVE_INTERVAL" "$VPS_SSH_SERVER_ALIVE_INTE
 require_positive_int "VPS_SSH_SERVER_ALIVE_COUNT_MAX" "$VPS_SSH_SERVER_ALIVE_COUNT_MAX"
 require_positive_int "VPS_SSH_RETRIES" "$VPS_SSH_RETRIES"
 require_positive_int "VPS_SSH_RETRY_DELAY_SECONDS" "$VPS_SSH_RETRY_DELAY_SECONDS"
+require_positive_int "VPS_WEB_PORT" "$VPS_WEB_PORT"
 
-codes="$(
-  run_remote "curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/; \
-             curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/login; \
-             curl -s -o /dev/null -w '%{http_code} ' http://127.0.0.1:$VPS_WEB_PORT/api/readyz; \
-             curl -s -o /dev/null -w '%{http_code}'  http://127.0.0.1:$VPS_WEB_PORT/api/status"
+report="$(
+  run_remote "VPS_WEB_PORT=$(printf %q "$VPS_WEB_PORT") bash -s" <<'REMOTE_EOF'
+set -euo pipefail
+
+ready_file="$(mktemp)"
+trap 'rm -f "$ready_file"' EXIT
+
+root_code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${VPS_WEB_PORT}/" || echo 000)"
+login_code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${VPS_WEB_PORT}/login" || echo 000)"
+readyz_code="$(curl -sS -o "$ready_file" -w '%{http_code}' "http://127.0.0.1:${VPS_WEB_PORT}/api/readyz?check=status" || echo 000)"
+status_code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${VPS_WEB_PORT}/api/status" || echo 000)"
+
+set +e
+readyz_detail="$(python3 - "$ready_file" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+except Exception as exc:
+    print(f"json_error:{exc}")
+    raise SystemExit(3)
+
+checks = payload.get("checks") or {}
+status = checks.get("status") or {}
+files = status.get("files") or {}
+missing = [name for name in ("status", "last", "diff") if files.get(name) is not True]
+ok = bool(payload.get("ok")) and bool(status.get("ok")) and not missing
+
+if ok:
+    print("ok")
+    raise SystemExit(0)
+
+detail = status.get("error") or "status_files_unhealthy"
+if missing:
+    detail = f"{detail};missing={','.join(missing)}"
+print(detail)
+raise SystemExit(4)
+PY
+)"
+readyz_detail_rc=$?
+set -e
+
+printf 'root_code=%s\n' "$root_code"
+printf 'login_code=%s\n' "$login_code"
+printf 'readyz_code=%s\n' "$readyz_code"
+printf 'status_code=%s\n' "$status_code"
+printf 'readyz_detail=%s\n' "$readyz_detail"
+printf 'readyz_detail_rc=%s\n' "$readyz_detail_rc"
+REMOTE_EOF
 )" || {
   echo "[smoke] FAIL: unable to execute remote smoke checks over SSH"
   exit 1
 }
 
-read -r root_code login_code readyz_code status_code <<<"$codes"
+root_code="$(printf '%s\n' "$report" | sed -n 's/^root_code=//p' | tail -n 1)"
+login_code="$(printf '%s\n' "$report" | sed -n 's/^login_code=//p' | tail -n 1)"
+readyz_code="$(printf '%s\n' "$report" | sed -n 's/^readyz_code=//p' | tail -n 1)"
+status_code="$(printf '%s\n' "$report" | sed -n 's/^status_code=//p' | tail -n 1)"
+readyz_detail="$(printf '%s\n' "$report" | sed -n 's/^readyz_detail=//p' | tail -n 1)"
+readyz_detail_rc="$(printf '%s\n' "$report" | sed -n 's/^readyz_detail_rc=//p' | tail -n 1)"
 
 echo "[smoke] / => $root_code"
 echo "[smoke] /login => $login_code"
-echo "[smoke] /api/readyz => $readyz_code"
+echo "[smoke] /api/readyz?check=status => $readyz_code ($readyz_detail)"
 echo "[smoke] /api/status => $status_code"
 
 if [[ "$root_code" != "200" && "$root_code" != "307" ]]; then
@@ -91,8 +144,8 @@ if [[ "$login_code" != "200" ]]; then
   exit 1
 fi
 
-if [[ "$readyz_code" != "200" ]]; then
-  echo "[smoke] FAIL: unexpected /api/readyz status $readyz_code"
+if [[ "$readyz_code" != "200" || "$readyz_detail_rc" != "0" ]]; then
+  echo "[smoke] FAIL: unexpected /api/readyz?check=status status $readyz_code detail=$readyz_detail"
   exit 1
 fi
 

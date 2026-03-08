@@ -96,6 +96,17 @@ make deploy
 make smoke
 ```
 
+What `make deploy` now does:
+- opens a short maintenance window on the VPS before the planned restart
+- restarts the target service/app
+- waits for repeated loopback canary passes (`/`, `/login`, `/api/readyz?check=status`, `/api/status`)
+- only then returns success
+
+What `make vps-doctor` now checks:
+- passwordless sudo for both `systemctl` and `vps-sentry-maintenance`
+- the `vps-sentry-unit-event@.service` template is using the correct `%i` wiring
+- the strict loopback canary already passes before you attempt a restart
+
 4. If needed:
 
 ```bash
@@ -112,6 +123,7 @@ make vps-doctor
 make vps-check
 make deploy
 make restart
+make smoke
 make logs
 make rollback TO=HEAD~1
 ```
@@ -210,6 +222,7 @@ make db-pg-rollback
 - `docs/sentinel-prime-runbook.md`
 - `docs/key-lifecycle-runbook.md`
 - `docs/abuse-closeout-runbook.md`
+- `docs/vps-sentry-upgrade-plan.md`
 
 ## Notes
 

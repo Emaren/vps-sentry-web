@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { safeRequestUrl } from "@/lib/request-url";
 
@@ -9,6 +10,22 @@ type DbCheck = {
   latencyMs: number;
   error: string | null;
 };
+
+type PublishedStatusCheck = {
+  ok: boolean;
+  error: string | null;
+  files: {
+    status: boolean;
+    last: boolean;
+    diff: boolean;
+  };
+};
+
+const PUBLISHED_STATUS_FILES = {
+  status: "/var/lib/vps-sentry/public/status.json",
+  last: "/var/lib/vps-sentry/public/last.json",
+  diff: "/var/lib/vps-sentry/public/diff.json",
+} as const;
 
 function asErrorMessage(error: unknown): string {
   if (error instanceof Error && typeof error.message === "string") return error.message;
@@ -39,12 +56,44 @@ async function runDbCheck(): Promise<DbCheck> {
   }
 }
 
+async function canReadJson(path: string): Promise<boolean> {
+  try {
+    const raw = await readFile(path, "utf8");
+    if (!raw.trim()) return false;
+    JSON.parse(raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function runPublishedStatusCheck(): Promise<PublishedStatusCheck> {
+  const [statusOk, lastOk, diffOk] = await Promise.all([
+    canReadJson(PUBLISHED_STATUS_FILES.status),
+    canReadJson(PUBLISHED_STATUS_FILES.last),
+    canReadJson(PUBLISHED_STATUS_FILES.diff),
+  ]);
+
+  const ok = statusOk && lastOk && diffOk;
+  return {
+    ok,
+    error: ok ? null : "published_status_unreadable",
+    files: {
+      status: statusOk,
+      last: lastOk,
+      diff: diffOk,
+    },
+  };
+}
+
 export async function GET(req: Request) {
   const url = safeRequestUrl(req);
   const check = url.searchParams.get("check");
   const includeDbCheck = check === "db" || url.searchParams.get("db") === "1";
+  const includeStatusCheck = check === "status" || check === "full" || check === null;
   const db = includeDbCheck ? await runDbCheck() : null;
-  const ok = db ? db.ok : true;
+  const status = includeStatusCheck ? await runPublishedStatusCheck() : null;
+  const ok = (status ? status.ok : true) && (db ? db.ok : true);
 
   const res = NextResponse.json(
     {
@@ -55,6 +104,7 @@ export async function GET(req: Request) {
       buildId: process.env.NEXT_BUILD_ID ?? null,
       checks: {
         db,
+        status,
       },
     },
     { status: ok ? 200 : 503 }

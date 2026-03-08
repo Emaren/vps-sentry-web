@@ -1,5 +1,6 @@
 import React from "react";
 import type { DerivedDashboard } from "../_lib/derive";
+import type { ProjectStorageSnapshot } from "@/lib/status";
 import Box from "./Box";
 
 type PortEntry = {
@@ -28,6 +29,27 @@ type ProjectDef = {
   services: ProjectService[];
 };
 
+type ProjectStorageLargestDir = {
+  label: string;
+  diskBytes: number | null;
+};
+
+type ProjectStorageProject = {
+  measuredAt: string | null;
+  rootsConfigured: number | null;
+  rootsPresent: number | null;
+  diskBytes: number | null;
+  apparentBytes: number | null;
+  fileCount: number | null;
+  largestDirs: ProjectStorageLargestDir[];
+};
+
+type ProjectStoragePayload = {
+  measuredAt: string | null;
+  ttlSeconds: number | null;
+  projects: Record<string, ProjectStorageProject>;
+};
+
 function fmtPercent(v: number | null): string {
   if (typeof v !== "number" || !Number.isFinite(v)) return "—";
   return `${Math.max(0, Math.min(100, Math.round(v)))}%`;
@@ -42,6 +64,27 @@ function fmtSizeFromMb(v: number | null): string {
   if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return "—";
   if (v >= 1024) return `${(v / 1024).toFixed(v >= 10 * 1024 ? 0 : 1)}GB`;
   return `${Math.round(v)}MB`;
+}
+
+function fmtBytes(v: number | null): string {
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return "—";
+  if (v === 0) return "0B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = v;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const decimals = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(decimals)}${units[unitIndex]}`;
+}
+
+function fmtFileCount(v: number | null): string {
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return "—";
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(v >= 10_000 ? 0 : 1)}k`;
+  return `${Math.round(v)}`;
 }
 
 function clampBar(v: number | null): number {
@@ -137,48 +180,50 @@ function pickPortsFromDerived(d: DerivedDashboard): { local: PortEntry[]; pub: P
 
   // 3) bounded BFS over derived to find any arrays that look like ports
   const hits: Array<{ path: string; arr: PortEntry[]; score: number; pubT: number; pubF: number }> = [];
-  const seen = new WeakSet<object>();
+  const seen = new Set<unknown>();
   const q: Array<{ v: unknown; path: string; depth: number }> = [{ v: d, path: "derived", depth: 0 }];
 
   let visited = 0;
   const MAX_NODES = 1200;
   const MAX_DEPTH = 6;
 
-  while (q.length && visited < MAX_NODES) {
-    const cur = q.shift()!;
-    visited++;
+  try {
+    while (q.length && visited < MAX_NODES) {
+      const cur = q.shift()!;
+      visited++;
 
-    if (!cur || typeof cur.v !== "object") continue;
+      if (!cur || typeof cur.v !== "object" || cur.v === null) continue;
+      if (seen.has(cur.v)) continue;
+      seen.add(cur.v);
 
-    const obj = cur.v as object;
-    if (seen.has(obj)) continue;
-    seen.add(obj);
-
-    if (Array.isArray(cur.v)) {
-      // only traverse a few elements to avoid explosion
-      const arr = cur.v as unknown[];
-      for (let i = 0; i < Math.min(arr.length, 6); i++) {
-        q.push({ v: arr[i], path: `${cur.path}[${i}]`, depth: cur.depth + 1 });
+      if (Array.isArray(cur.v)) {
+        // only traverse a few elements to avoid explosion
+        const arr = cur.v as unknown[];
+        for (let i = 0; i < Math.min(arr.length, 6); i++) {
+          q.push({ v: arr[i], path: `${cur.path}[${i}]`, depth: cur.depth + 1 });
+        }
+        continue;
       }
-      continue;
+
+      const rec = cur.v as Record<string, unknown>;
+      for (const [k, vv] of Object.entries(rec)) {
+        const path = `${cur.path}.${k}`;
+
+        if (Array.isArray(vv) && vv.length && typeof vv[0] === "object" && vv[0] !== null) {
+          const arr = vv as PortEntry[];
+
+          // “looks like port list” = at least a couple entries with port+pid
+          const { score, looks, pubT, pubF } = scorePortArray(arr);
+          if (looks >= 2) hits.push({ path, arr, score, pubT, pubF });
+        }
+
+        if (cur.depth < MAX_DEPTH) {
+          q.push({ v: vv, path, depth: cur.depth + 1 });
+        }
+      }
     }
-
-    const rec = cur.v as Record<string, unknown>;
-    for (const [k, vv] of Object.entries(rec)) {
-      const path = `${cur.path}.${k}`;
-
-      if (Array.isArray(vv) && vv.length && typeof vv[0] === "object") {
-        const arr = vv as PortEntry[];
-
-        // “looks like port list” = at least a couple entries with port+pid
-        const { score, looks, pubT, pubF } = scorePortArray(arr);
-        if (looks >= 2) hits.push({ path, arr, score, pubT, pubF });
-      }
-
-      if (cur.depth < MAX_DEPTH) {
-        q.push({ v: vv, path, depth: cur.depth + 1 });
-      }
-    }
+  } catch {
+    return { local: [], pub: [], debug: "bfs:error" };
   }
 
   if (!hits.length) return { local: [], pub: [], debug: "bfs: none" };
@@ -212,6 +257,59 @@ function pickPortsFromDerived(d: DerivedDashboard): { local: PortEntry[]; pub: P
     pub,
     debug: `bfs:best path=${best.path} local=${fallbackLocal.length} pub=${pub.length}`,
   };
+}
+
+function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | null {
+  const rec = asRecord(value);
+  const projectsRec = asRecord(rec?.projects);
+  if (!projectsRec) return null;
+
+  const projects: Record<string, ProjectStorageProject> = {};
+  for (const [key, rawProject] of Object.entries(projectsRec)) {
+    const project = asRecord(rawProject);
+    if (!project) continue;
+    const largestDirs = safeArray<Record<string, unknown>>(project.largest_dirs)
+      .map((entry) => {
+        const label = typeof entry?.label === "string" ? entry.label.trim() : "";
+        return {
+          label,
+          diskBytes: toInt(entry?.disk_bytes),
+        };
+      })
+      .filter((entry) => entry.label.length > 0);
+
+    projects[key] = {
+      measuredAt: typeof project.measured_at === "string" ? project.measured_at : null,
+      rootsConfigured: toInt(project.roots_configured),
+      rootsPresent: toInt(project.roots_present),
+      diskBytes: toInt(project.disk_bytes),
+      apparentBytes: toInt(project.apparent_bytes),
+      fileCount: toInt(project.file_count),
+      largestDirs,
+    };
+  }
+
+  return {
+    measuredAt: typeof rec?.measured_at === "string" ? rec.measured_at : null,
+    ttlSeconds: toInt(rec?.ttl_seconds),
+    projects,
+  };
+}
+
+function pickProjectStorageFromDerived(d: DerivedDashboard): ProjectStoragePayload | null {
+  const root = d as unknown as Record<string, unknown>;
+  const candidates: unknown[] = [
+    root["project_storage"],
+    asRecord(root["canonicalStatus"])?.["project_storage"],
+    asRecord(root["status"])?.["project_storage"],
+    asRecord(root["last"])?.["project_storage"],
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = parseProjectStoragePayload(candidate as ProjectStorageSnapshot | unknown);
+    if (parsed && Object.keys(parsed.projects).length) return parsed;
+  }
+  return null;
 }
 
 function findPort(ports: PortEntry[], port: number): PortEntry | undefined {
@@ -384,6 +482,15 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
   const rows = otherRow ? [...topRows, otherRow] : topRows;
 
   const { local: portsLocal, pub: portsPublic, debug: portsDebug } = pickPortsFromDerived(d);
+  const projectStorage = pickProjectStorageFromDerived(d);
+  const totalTrackedDisk = Object.values(projectStorage?.projects ?? {}).reduce(
+    (sum, project) => sum + (project.diskBytes ?? 0),
+    0
+  );
+  const storageTtlLabel =
+    typeof projectStorage?.ttlSeconds === "number" && projectStorage.ttlSeconds > 0
+      ? `${Math.round(projectStorage.ttlSeconds / 60)}m`
+      : null;
 
   // PID -> vitals row (handle pid being number OR string)
   const pidToVitals = new Map<number, (typeof d.vitalsProcesses)[number]>();
@@ -393,6 +500,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
   }
 
   const projectCards = MAIN_PROJECTS.map((proj) => {
+    const storage = projectStorage?.projects[proj.key];
     const backendHrefResolved = resolveBackendHref(proj);
     const backendLabel = resolveBackendLabel(proj);
     const services = proj.services.map((svc) => {
@@ -427,6 +535,25 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       typeof memSum === "number" && typeof d.memoryTotalMb === "number" && d.memoryTotalMb > 0
         ? clampBar((memSum / d.memoryTotalMb) * 100)
         : 0;
+    const diskBarPercent =
+      totalTrackedDisk > 0 && typeof storage?.diskBytes === "number"
+        ? clampBar((storage.diskBytes / totalTrackedDisk) * 100)
+        : 0;
+    const diskMetaParts = [
+      typeof storage?.apparentBytes === "number" ? `${fmtBytes(storage.apparentBytes)} apparent` : null,
+      typeof storage?.fileCount === "number" ? `${fmtFileCount(storage.fileCount)} files` : null,
+    ].filter((value): value is string => Boolean(value));
+    const diskMeta =
+      diskMetaParts.join(" · ") ||
+      (typeof storage?.rootsConfigured === "number" && storage.rootsConfigured > 0 && storage.rootsPresent === 0
+        ? "tracked roots missing"
+        : "disk scan pending");
+    const largestDirsSummary = storage?.largestDirs.length
+      ? storage.largestDirs
+          .slice(0, 2)
+          .map((entry) => `${entry.label} ${fmtBytes(entry.diskBytes)}`)
+          .join(" · ")
+      : null;
 
     const portsLabel = services
       .map((s) => {
@@ -451,6 +578,10 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       cpuBarPercent,
       memoryMb: memSum,
       memoryBarPercent: memBarPercent,
+      diskBytes: storage?.diskBytes ?? null,
+      diskBarPercent,
+      diskMeta,
+      largestDirsSummary,
       portsLabel,
     };
   });
@@ -467,9 +598,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       <Box className="power-vitals-shell">
         <div className="power-vitals-head">
           <div>
-            <h2 className="power-vitals-title">Power / Memory</h2>
+            <h2 className="power-vitals-title">Power / Memory / Disk</h2>
             <p className="power-vitals-subtitle">
-              VPS health at-a-glance, with per-project status (ports + PID vitals) and a full process view.
+              VPS health at-a-glance, with per-project status, process vitals, and tracked disk footprint.
             </p>
           </div>
           <span className={d.hasVitals ? "dashboard-chip dashboard-chip-ok" : "dashboard-chip dashboard-chip-warn"}>
@@ -541,7 +672,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
         {/* PROJECTS VIEW */}
         <div className="pm-view pm-view-projects" aria-label="Projects overview">
           <div className="power-vitals-list-head">
-            {projectCards.length} main project{projectCards.length === 1 ? "" : "s"} (status + CPU share + RAM by bound port/PID)
+            {projectCards.length} main project{projectCards.length === 1 ? "" : "s"} (status + CPU share + RAM by bound port/PID + Disk on tracked project trees)
           </div>
 
           <div className="pm-projects-tiles" role="list" aria-label="Projects tiles">
@@ -603,10 +734,22 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                       <span style={{ width: `${p.memoryBarPercent}%` }} />
                     </div>
                   </div>
+                  <div className="pm-project-metric">
+                    <div className="pm-project-metric-label">Disk</div>
+                    <div className="pm-project-metric-value">{fmtBytes(p.diskBytes)}</div>
+                    <div className="pm-project-metric-sub">{p.diskMeta}</div>
+                    <div className="pm-project-metric-bar">
+                      <span style={{ width: `${p.diskBarPercent}%` }} />
+                    </div>
+                  </div>
                 </div>
 
                 {p.missingRequired.length > 0 ? (
                   <div className="pm-project-missing">Missing required: {p.missingRequired.join(", ")}</div>
+                ) : null}
+
+                {p.largestDirsSummary ? (
+                  <div className="pm-project-storage-note">Largest dirs: {p.largestDirsSummary}</div>
                 ) : null}
 
                 <div className="pm-project-services-text" aria-label="Per-service ports and process IDs">
@@ -660,6 +803,11 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                   <div className="pm-project-list-metric-label">RAM</div>
                 </div>
 
+                <div className="pm-project-list-metric">
+                  <div className="pm-project-list-metric-value">{fmtBytes(p.diskBytes)}</div>
+                  <div className="pm-project-list-metric-label">Disk</div>
+                </div>
+
                 <div className="pm-project-list-status">
                   <div className={p.up ? "pm-project-status pm-project-status-ok" : "pm-project-status pm-project-status-bad"}>
                     <span className="pm-project-dot" />
@@ -673,7 +821,8 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
           <div className="power-vitals-foot">
             Ports seen in UI: local {portsLocal.length}, public {portsPublic.length}. ({portsDebug}) Tip: CPU/RAM are derived by matching
             the project’s local ports to a PID, then looking up that PID in the vitals list. If a PID isn’t in the
-            current top vitals sample, you’ll see “—”.
+            current top vitals sample, you’ll see “—”. Disk is cached host-side from tracked project roots
+            {storageTtlLabel ? ` (refresh target ${storageTtlLabel})` : ""}.
           </div>
         </div>
 

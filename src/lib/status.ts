@@ -67,6 +67,41 @@ export type Vitals = {
   };
 };
 
+export type ProjectStorageLargestDir = {
+  label?: string;
+  disk_bytes?: number;
+};
+
+export type ProjectStorageRoot = {
+  label?: string;
+  exists?: boolean;
+  disk_bytes?: number;
+  apparent_bytes?: number;
+  file_count?: number;
+  largest_dirs?: ProjectStorageLargestDir[];
+};
+
+export type ProjectStorageProject = {
+  id?: string;
+  label?: string;
+  measured_at?: string;
+  roots_configured?: number;
+  roots_present?: number;
+  disk_bytes?: number;
+  apparent_bytes?: number;
+  file_count?: number;
+  roots?: ProjectStorageRoot[];
+  largest_dirs?: ProjectStorageLargestDir[];
+};
+
+export type ProjectStorageSnapshot = {
+  measured_at?: string;
+  ttl_seconds?: number;
+  top_dirs_limit?: number;
+  top_dirs_depth?: number;
+  projects?: Record<string, ProjectStorageProject>;
+};
+
 export type Status = {
   host: string;
   version: string;
@@ -110,6 +145,9 @@ export type Status = {
 
   // Optional: VPS resource vitals
   vitals?: Vitals;
+
+  // Optional: per-project disk footprint telemetry
+  project_storage?: ProjectStorageSnapshot;
 
   // Allow forward-compatible extra fields without TypeScript fights
   [k: string]: unknown;

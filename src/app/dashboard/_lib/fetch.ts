@@ -55,6 +55,7 @@ function toIso(v: Date | null | undefined): string | null {
 type LegacyPortsEnvelope = {
   ports_local?: unknown;
   ports_public?: unknown;
+  project_storage?: unknown;
   ports?: {
     local?: unknown;
     public?: unknown;
@@ -164,6 +165,9 @@ export async function getStatusEnvelopeSafe() {
       );
       const portsPublic =
         portsPublicFromStatus.length > 0 ? portsPublicFromStatus : portsPublicFromLast;
+      const projectStorage =
+        (status?.project_storage as LegacyPortsEnvelope["project_storage"]) ??
+        (last?.project_storage as LegacyPortsEnvelope["project_storage"]);
 
       // Ensure BOTH roots expose ports_local/ports_public so downstream derive logic
       // can’t “miss” them depending on which root it uses.
@@ -171,6 +175,7 @@ export async function getStatusEnvelopeSafe() {
         ...(status ?? {}),
         ports_local: portsLocal,
         ports_public: portsPublic,
+        project_storage: projectStorage,
       };
 
       const patchedLast = {
@@ -178,6 +183,7 @@ export async function getStatusEnvelopeSafe() {
         ...(last ?? {}),
         ports_local: portsLocal,
         ports_public: portsPublic,
+        project_storage: projectStorage,
       };
 
       const patched = { ...obj, status: patchedStatus, last: patchedLast };
