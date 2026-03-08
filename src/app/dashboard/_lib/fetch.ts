@@ -25,6 +25,9 @@ import type {
   DashboardKeyLifecycleSummary,
   DashboardOpsPanelHealth,
   DashboardOpsSnapshot,
+  DashboardProtectionSnapshot,
+  DashboardProtectionWin,
+  DashboardProtectionWinCategory,
   DashboardRemediationRunItem,
   DashboardRemediationSnapshot,
   DashboardShippingSnapshot,
@@ -91,6 +94,293 @@ function signalLabelFromCode(code: string): string {
     .filter(Boolean)
     .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
     .join(" ");
+}
+
+function parseJsonDict(raw: string | null | undefined): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "string") return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function toMs(v: string | null | undefined): number {
+  if (!v) return 0;
+  const ms = Date.parse(v);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function classifyRemediationCategory(actionKey: string): DashboardProtectionWinCategory {
+  return /harden|lockdown|verify|rotate|contain|quarantine/i.test(actionKey)
+    ? "hardening"
+    : "remediation";
+}
+
+function buildProtectionHeadline(input: {
+  neutralized: number;
+  recovered: number;
+  hardening: number;
+  remediation: number;
+}): string {
+  const parts: string[] = [];
+  if (input.neutralized > 0) {
+    parts.push(`${input.neutralized} confirmed neutralization${input.neutralized === 1 ? "" : "s"}`);
+  }
+  if (input.recovered > 0) {
+    parts.push(`${input.recovered} recovery${input.recovered === 1 ? "" : "ies"} closed cleanly`);
+  }
+  const autoWins = input.hardening + input.remediation;
+  if (autoWins > 0) {
+    parts.push(`${autoWins} successful protective action${autoWins === 1 ? "" : "s"}`);
+  }
+  if (parts.length === 0) {
+    return "Protection record is clean, but there are no confirmed wins in the ledger yet.";
+  }
+  return `Since watch began: ${parts.join(" · ")}.`;
+}
+
+function buildProtectionSubline(
+  latest: DashboardProtectionWin | null,
+  firstRecordedAtIso: string | null
+): string {
+  if (!latest) {
+    return "First confirmed save will appear here the moment VPSSentry catches and clears something real.";
+  }
+  const sinceTxt = firstRecordedAtIso ? ` Tracking wins since ${new Date(firstRecordedAtIso).toLocaleString()}.` : "";
+  return `Latest win: ${latest.title}. ${latest.summary}${sinceTxt}`;
+}
+
+function rollupProtectionWins(rows: DashboardProtectionWin[]): DashboardProtectionWin[] {
+  const sorted = [...rows].sort((a, b) => toMs(b.occurredAt) - toMs(a.occurredAt));
+  const out: DashboardProtectionWin[] = [];
+  const bucketMs = 5 * 60 * 1000;
+
+  for (const row of sorted) {
+    const bucket = Math.floor(toMs(row.occurredAt) / bucketMs);
+    const prev = out[out.length - 1];
+    const sameWindow =
+      prev &&
+      prev.source === row.source &&
+      prev.category === row.category &&
+      prev.title === row.title &&
+      prev.hostName === row.hostName &&
+      Math.floor(toMs(prev.occurredAt) / bucketMs) === bucket;
+
+    if (sameWindow && prev) {
+      prev.repeatCount += row.repeatCount;
+      if (toMs(row.occurredAt) > toMs(prev.occurredAt)) {
+        prev.occurredAt = row.occurredAt;
+      }
+      continue;
+    }
+
+    out.push({ ...row });
+  }
+
+  return out;
+}
+
+async function getProtectionSnapshotForUser(input: {
+  userId: string;
+  hostIds: string[];
+  breaches: DashboardBreachesSnapshot | null;
+  remediation: DashboardRemediationSnapshot | null;
+}): Promise<DashboardProtectionSnapshot> {
+  const scopedAuditOr: Array<Record<string, unknown>> = [{ userId: input.userId }];
+  if (input.hostIds.length > 0) {
+    scopedAuditOr.push({ hostId: { in: input.hostIds } });
+  }
+
+  const [auditCount, auditRows, incidentCount, incidentRows] = await Promise.all([
+    prisma.auditLog.count({
+      where: {
+        OR: scopedAuditOr,
+        action: { startsWith: "security.win." },
+      },
+    }),
+    prisma.auditLog.findMany({
+      where: {
+        OR: scopedAuditOr,
+        action: { startsWith: "security.win." },
+      },
+      orderBy: [{ createdAt: "desc" }],
+      take: 120,
+      select: {
+        id: true,
+        action: true,
+        detail: true,
+        metaJson: true,
+        createdAt: true,
+        hostId: true,
+        host: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    }),
+    prisma.incidentWorkflowRun.count({
+      where: {
+        OR: [{ hostId: { in: input.hostIds } }, { createdByUserId: input.userId }],
+        state: { in: ["resolved", "closed"] },
+      },
+    }),
+    prisma.incidentWorkflowRun.findMany({
+      where: {
+        OR: [{ hostId: { in: input.hostIds } }, { createdByUserId: input.userId }],
+        state: { in: ["resolved", "closed"] },
+      },
+      orderBy: [{ updatedAt: "desc" }],
+      take: 60,
+      select: {
+        id: true,
+        title: true,
+        summary: true,
+        hostId: true,
+        resolvedAt: true,
+        closedAt: true,
+        updatedAt: true,
+        host: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    }),
+  ]);
+
+  const wins: DashboardProtectionWin[] = [];
+
+  for (const row of auditRows) {
+    const meta = parseJsonDict(row.metaJson);
+    const categoryRaw = typeof meta?.category === "string" ? meta.category : "neutralized";
+    const category: DashboardProtectionWinCategory =
+      categoryRaw === "recovered" ||
+      categoryRaw === "hardening" ||
+      categoryRaw === "remediation"
+        ? categoryRaw
+        : "neutralized";
+    const title =
+      (typeof meta?.title === "string" && meta.title.trim()) ||
+      row.detail ||
+      row.action.replace(/^security\.win\./, "").replaceAll("_", " ");
+    const summary =
+      (typeof meta?.summary === "string" && meta.summary.trim()) ||
+      row.detail ||
+      "Operator logged a confirmed protection win.";
+    wins.push({
+      id: `audit:${row.id}`,
+      category,
+      source: "audit",
+      title,
+      summary,
+      occurredAt: row.createdAt.toISOString(),
+      hostId: row.hostId,
+      hostName: row.host?.name ?? null,
+      tone: category === "neutralized" ? "bad" : "ok",
+      repeatCount: 1,
+      evidenceLabel:
+        typeof meta?.evidenceLabel === "string" && meta.evidenceLabel.trim()
+          ? meta.evidenceLabel
+          : null,
+    });
+  }
+
+  for (const row of input.breaches?.recent ?? []) {
+    if (row.state !== "fixed") continue;
+    wins.push({
+      id: `breach:${row.id}`,
+      category: "neutralized",
+      source: "breach",
+      title: row.title,
+      summary: row.detail?.trim() || "Threat condition cleared and marked fixed.",
+      occurredAt: row.fixedTs ?? row.updatedAt,
+      hostId: row.hostId,
+      hostName: row.hostName,
+      tone: row.severity === "critical" ? "bad" : "ok",
+      repeatCount: 1,
+      evidenceLabel: row.code ?? null,
+    });
+  }
+
+  for (const row of incidentRows) {
+    wins.push({
+      id: `incident:${row.id}`,
+      category: "recovered",
+      source: "incident",
+      title: row.title,
+      summary: row.summary?.trim() || "Incident lifecycle reached a clean resolved/closed state.",
+      occurredAt:
+        row.closedAt?.toISOString() ??
+        row.resolvedAt?.toISOString() ??
+        row.updatedAt.toISOString(),
+      hostId: row.hostId,
+      hostName: row.host?.name ?? null,
+      tone: "ok",
+      repeatCount: 1,
+      evidenceLabel: row.closedAt ? "closed" : "resolved",
+    });
+  }
+
+  for (const run of input.remediation?.recentRuns ?? []) {
+    if (run.state !== "succeeded") continue;
+    const category = classifyRemediationCategory(run.actionKey);
+    wins.push({
+      id: `remediation:${run.runId}`,
+      category,
+      source: "remediation",
+      title: run.actionTitle,
+      summary:
+        category === "hardening"
+          ? `${run.hostName} accepted a protective hardening action without rollback.`
+          : `${run.hostName} completed an automated remediation successfully.`,
+      occurredAt: run.finishedAt ?? run.startedAt ?? run.requestedAt,
+      hostId: run.hostId,
+      hostName: run.hostName,
+      tone: "ok",
+      repeatCount: 1,
+      evidenceLabel: run.actionKey,
+    });
+  }
+
+  const rolled = rollupProtectionWins(wins).slice(0, 40);
+  const latest = rolled[0] ?? null;
+  const times = rolled.map((row) => toMs(row.occurredAt)).filter((value) => value > 0);
+  const firstRecordedAtIso =
+    times.length > 0 ? new Date(Math.min(...times)).toISOString() : null;
+
+  const hardeningCount = (input.remediation?.recentRuns ?? []).filter(
+    (run) => run.state === "succeeded" && classifyRemediationCategory(run.actionKey) === "hardening"
+  ).length;
+  const remediationCount = (input.remediation?.recentRuns ?? []).filter(
+    (run) => run.state === "succeeded" && classifyRemediationCategory(run.actionKey) === "remediation"
+  ).length;
+
+  const counts = {
+    neutralized: auditCount + (input.breaches?.counts.fixed ?? 0),
+    recovered: incidentCount,
+    hardening: hardeningCount,
+    remediation: remediationCount,
+    total:
+      auditCount +
+      (input.breaches?.counts.fixed ?? 0) +
+      incidentCount +
+      hardeningCount +
+      remediationCount,
+  };
+
+  return {
+    generatedAtIso: new Date().toISOString(),
+    firstRecordedAtIso,
+    mostRecentAtIso: latest?.occurredAt ?? null,
+    headline: buildProtectionHeadline(counts),
+    subline: buildProtectionSubline(latest, firstRecordedAtIso),
+    counts,
+    recent: rolled,
+  };
 }
 
 export async function getStatusEnvelopeSafe() {
@@ -372,7 +662,7 @@ async function getBreachesSnapshotForHosts(input: {
         hostId: { in: input.hostIds },
       },
       orderBy: [{ openedTs: "desc" }],
-      take: 30,
+      take: 120,
       select: {
         id: true,
         hostId: true,
@@ -399,7 +689,10 @@ async function getBreachesSnapshotForHosts(input: {
 
   return {
     counts: {
-      total: rows.length,
+      total:
+        (byState.get("open") ?? 0) +
+        (byState.get("fixed") ?? 0) +
+        (byState.get("ignored") ?? 0),
       open: byState.get("open") ?? 0,
       fixed: byState.get("fixed") ?? 0,
       ignored: byState.get("ignored") ?? 0,
@@ -549,7 +842,7 @@ async function getRemediationSnapshotForHosts(input: {
       paramsJson: { contains: '"mode":"execute"' },
     },
     orderBy: [{ requestedAt: "desc" }],
-    take: 80,
+    take: 120,
     select: {
       id: true,
       hostId: true,
@@ -900,6 +1193,7 @@ export async function getDashboardOpsSnapshot(input: {
   const remediation = remediationRes.status === "fulfilled" ? remediationRes.value : null;
 
   const panelHealth: DashboardOpsPanelHealth = {
+    protection: panelEmpty("Protection ledger waiting for backend response.", updatedAtIso),
     breaches:
       breachesRes.status === "fulfilled"
         ? breachesRes.value.counts.total > 0
@@ -1084,6 +1378,42 @@ export async function getDashboardOpsSnapshot(input: {
     panelHealth.adaptive = panelReady("Adaptive runtime connected with live recommendations.", updatedAtIso);
   }
 
+  let protection: DashboardProtectionSnapshot | null = null;
+  let protectionError: string | null = null;
+  try {
+    protection = await getProtectionSnapshotForUser({
+      userId: input.userId,
+      hostIds,
+      breaches,
+      remediation,
+    });
+  } catch (err: unknown) {
+    protection = null;
+    protectionError = errorMessage(err);
+  }
+
+  if (protectionError) {
+    panelHealth.protection = panelError(
+      `Protection ledger unavailable: ${protectionError}`,
+      updatedAtIso
+    );
+  } else if (!protection) {
+    panelHealth.protection = panelEmpty(
+      "Protection ledger returned no payload.",
+      updatedAtIso
+    );
+  } else if (protection.counts.total === 0) {
+    panelHealth.protection = panelEmpty(
+      "Protection ledger connected; no confirmed wins recorded yet.",
+      updatedAtIso
+    );
+  } else {
+    panelHealth.protection = panelReady(
+      `Protection ledger connected (${protection.counts.total} wins logged).`,
+      updatedAtIso
+    );
+  }
+
   return {
     generatedAtIso: updatedAtIso,
     access: {
@@ -1103,5 +1433,6 @@ export async function getDashboardOpsSnapshot(input: {
     shipping,
     remediation,
     adaptive,
+    protection,
   };
 }

@@ -31,6 +31,7 @@ function baseOps(): DashboardOpsSnapshot {
       canAdmin: true,
     },
     panelHealth: {
+      protection: ready,
       breaches: ready,
       shipping: ready,
       remediation: ready,
@@ -49,6 +50,7 @@ function baseOps(): DashboardOpsSnapshot {
     observability: null,
     fleet: null,
     keyLifecycle: null,
+    protection: null,
     breaches: null,
     shipping: null,
     remediation: null,

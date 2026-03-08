@@ -18,6 +18,7 @@ import {
   DashboardFooter,
   MissionControlSection,
   PortsSection,
+  ProtectionRecordSection,
   RemediationsSection,
   ShippingSection,
   ThreatSection,
@@ -101,6 +102,7 @@ export default function DashboardView(props: {
 
       <PowerMemoryTile derived={d} />
       <ViewScreen status={s} derived={d} initialPulse={livePulse} />
+      <ProtectionRecordSection ops={ops} snapshotTs={d.snapshotTs} />
 
       <div style={{ marginTop: 10 }}>
         <TopArea

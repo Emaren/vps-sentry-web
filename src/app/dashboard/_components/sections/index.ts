@@ -1,4 +1,5 @@
 export { default as TopArea } from "./TopArea";
+export { default as ProtectionRecordSection } from "./ProtectionRecordSection";
 export { default as MissionControlSection } from "./MissionControlSection";
 export { default as CommandCenterSection } from "./CommandCenterSection";
 export { default as CoachSection } from "./CoachSection";

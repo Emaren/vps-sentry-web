@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { requireOpsAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
 import { incrementCounter, runObservedRoute } from "@/lib/observability";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -460,6 +461,70 @@ async function readStatusJson(): Promise<JsonRecord | null> {
   }
 }
 
+async function resolveHostIdForUser(userId: string, host: string): Promise<string | null> {
+  const normalized = host.trim();
+  if (!normalized) return null;
+  const row = await prisma.host.findFirst({
+    where: {
+      userId,
+      OR: [{ name: normalized }, { slug: normalized }],
+    },
+    select: { id: true },
+  });
+  return row?.id ?? null;
+}
+
+async function writeContainmentWin(input: {
+  req: Request;
+  userId: string;
+  host: string;
+  snapshotTs: string | null;
+  contained: number;
+  failed: number;
+  results: CandidateResult[];
+}): Promise<void> {
+  if (input.contained <= 0) return;
+  const hostId = await resolveHostIdForUser(input.userId, input.host);
+  const topEvidence = input.results
+    .filter((row) => row.contained)
+    .slice(0, 3)
+    .map((row) => ({
+      pid: row.pid,
+      proc: row.proc,
+      exe: row.exe,
+      quarantinePath: row.quarantinePath,
+      sha256: row.sha256,
+    }));
+  const summary =
+    input.contained === 1
+      ? `Contained and quarantined 1 suspicious runtime IOC on ${input.host}.`
+      : `Contained and quarantined ${input.contained} suspicious runtime IOCs on ${input.host}.`;
+  await writeAuditLog({
+    req: input.req,
+    userId: input.userId,
+    hostId,
+    action: "security.win.runtime_ioc_contained",
+    detail: input.contained === 1 ? "Suspicious runtime IOC contained" : "Suspicious runtime IOCs contained",
+    meta: {
+      category: "neutralized",
+      title:
+        input.contained === 1
+          ? "Suspicious runtime IOC contained"
+          : `${input.contained} suspicious runtime IOCs contained`,
+      summary:
+        input.failed > 0
+          ? `${summary} ${input.failed} additional candidate(s) still need manual follow-up.`
+          : `${summary} No containment failures remained in this run.`,
+      evidenceLabel: input.contained === 1 ? "runtime IOC" : `${input.contained} runtime IOCs`,
+      host: input.host,
+      snapshotTs: input.snapshotTs,
+      contained: input.contained,
+      failed: input.failed,
+      evidence: topEvidence,
+    },
+  });
+}
+
 export async function POST(req: Request) {
   return runObservedRoute(
     req,
@@ -580,6 +645,16 @@ export async function POST(req: Request) {
             detail: truncate(row.detail, 400),
           })),
         },
+      });
+
+      await writeContainmentWin({
+        req,
+        userId: access.identity.userId,
+        host,
+        snapshotTs,
+        contained,
+        failed,
+        results,
       });
 
       return NextResponse.json({

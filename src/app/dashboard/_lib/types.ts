@@ -15,6 +15,7 @@ export type DashboardPanelHealth = {
 };
 
 export type DashboardOpsPanelHealth = {
+  protection: DashboardPanelHealth;
   breaches: DashboardPanelHealth;
   shipping: DashboardPanelHealth;
   remediation: DashboardPanelHealth;
@@ -184,6 +185,48 @@ export type DashboardAdaptiveSnapshot = {
   recommendations: DashboardAdaptiveRecommendation[];
 };
 
+export type DashboardProtectionWinCategory =
+  | "neutralized"
+  | "recovered"
+  | "hardening"
+  | "remediation";
+
+export type DashboardProtectionWinSource =
+  | "audit"
+  | "breach"
+  | "incident"
+  | "remediation";
+
+export type DashboardProtectionWin = {
+  id: string;
+  category: DashboardProtectionWinCategory;
+  source: DashboardProtectionWinSource;
+  title: string;
+  summary: string;
+  occurredAt: string;
+  hostId: string | null;
+  hostName: string | null;
+  tone: "ok" | "warn" | "bad";
+  repeatCount: number;
+  evidenceLabel: string | null;
+};
+
+export type DashboardProtectionSnapshot = {
+  generatedAtIso: string;
+  firstRecordedAtIso: string | null;
+  mostRecentAtIso: string | null;
+  headline: string;
+  subline: string;
+  counts: {
+    neutralized: number;
+    recovered: number;
+    hardening: number;
+    remediation: number;
+    total: number;
+  };
+  recent: DashboardProtectionWin[];
+};
+
 export type DashboardOpsSnapshot = {
   generatedAtIso: string;
   access: {
@@ -203,4 +246,5 @@ export type DashboardOpsSnapshot = {
   shipping: DashboardShippingSnapshot | null;
   remediation: DashboardRemediationSnapshot | null;
   adaptive: DashboardAdaptiveSnapshot | null;
+  protection: DashboardProtectionSnapshot | null;
 };
