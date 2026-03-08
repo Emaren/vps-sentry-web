@@ -42,13 +42,29 @@ type ProjectStorageBucket = {
   matchCount: number | null;
 };
 
+type ProjectStorageHostFilesystem = {
+  path: string | null;
+  measuredAt: string | null;
+  totalBytes: number | null;
+  usedBytes: number | null;
+  availableBytes: number | null;
+  usedPercent: number | null;
+  warnPercent: number | null;
+  failPercent: number | null;
+  level: "ok" | "warn" | "critical" | null;
+};
+
 type ProjectStorageProject = {
   measuredAt: string | null;
+  previousMeasuredAt: string | null;
   rootsConfigured: number | null;
   rootsPresent: number | null;
   diskBytes: number | null;
   apparentBytes: number | null;
   fileCount: number | null;
+  deltaDiskBytes: number | null;
+  deltaApparentBytes: number | null;
+  deltaFileCount: number | null;
   buckets: Record<string, ProjectStorageBucket>;
   largestDirs: ProjectStorageLargestDir[];
 };
@@ -58,6 +74,7 @@ type ProjectStoragePayload = {
   measuredAt: string | null;
   ttlSeconds: number | null;
   bucketOrder: string[];
+  hostFilesystem: ProjectStorageHostFilesystem | null;
   projects: Record<string, ProjectStorageProject>;
 };
 
@@ -91,6 +108,11 @@ function fmtBytes(v: number | null): string {
   return `${value.toFixed(decimals)}${units[unitIndex]}`;
 }
 
+function fmtSignedBytes(v: number | null): string {
+  if (typeof v !== "number" || !Number.isFinite(v) || v === 0) return "0B";
+  return `${v > 0 ? "+" : "-"}${fmtBytes(Math.abs(v))}`;
+}
+
 function fmtFileCount(v: number | null): string {
   if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return "—";
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1)}M`;
@@ -101,6 +123,15 @@ function fmtFileCount(v: number | null): string {
 function clampBar(v: number | null): number {
   if (typeof v !== "number" || !Number.isFinite(v)) return 0;
   return Math.max(0, Math.min(100, v));
+}
+
+function parseUsedPercent(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const n = Number.parseFloat(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
 function safeArray<T>(v: unknown): T[] {
@@ -275,6 +306,7 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
   const projectsRec = asRecord(rec?.projects);
   if (!projectsRec) return null;
   const bucketOrder = safeArray<string>(rec?.bucket_order).filter((entry) => typeof entry === "string" && entry.trim().length > 0);
+  const hostFilesystemRec = asRecord(rec?.host_filesystem);
 
   const projects: Record<string, ProjectStorageProject> = {};
   for (const [key, rawProject] of Object.entries(projectsRec)) {
@@ -306,11 +338,15 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
 
     projects[key] = {
       measuredAt: typeof project.measured_at === "string" ? project.measured_at : null,
+      previousMeasuredAt: typeof project.previous_measured_at === "string" ? project.previous_measured_at : null,
       rootsConfigured: toInt(project.roots_configured),
       rootsPresent: toInt(project.roots_present),
       diskBytes: toInt(project.disk_bytes),
       apparentBytes: toInt(project.apparent_bytes),
       fileCount: toInt(project.file_count),
+      deltaDiskBytes: toInt(project.delta_disk_bytes),
+      deltaApparentBytes: toInt(project.delta_apparent_bytes),
+      deltaFileCount: toInt(project.delta_file_count),
       buckets,
       largestDirs,
     };
@@ -321,6 +357,22 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
     measuredAt: typeof rec?.measured_at === "string" ? rec.measured_at : null,
     ttlSeconds: toInt(rec?.ttl_seconds),
     bucketOrder,
+    hostFilesystem: hostFilesystemRec
+      ? {
+          path: typeof hostFilesystemRec.path === "string" ? hostFilesystemRec.path : null,
+          measuredAt: typeof hostFilesystemRec.measured_at === "string" ? hostFilesystemRec.measured_at : null,
+          totalBytes: toInt(hostFilesystemRec.total_bytes),
+          usedBytes: toInt(hostFilesystemRec.used_bytes),
+          availableBytes: toInt(hostFilesystemRec.available_bytes),
+          usedPercent: parseUsedPercent(hostFilesystemRec.used_percent),
+          warnPercent: parseUsedPercent(hostFilesystemRec.warn_percent),
+          failPercent: parseUsedPercent(hostFilesystemRec.fail_percent),
+          level:
+            hostFilesystemRec.level === "ok" || hostFilesystemRec.level === "warn" || hostFilesystemRec.level === "critical"
+              ? hostFilesystemRec.level
+              : null,
+        }
+      : null,
     projects,
   };
 }
@@ -517,10 +569,19 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
     0
   );
   const storageTtlLabel =
-    typeof projectStorage?.ttlSeconds === "number" && projectStorage.ttlSeconds > 0
+      typeof projectStorage?.ttlSeconds === "number" && projectStorage.ttlSeconds > 0
       ? `${Math.round(projectStorage.ttlSeconds / 60)}m`
       : null;
   const storageBucketOrder = projectStorage?.bucketOrder ?? [];
+  const hostFilesystem = projectStorage?.hostFilesystem ?? null;
+  const hostDiskMetaParts = [
+    typeof hostFilesystem?.usedBytes === "number" && typeof hostFilesystem?.totalBytes === "number"
+      ? `${fmtBytes(hostFilesystem.usedBytes)} used of ${fmtBytes(hostFilesystem.totalBytes)}`
+      : null,
+    typeof hostFilesystem?.availableBytes === "number" ? `${fmtBytes(hostFilesystem.availableBytes)} free` : null,
+    hostFilesystem?.path ? `path ${hostFilesystem.path}` : null,
+  ].filter((value): value is string => Boolean(value));
+  const hostDiskMeta = hostDiskMetaParts.join(" · ") || "host filesystem snapshot pending";
 
   // PID -> vitals row (handle pid being number OR string)
   const pidToVitals = new Map<number, (typeof d.vitalsProcesses)[number]>();
@@ -570,6 +631,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
         ? clampBar((storage.diskBytes / totalTrackedDisk) * 100)
         : 0;
     const diskMetaParts = [
+      typeof storage?.deltaDiskBytes === "number" && storage.previousMeasuredAt
+        ? `${fmtSignedBytes(storage.deltaDiskBytes)} since last scan`
+        : null,
       typeof storage?.apparentBytes === "number" ? `${fmtBytes(storage.apparentBytes)} apparent` : null,
       typeof storage?.fileCount === "number" ? `${fmtFileCount(storage.fileCount)} files` : null,
     ].filter((value): value is string => Boolean(value));
@@ -674,6 +738,15 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
             </div>
             <div className="power-vitals-bar">
               <span style={{ width: `${clampBar(d.memoryUsedPercent)}%` }} />
+            </div>
+          </div>
+
+          <div className="power-vitals-kpi-card">
+            <div className="power-vitals-kpi-label">Disk</div>
+            <div className="power-vitals-kpi-value">{fmtRatio(hostFilesystem?.usedPercent ?? null, 100)}</div>
+            <div className="power-vitals-kpi-meta">{hostDiskMeta}.</div>
+            <div className="power-vitals-bar">
+              <span style={{ width: `${clampBar(hostFilesystem?.usedPercent ?? null)}%` }} />
             </div>
           </div>
         </div>
@@ -871,8 +944,8 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
           <div className="power-vitals-foot">
             Ports seen in UI: local {portsLocal.length}, public {portsPublic.length}. ({portsDebug}) Tip: CPU/RAM are derived by matching
             the project’s local ports to a PID, then looking up that PID in the vitals list. If a PID isn’t in the
-            current top vitals sample, you’ll see “—”. Disk is cached host-side from tracked project roots
-            {storageTtlLabel ? ` (refresh target ${storageTtlLabel})` : ""}.
+            current top vitals sample, you’ll see “—”. Project disk comes from cached host-side tree scans
+            {storageTtlLabel ? ` (refresh target ${storageTtlLabel})` : ""}, while host free space is refreshed every patrol run.
           </div>
         </div>
 

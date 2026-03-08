@@ -94,14 +94,30 @@ export type ProjectStorageProject = {
   id?: string;
   label?: string;
   measured_at?: string;
+  previous_measured_at?: string;
   roots_configured?: number;
   roots_present?: number;
   disk_bytes?: number;
   apparent_bytes?: number;
   file_count?: number;
+  delta_disk_bytes?: number;
+  delta_apparent_bytes?: number;
+  delta_file_count?: number;
   roots?: ProjectStorageRoot[];
   buckets?: Record<string, ProjectStorageBucket>;
   largest_dirs?: ProjectStorageLargestDir[];
+};
+
+export type ProjectStorageHostFilesystem = {
+  path?: string;
+  measured_at?: string;
+  total_bytes?: number;
+  used_bytes?: number;
+  available_bytes?: number;
+  used_percent?: number;
+  warn_percent?: number;
+  fail_percent?: number;
+  level?: "ok" | "warn" | "critical";
 };
 
 export type ProjectStorageSnapshot = {
@@ -111,6 +127,7 @@ export type ProjectStorageSnapshot = {
   top_dirs_limit?: number;
   top_dirs_depth?: number;
   bucket_order?: string[];
+  host_filesystem?: ProjectStorageHostFilesystem;
   projects?: Record<string, ProjectStorageProject>;
 };
 
