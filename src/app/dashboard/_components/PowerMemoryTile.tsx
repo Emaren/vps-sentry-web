@@ -2,6 +2,7 @@ import React from "react";
 import type { DerivedDashboard } from "../_lib/derive";
 import type { ProjectStorageSnapshot } from "@/lib/status";
 import Box from "./Box";
+import PowerVitalsLiveGrid from "./PowerVitalsLiveGrid";
 
 type PortEntry = {
   proto?: string;
@@ -590,15 +591,6 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       : null;
   const storageBucketOrder = projectStorage?.bucketOrder ?? [];
   const hostFilesystem = projectStorage?.hostFilesystem ?? null;
-  const hostDiskMetaParts = [
-    typeof hostFilesystem?.usedBytes === "number" && typeof hostFilesystem?.totalBytes === "number"
-      ? `${fmtBytes(hostFilesystem.usedBytes)} used of ${fmtBytes(hostFilesystem.totalBytes)}`
-      : null,
-    typeof hostFilesystem?.availableBytes === "number" ? `${fmtBytes(hostFilesystem.availableBytes)} free` : null,
-    hostFilesystem?.path && hostFilesystem.path !== "/" ? `path ${hostFilesystem.path}` : null,
-  ].filter((value): value is string => Boolean(value));
-  const hostDiskMeta = hostDiskMetaParts.join(" · ") || "host filesystem snapshot pending";
-
   // PID -> vitals row (handle pid being number OR string)
   const pidToVitals = new Map<number, (typeof d.vitalsProcesses)[number]>();
   for (const vp of d.vitalsProcesses) {
@@ -737,38 +729,23 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
           </span>
         </div>
 
-        <div className="power-vitals-kpi-grid">
-          <div className="power-vitals-kpi-card">
-            <div className="power-vitals-kpi-label">Power</div>
-            <div className="power-vitals-kpi-value">{fmtRatio(d.cpuUsedPercent, d.cpuCapacityPercent)}</div>
-            <div className="power-vitals-kpi-meta">
-              VPS CPU used right now{typeof d.cpuCores === "number" ? ` · ${d.cpuCores} core(s)` : ""}.
-            </div>
-            <div className="power-vitals-bar">
-              <span style={{ width: `${clampBar(d.cpuUsedPercent)}%` }} />
-            </div>
-          </div>
-
-          <div className="power-vitals-kpi-card">
-            <div className="power-vitals-kpi-label">Memory</div>
-            <div className="power-vitals-kpi-value">{fmtRatio(d.memoryUsedPercent, d.memoryCapacityPercent)}</div>
-            <div className="power-vitals-kpi-meta">
-              {fmtSizeFromMb(d.memoryUsedMb)} used{d.memoryTotalMb ? ` of ${fmtSizeFromMb(d.memoryTotalMb)}` : ""}.
-            </div>
-            <div className="power-vitals-bar">
-              <span style={{ width: `${clampBar(d.memoryUsedPercent)}%` }} />
-            </div>
-          </div>
-
-          <div className="power-vitals-kpi-card">
-            <div className="power-vitals-kpi-label">Disk</div>
-            <div className="power-vitals-kpi-value">{fmtRatio(hostFilesystem?.usedPercent ?? null, 100)}</div>
-            <div className="power-vitals-kpi-meta">{hostDiskMeta}.</div>
-            <div className="power-vitals-bar">
-              <span style={{ width: `${clampBar(hostFilesystem?.usedPercent ?? null)}%` }} />
-            </div>
-          </div>
-        </div>
+        <PowerVitalsLiveGrid
+          initial={{
+            source: "snapshot",
+            updatedTs: projectStorage?.measuredAt ?? d.snapshotTs,
+            cpuUsedPercent: d.cpuUsedPercent,
+            cpuCapacityPercent: d.cpuCapacityPercent,
+            cpuCores: d.cpuCores,
+            memoryUsedPercent: d.memoryUsedPercent,
+            memoryCapacityPercent: d.memoryCapacityPercent,
+            memoryUsedMb: d.memoryUsedMb,
+            memoryTotalMb: d.memoryTotalMb,
+            diskUsedPercent: hostFilesystem?.usedPercent ?? null,
+            diskUsedBytes: hostFilesystem?.usedBytes ?? null,
+            diskTotalBytes: hostFilesystem?.totalBytes ?? null,
+            diskAvailableBytes: hostFilesystem?.availableBytes ?? null,
+          }}
+        />
 
         {showCpuHotspot ? (
           <div className="pm-cpu-hotspot">

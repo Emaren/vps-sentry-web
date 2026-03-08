@@ -659,6 +659,18 @@ html[data-site-theme="sepia"] .dashboard-shell {
   gap: 6px;
 }
 
+.power-vitals-kpi-card-live {
+  gap: 8px;
+}
+
+.power-vitals-kpi-headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .power-vitals-kpi-label {
   color: var(--dash-meta);
   font-size: 12px;
@@ -676,6 +688,8 @@ html[data-site-theme="sepia"] .dashboard-shell {
 .power-vitals-kpi-meta {
   color: var(--dash-meta);
   font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .power-vitals-bar {
@@ -695,6 +709,140 @@ html[data-site-theme="sepia"] .dashboard-shell {
     color-mix(in srgb, var(--dash-link) 88%, #22c55e 12%),
     color-mix(in srgb, var(--dash-link) 55%, #f59e0b 45%)
   );
+}
+
+.power-vitals-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 80%, transparent 20%);
+  background: color-mix(in srgb, var(--dash-btn-bg) 88%, transparent 12%);
+  color: var(--dash-meta);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  padding: 5px 8px;
+}
+
+.power-vitals-live-badge::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 42%, transparent 58%);
+}
+
+.power-vitals-live-badge-live {
+  border-color: var(--dash-sev-ok-border);
+  background: var(--dash-sev-ok-bg);
+  color: var(--dash-sev-ok-text);
+}
+
+.power-vitals-live-badge-live::before {
+  animation: power-vitals-live-pulse 1.9s ease-out infinite;
+}
+
+.power-vitals-live-badge-snapshot {
+  border-color: color-mix(in srgb, var(--dash-sev-high-border) 78%, transparent 22%);
+  background: color-mix(in srgb, var(--dash-sev-high-bg) 92%, transparent 8%);
+  color: var(--dash-sev-high-text);
+}
+
+.power-vitals-live-badge-disconnected {
+  border-color: color-mix(in srgb, var(--dash-sev-critical-border) 78%, transparent 22%);
+  background: color-mix(in srgb, var(--dash-sev-critical-bg) 92%, transparent 8%);
+  color: var(--dash-sev-critical-text);
+}
+
+.power-vitals-gauge {
+  padding-top: 2px;
+}
+
+.power-vitals-gauge-track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  overflow: visible;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--dash-card-border) 72%, transparent 28%) 0 2px,
+      transparent 2px calc(25% - 2px),
+      color-mix(in srgb, var(--dash-card-border) 72%, transparent 28%) calc(25% - 2px) 25%
+    ),
+    color-mix(in srgb, var(--dash-card-border) 68%, transparent 32%);
+}
+
+.power-vitals-gauge-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--dash-link) 88%, #22c55e 12%),
+    color-mix(in srgb, var(--dash-link) 55%, #f59e0b 45%)
+  );
+  box-shadow: 0 0 18px color-mix(in srgb, var(--dash-link) 18%, transparent 82%);
+  transition: width 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.power-vitals-gauge-marker {
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: left 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.power-vitals-gauge-marker::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  width: 2px;
+  height: 16px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dash-fg) 72%, white 28%);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--dash-fg) 18%, transparent 82%);
+}
+
+.power-vitals-gauge-marker::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--dash-card-bg) 72%, white 28%);
+  background: color-mix(in srgb, var(--dash-fg) 82%, white 18%);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--dash-link) 10%, transparent 90%),
+    0 6px 18px color-mix(in srgb, black 24%, transparent 76%);
+}
+
+@keyframes power-vitals-live-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 42%, transparent 58%);
+  }
+  70% {
+    transform: scale(1.12);
+    box-shadow: 0 0 0 8px color-mix(in srgb, currentColor 0%, transparent 100%);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent 100%);
+  }
 }
 
 .pm-cpu-hotspot {

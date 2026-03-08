@@ -1,3 +1,5 @@
+import { readFile, statfs } from "node:fs/promises";
+import os from "node:os";
 import { safeRequestUrl } from "@/lib/request-url";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +17,26 @@ type LivePulsePayload = {
   queueQueued: number;
   queueDlq: number;
   shippingFailed24h: number;
+  hostVitals: {
+    source: "live" | "snapshot";
+    updatedTs: string;
+    cpuUsedPercent: number | null;
+    cpuCapacityPercent: number;
+    cpuCores: number | null;
+    memoryUsedPercent: number | null;
+    memoryCapacityPercent: number;
+    memoryUsedMb: number | null;
+    memoryTotalMb: number | null;
+    diskUsedPercent: number | null;
+    diskUsedBytes: number | null;
+    diskTotalBytes: number | null;
+    diskAvailableBytes: number | null;
+  };
+};
+
+type CpuSample = {
+  idle: number;
+  total: number;
 };
 
 function parseInterval(v: string | null): number {
@@ -24,6 +46,88 @@ function parseInterval(v: string | null): number {
   if (t < 2500) return 2500;
   if (t > 30000) return 30000;
   return t;
+}
+
+function toMb(bytes: number): number {
+  return bytes / (1024 * 1024);
+}
+
+async function readCpuSample(): Promise<CpuSample | null> {
+  try {
+    const raw = await readFile("/proc/stat", "utf8");
+    const first = raw.split("\n")[0] ?? "";
+    if (!first.startsWith("cpu ")) return null;
+    const parts = first.trim().split(/\s+/).slice(1).map((value) => Number.parseInt(value, 10));
+    if (!parts.length || parts.some((value) => !Number.isFinite(value))) return null;
+    const idle = (parts[3] ?? 0) + (parts[4] ?? 0);
+    const total = parts.reduce((sum, value) => sum + value, 0);
+    if (total <= 0) return null;
+    return { idle, total };
+  } catch {
+    return null;
+  }
+}
+
+function cpuPercentBetween(previous: CpuSample | null, current: CpuSample | null): number | null {
+  if (!previous || !current) return null;
+  const totalDelta = current.total - previous.total;
+  const idleDelta = current.idle - previous.idle;
+  if (totalDelta <= 0) return null;
+  return ((totalDelta - idleDelta) / totalDelta) * 100;
+}
+
+async function readLiveHostVitals(input: {
+  fallback: LivePulsePayload["hostVitals"];
+  previousCpuSample: CpuSample | null;
+}): Promise<{ nextCpuSample: CpuSample | null; hostVitals: LivePulsePayload["hostVitals"] }> {
+  const fallback = input.fallback;
+  const totalMemBytes = os.totalmem();
+  const freeMemBytes = os.freemem();
+  const usedMemBytes = Math.max(0, totalMemBytes - freeMemBytes);
+  const memoryUsedPercent = totalMemBytes > 0 ? (usedMemBytes / totalMemBytes) * 100 : null;
+
+  let diskUsedBytes: number | null = fallback.diskUsedBytes;
+  let diskTotalBytes: number | null = fallback.diskTotalBytes;
+  let diskAvailableBytes: number | null = fallback.diskAvailableBytes;
+  let diskUsedPercent: number | null = fallback.diskUsedPercent;
+
+  try {
+    const fsStats = await statfs("/");
+    const blockSize = Number(fsStats.bsize);
+    const blocks = Number(fsStats.blocks);
+    const availableBlocks = Number(fsStats.bavail);
+    if (Number.isFinite(blockSize) && Number.isFinite(blocks) && Number.isFinite(availableBlocks)) {
+      diskTotalBytes = blockSize * blocks;
+      diskAvailableBytes = blockSize * availableBlocks;
+      diskUsedBytes = Math.max(0, diskTotalBytes - diskAvailableBytes);
+      diskUsedPercent = diskTotalBytes > 0 ? (diskUsedBytes / diskTotalBytes) * 100 : null;
+    }
+  } catch {
+    // fall back to snapshot values
+  }
+
+  const currentCpuSample = await readCpuSample();
+  const liveCpuUsedPercent = cpuPercentBetween(input.previousCpuSample, currentCpuSample);
+  const hostVitals: LivePulsePayload["hostVitals"] = {
+    source: liveCpuUsedPercent === null ? "snapshot" : "live",
+    updatedTs: new Date().toISOString(),
+    cpuUsedPercent: liveCpuUsedPercent ?? fallback.cpuUsedPercent,
+    cpuCapacityPercent: 100,
+    cpuCores: os.cpus()?.length ?? fallback.cpuCores,
+    memoryUsedPercent,
+    memoryCapacityPercent: 100,
+    memoryUsedMb: toMb(usedMemBytes),
+    memoryTotalMb: toMb(totalMemBytes),
+    diskUsedPercent,
+    diskUsedBytes,
+    diskTotalBytes,
+    diskAvailableBytes,
+  };
+
+  return {
+    nextCpuSample: currentCpuSample,
+    hostVitals,
+  };
 }
 
 async function buildLivePulse(input: {
@@ -54,6 +158,21 @@ async function buildLivePulse(input: {
     queueQueued: ops.queue?.counts.queued ?? ops.remediation?.counts.queued ?? 0,
     queueDlq: ops.queue?.counts.dlq ?? ops.remediation?.counts.dlq ?? 0,
     shippingFailed24h: ops.shipping?.counts.failed24h ?? 0,
+    hostVitals: {
+      source: "snapshot",
+      updatedTs: new Date().toISOString(),
+      cpuUsedPercent: derived.cpuUsedPercent,
+      cpuCapacityPercent: derived.cpuCapacityPercent,
+      cpuCores: derived.cpuCores,
+      memoryUsedPercent: derived.memoryUsedPercent,
+      memoryCapacityPercent: derived.memoryCapacityPercent,
+      memoryUsedMb: derived.memoryUsedMb,
+      memoryTotalMb: derived.memoryTotalMb,
+      diskUsedPercent: env.last.project_storage?.host_filesystem?.used_percent ?? null,
+      diskUsedBytes: env.last.project_storage?.host_filesystem?.used_bytes ?? null,
+      diskTotalBytes: env.last.project_storage?.host_filesystem?.total_bytes ?? null,
+      diskAvailableBytes: env.last.project_storage?.host_filesystem?.available_bytes ?? null,
+    },
   };
 }
 
@@ -102,15 +221,28 @@ export async function GET(req: Request) {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
+      let previousCpuSample: CpuSample | null = null;
 
       const emitPulse = async () => {
         if (closed) return;
         try {
-          const payload = await buildLivePulse({
+          const snapshotPayload = await buildLivePulse({
             userId: access.identity.userId,
             userRole: access.identity.role,
           }, { deriveDashboard, getDashboardOpsSnapshot, getStatusEnvelopeSafe });
-          controller.enqueue(encoder.encode(sseEvent("pulse", payload)));
+          const live = await readLiveHostVitals({
+            fallback: snapshotPayload.hostVitals,
+            previousCpuSample,
+          });
+          previousCpuSample = live.nextCpuSample;
+          controller.enqueue(
+            encoder.encode(
+              sseEvent("pulse", {
+                ...snapshotPayload,
+                hostVitals: live.hostVitals,
+              })
+            )
+          );
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           controller.enqueue(
