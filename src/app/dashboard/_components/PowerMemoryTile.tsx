@@ -113,6 +113,22 @@ function fmtSignedBytes(v: number | null): string {
   return `${v > 0 ? "+" : "-"}${fmtBytes(Math.abs(v))}`;
 }
 
+function compactBucketLabel(label: string): string {
+  return label
+    .replace(/\s+\/\s+/g, "/")
+    .replace(/\bDependencies\b/i, "Deps")
+    .replace(/\bBackups\/Artifacts\b/i, "Backups");
+}
+
+function compactPathLabel(label: string): string {
+  const parts = label
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length <= 2) return parts.join("/");
+  return parts.slice(-2).join("/");
+}
+
 function fmtFileCount(v: number | null): string {
   if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return "—";
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1)}M`;
@@ -579,7 +595,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       ? `${fmtBytes(hostFilesystem.usedBytes)} used of ${fmtBytes(hostFilesystem.totalBytes)}`
       : null,
     typeof hostFilesystem?.availableBytes === "number" ? `${fmtBytes(hostFilesystem.availableBytes)} free` : null,
-    hostFilesystem?.path ? `path ${hostFilesystem.path}` : null,
+    hostFilesystem?.path && hostFilesystem.path !== "/" ? `path ${hostFilesystem.path}` : null,
   ].filter((value): value is string => Boolean(value));
   const hostDiskMeta = hostDiskMetaParts.join(" · ") || "host filesystem snapshot pending";
 
@@ -631,9 +647,6 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
         ? clampBar((storage.diskBytes / totalTrackedDisk) * 100)
         : 0;
     const diskMetaParts = [
-      typeof storage?.deltaDiskBytes === "number" && storage.previousMeasuredAt
-        ? `${fmtSignedBytes(storage.deltaDiskBytes)} since last scan`
-        : null,
       typeof storage?.apparentBytes === "number" ? `${fmtBytes(storage.apparentBytes)} apparent` : null,
       typeof storage?.fileCount === "number" ? `${fmtFileCount(storage.fileCount)} files` : null,
     ].filter((value): value is string => Boolean(value));
@@ -642,12 +655,6 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       (typeof storage?.rootsConfigured === "number" && storage.rootsConfigured > 0 && storage.rootsPresent === 0
         ? "tracked roots missing"
         : "disk scan pending");
-    const largestDirsSummary = storage?.largestDirs.length
-      ? storage.largestDirs
-          .slice(0, 2)
-          .map((entry) => `${entry.label} ${fmtBytes(entry.diskBytes)}`)
-          .join(" · ")
-      : null;
     const sortedBuckets = Object.entries(storage?.buckets ?? {})
       .map(([bucketId, bucket]) => ({ bucketId, ...bucket }))
       .filter((bucket) => typeof bucket.diskBytes === "number" && bucket.diskBytes > 0)
@@ -657,12 +664,22 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
         const orderDiff = storageBucketOrder.indexOf(a.bucketId) - storageBucketOrder.indexOf(b.bucketId);
         return orderDiff;
       });
-    const bucketSummary = sortedBuckets.length
-      ? sortedBuckets
-          .slice(0, 3)
-          .map((bucket) => `${bucket.label} ${fmtBytes(bucket.diskBytes)}`)
-          .join(" · ")
-      : null;
+    const bucketHighlights = sortedBuckets.slice(0, 3).map((bucket) => ({
+      label: compactBucketLabel(bucket.label),
+      value: fmtBytes(bucket.diskBytes),
+    }));
+    const largestDirHighlights = (storage?.largestDirs ?? []).slice(0, 2).map((entry) => ({
+      label: compactPathLabel(entry.label),
+      value: fmtBytes(entry.diskBytes),
+    }));
+    const diskDeltaLabel =
+      typeof storage?.deltaDiskBytes === "number" && storage.previousMeasuredAt
+        ? `${storage.deltaDiskBytes > 0 ? "Growth" : "Delta"} ${fmtSignedBytes(storage.deltaDiskBytes)}`
+        : null;
+    const diskStatusLabel =
+      typeof storage?.rootsConfigured === "number" && storage.rootsConfigured > 0 && storage.rootsPresent === 0
+        ? "Tracked roots missing"
+        : null;
 
     const portsLabel = services
       .map((s) => {
@@ -690,8 +707,10 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
       diskBytes: storage?.diskBytes ?? null,
       diskBarPercent,
       diskMeta,
-      bucketSummary,
-      largestDirsSummary,
+      diskDeltaLabel,
+      diskStatusLabel,
+      bucketHighlights,
+      largestDirHighlights,
       portsLabel,
     };
   });
@@ -853,10 +872,14 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                       <span style={{ width: `${p.memoryBarPercent}%` }} />
                     </div>
                   </div>
-                  <div className="pm-project-metric">
-                    <div className="pm-project-metric-label">Disk</div>
-                    <div className="pm-project-metric-value">{fmtBytes(p.diskBytes)}</div>
+                  <div className="pm-project-metric pm-project-metric-disk">
+                    <div className="pm-project-metric-headline">
+                      <div className="pm-project-metric-label">Disk</div>
+                      {p.diskDeltaLabel ? <div className="pm-project-metric-trend">{p.diskDeltaLabel}</div> : null}
+                    </div>
+                    <div className="pm-project-metric-value pm-project-metric-value-disk">{fmtBytes(p.diskBytes)}</div>
                     <div className="pm-project-metric-sub">{p.diskMeta}</div>
+                    {p.diskStatusLabel ? <div className="pm-project-metric-sub pm-project-metric-sub-alert">{p.diskStatusLabel}</div> : null}
                     <div className="pm-project-metric-bar">
                       <span style={{ width: `${p.diskBarPercent}%` }} />
                     </div>
@@ -867,12 +890,36 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
                   <div className="pm-project-missing">Missing required: {p.missingRequired.join(", ")}</div>
                 ) : null}
 
-                {p.bucketSummary ? (
-                  <div className="pm-project-storage-note">Buckets: {p.bucketSummary}</div>
-                ) : null}
+                {(p.bucketHighlights.length || p.largestDirHighlights.length) ? (
+                  <div className="pm-project-storage-grid">
+                    {p.bucketHighlights.length ? (
+                      <div className="pm-project-storage-panel">
+                        <div className="pm-project-storage-label">Footprint Mix</div>
+                        <div className="pm-project-storage-list">
+                          {p.bucketHighlights.map((item) => (
+                            <div key={`${p.key}-bucket-${item.label}`} className="pm-project-storage-item">
+                              <span className="pm-project-storage-item-label">{item.label}</span>
+                              <span className="pm-project-storage-item-value">{item.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
 
-                {p.largestDirsSummary ? (
-                  <div className="pm-project-storage-note">Largest dirs: {p.largestDirsSummary}</div>
+                    {p.largestDirHighlights.length ? (
+                      <div className="pm-project-storage-panel">
+                        <div className="pm-project-storage-label">Largest Paths</div>
+                        <div className="pm-project-storage-list">
+                          {p.largestDirHighlights.map((item) => (
+                            <div key={`${p.key}-dir-${item.label}`} className="pm-project-storage-item">
+                              <span className="pm-project-storage-item-label pm-project-storage-item-label-path">{item.label}</span>
+                              <span className="pm-project-storage-item-value">{item.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
 
                 <div className="pm-project-services-text" aria-label="Per-service ports and process IDs">

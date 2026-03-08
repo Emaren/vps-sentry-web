@@ -1172,10 +1172,10 @@ html[data-site-theme="sepia"] .dashboard-shell {
   border-radius: 14px;
   background: color-mix(in srgb, var(--dash-card-bg) 86%, transparent 14%);
   box-shadow: var(--dash-card-shadow);
-  padding: 14px;
+  padding: 16px;
   display: grid;
-  gap: 12px;
-  min-height: 206px;
+  gap: 14px;
+  min-height: 0;
   position: relative;
   overflow: hidden;
 }
@@ -1297,7 +1297,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
 .pm-project-health-row {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -1336,17 +1336,34 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
 .pm-project-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .pm-project-metric {
   display: grid;
-  gap: 3px;
+  align-content: start;
+  gap: 6px;
   border: 1px solid color-mix(in srgb, var(--dash-card-border) 74%, transparent 26%);
-  border-radius: 10px;
-  padding: 8px 10px;
+  border-radius: 12px;
+  padding: 12px;
   background: color-mix(in srgb, var(--dash-btn-bg) 82%, transparent 18%);
+  min-width: 0;
+}
+
+.pm-project-metric-disk {
+  grid-column: 1 / -1;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--dash-link) 10%, transparent 90%), transparent),
+    color-mix(in srgb, var(--dash-btn-bg) 84%, transparent 16%);
+}
+
+.pm-project-metric-headline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .pm-project-metric-label {
@@ -1358,15 +1375,44 @@ html[data-site-theme="sepia"] .dashboard-shell {
 }
 
 .pm-project-metric-value {
-  font-size: 1.35rem;
+  font-size: 1.45rem;
   font-weight: 950;
   letter-spacing: 0.01em;
+  line-height: 1.05;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pm-project-metric-value-disk {
+  font-size: 1.85rem;
+  letter-spacing: 0;
 }
 
 .pm-project-metric-sub {
   color: var(--dash-meta);
   font-size: 11px;
-  line-height: 1.2;
+  line-height: 1.35;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pm-project-metric-sub-alert {
+  color: var(--dash-sev-high-text);
+}
+
+.pm-project-metric-trend {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--dash-sev-high-border) 78%, transparent 22%);
+  background: color-mix(in srgb, var(--dash-sev-high-bg) 88%, transparent 12%);
+  color: var(--dash-sev-high-text);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  padding: 5px 8px;
 }
 
 .pm-project-metric-bar {
@@ -1390,38 +1436,100 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
 .pm-project-missing {
   border: 1px solid color-mix(in srgb, var(--dash-sev-critical-border) 72%, transparent 28%);
-  border-radius: 10px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--dash-sev-critical-bg) 85%, transparent 15%);
   color: var(--dash-sev-critical-text);
   font-size: 11px;
   font-weight: 700;
   line-height: 1.35;
-  padding: 7px 9px;
+  padding: 9px 10px;
 }
 
-.pm-project-storage-note {
+.pm-project-storage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pm-project-storage-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 72%, transparent 28%);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--dash-card-bg) 78%, transparent 22%);
+  padding: 10px 11px;
+}
+
+.pm-project-storage-label {
+  color: var(--dash-meta);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.pm-project-storage-list {
+  display: grid;
+  gap: 7px;
+}
+
+.pm-project-storage-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.pm-project-storage-item-label {
   color: var(--dash-meta);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.3;
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
+.pm-project-storage-item-label-path {
+  color: color-mix(in srgb, var(--dash-fg) 80%, var(--dash-meta) 20%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+}
+
+.pm-project-storage-item-value {
+  color: var(--dash-fg);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .pm-project-services-text {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .pm-project-service-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 76%, transparent 24%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dash-btn-bg) 86%, transparent 14%);
   color: var(--dash-meta);
-  font-size: 12px;
-  font-weight: 400;
+  font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0.01em;
-  line-height: 1.25;
+  line-height: 1;
+  padding: 6px 8px;
   overflow-wrap: anywhere;
 }
 
 .pm-project-service-line-down {
   color: var(--dash-sev-critical-text);
+  border-color: color-mix(in srgb, var(--dash-sev-critical-border) 78%, transparent 22%);
+  background: color-mix(in srgb, var(--dash-sev-critical-bg) 88%, transparent 12%);
 }
 
 .pm-projects-list {
@@ -1540,6 +1648,10 @@ html[data-site-theme="sepia"] .dashboard-shell {
     grid-template-columns: 1fr;
   }
 
+  .pm-project-storage-grid {
+    grid-template-columns: 1fr;
+  }
+
   .pm-project-list-row {
     grid-template-columns: 1fr;
     align-items: start;
@@ -1551,6 +1663,20 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
   .pm-project-list-status {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .pm-project-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .pm-project-metric-disk {
+    grid-column: auto;
+  }
+
+  .pm-project-metric-value-disk {
+    font-size: 1.55rem;
   }
 }
 
