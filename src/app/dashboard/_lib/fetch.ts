@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { headers } from "next/headers";
 import { getBaseUrlFromHeaders } from "@/lib/server-base-url";
 import { hasRequiredRole, type AppRole } from "@/lib/rbac-policy";
+import { writeAuditLog } from "@/lib/audit-log";
 import { getRemediationQueueSnapshot } from "@/lib/remediate/queue";
 import { parseExecuteRunPayload } from "@/lib/remediate/queue-runtime";
 import { listIncidentRuns } from "@/lib/ops/incident-engine";
@@ -185,18 +186,111 @@ function rollupProtectionWins(rows: DashboardProtectionWin[]): DashboardProtecti
   return out;
 }
 
+async function syncCounterstrikeRunsToAudit(input: {
+  userId: string;
+  hostIds: string[];
+}): Promise<void> {
+  const runs = await listCounterstrikeHistory(20);
+  if (runs.length === 0) return;
+
+  const scopedAuditOr: Array<Record<string, unknown>> = [{ userId: input.userId }];
+  if (input.hostIds.length > 0) {
+    scopedAuditOr.push({ hostId: { in: input.hostIds } });
+  }
+
+  const existing = await prisma.auditLog.findMany({
+    where: {
+      OR: scopedAuditOr,
+      action: {
+        in: ["ops.counterstrike.completed", "security.win.counterstrike_contained"],
+      },
+    },
+    orderBy: [{ createdAt: "desc" }],
+    take: 200,
+    select: {
+      action: true,
+      metaJson: true,
+    },
+  });
+
+  const completedRunIds = new Set<string>();
+  const winRunIds = new Set<string>();
+
+  for (const row of existing) {
+    const meta = parseJsonDict(row.metaJson);
+    const runId = typeof meta?.runId === "string" ? meta.runId.trim() : "";
+    if (!runId) continue;
+    if (row.action === "ops.counterstrike.completed") {
+      completedRunIds.add(runId);
+    }
+    if (row.action === "security.win.counterstrike_contained") {
+      winRunIds.add(runId);
+    }
+  }
+
+  const hostId = input.hostIds.length === 1 ? input.hostIds[0] : null;
+
+  for (const run of runs) {
+    if (!completedRunIds.has(run.runId)) {
+      await writeAuditLog({
+        userId: input.userId,
+        hostId,
+        action: "ops.counterstrike.completed",
+        detail: `${run.playbookLabel} finished with ${run.status}.`,
+        meta: {
+          runId: run.runId,
+          status: run.status,
+          mode: run.mode,
+          playbook: run.playbook,
+          playbookLabel: run.playbookLabel,
+          playbookTitle: run.playbookTitle,
+          summary: run.summary,
+          hostName: run.host,
+          alertsCount: run.alertsCount,
+          evidenceCaptured: run.evidenceCaptured,
+          rollbackAvailable: run.rollbackAvailable,
+          quarantinedCount: run.quarantinedPaths.length,
+          cronRemovedLines: run.cronRemovedLines,
+        },
+      });
+      completedRunIds.add(run.runId);
+    }
+
+    if (run.status === "contained" && !winRunIds.has(run.runId)) {
+      await writeAuditLog({
+        userId: input.userId,
+        hostId,
+        action: "security.win.counterstrike_contained",
+        detail: run.summary,
+        meta: {
+          runId: run.runId,
+          category: "neutralized",
+          title: run.playbookTitle,
+          summary: run.summary,
+          evidenceLabel: run.playbookLabel,
+          source: "counterstrike",
+          hostName: run.host,
+        },
+      });
+      winRunIds.add(run.runId);
+    }
+  }
+}
+
 async function getProtectionSnapshotForUser(input: {
   userId: string;
   hostIds: string[];
   breaches: DashboardBreachesSnapshot | null;
   remediation: DashboardRemediationSnapshot | null;
 }): Promise<DashboardProtectionSnapshot> {
+  await syncCounterstrikeRunsToAudit(input);
+
   const scopedAuditOr: Array<Record<string, unknown>> = [{ userId: input.userId }];
   if (input.hostIds.length > 0) {
     scopedAuditOr.push({ hostId: { in: input.hostIds } });
   }
 
-  const [auditCount, auditRows, incidentCount, incidentRows, counterstrikeRuns] = await Promise.all([
+  const [auditCount, auditRows, incidentCount, incidentRows] = await Promise.all([
     prisma.auditLog.count({
       where: {
         OR: scopedAuditOr,
@@ -252,7 +346,6 @@ async function getProtectionSnapshotForUser(input: {
         },
       },
     }),
-    listCounterstrikeHistory(20),
   ]);
 
   const wins: DashboardProtectionWin[] = [];
@@ -349,23 +442,6 @@ async function getProtectionSnapshotForUser(input: {
     });
   }
 
-  for (const run of counterstrikeRuns) {
-    if (run.status !== "contained") continue;
-    wins.push({
-      id: `counterstrike:${run.runId}`,
-      category: "neutralized",
-      source: "counterstrike",
-      title: run.playbookTitle,
-      summary: run.summary,
-      occurredAt: run.finishedAt ?? run.updatedAt ?? run.startedAt ?? new Date().toISOString(),
-      hostId: null,
-      hostName: run.host,
-      tone: "bad",
-      repeatCount: 1,
-      evidenceLabel: run.playbookLabel,
-    });
-  }
-
   const rolled = rollupProtectionWins(wins).slice(0, 40);
   const latest = rolled[0] ?? null;
   const times = rolled.map((row) => toMs(row.occurredAt)).filter((value) => value > 0);
@@ -378,17 +454,15 @@ async function getProtectionSnapshotForUser(input: {
   const remediationCount = (input.remediation?.recentRuns ?? []).filter(
     (run) => run.state === "succeeded" && classifyRemediationCategory(run.actionKey) === "remediation"
   ).length;
-  const counterstrikeContainedCount = counterstrikeRuns.filter((run) => run.status === "contained").length;
 
   const counts = {
-    neutralized: auditCount + (input.breaches?.counts.fixed ?? 0) + counterstrikeContainedCount,
+    neutralized: auditCount + (input.breaches?.counts.fixed ?? 0),
     recovered: incidentCount,
     hardening: hardeningCount,
     remediation: remediationCount,
     total:
       auditCount +
       (input.breaches?.counts.fixed ?? 0) +
-      counterstrikeContainedCount +
       incidentCount +
       hardeningCount +
       remediationCount,
