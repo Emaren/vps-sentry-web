@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import { NextResponse } from "next/server";
 import { requireOpsAccess } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit-log";
@@ -10,9 +9,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const STATUS_PATH = "/var/lib/vps-sentry/public/status.json";
-const COMMAND_TIMEOUT_MS = Number(process.env.VPS_ACTIONS_TIMEOUT_MS || 120_000);
-const COMMAND_MAX_BUFFER_BYTES = Number(process.env.VPS_ACTIONS_MAX_BUFFER_BYTES || 1_000_000);
-const execFileAsync = promisify(execFile);
+const RUNNING_PATH = "/var/lib/vps-sentry/garbage-running-cleanup.json";
+const COMMAND_START_GRACE_MS = Number(process.env.VPS_GARBAGE_RECLAIM_START_GRACE_MS || 500);
+const RUNNING_POLL_MS = Number(process.env.VPS_GARBAGE_RECLAIM_RUNNING_POLL_MS || 250);
+const RUNNING_POLL_ATTEMPTS = Number(process.env.VPS_GARBAGE_RECLAIM_RUNNING_POLL_ATTEMPTS || 8);
 
 type CommandAttempt = {
   command: string;
@@ -23,29 +23,11 @@ type CommandAttempt = {
 type CommandResult = {
   ok: boolean;
   method: string | null;
-  stdout: string;
-  stderr: string;
   error: string | null;
-};
-
-type CleanupPayload = {
-  ok: boolean;
-  startedAt: string | null;
-  finishedAt: string | null;
-  freedBytesEstimated: number | null;
-  freedBytesActual: number | null;
-  deletedCount: number | null;
-  errorList: string[];
-  estimate: unknown | null;
 };
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-function truncate(text: string, max = 6000): string {
-  if (text.length <= max) return text;
-  return `${text.slice(0, max)}\n...[truncated ${text.length - max} chars]`;
 }
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -53,74 +35,80 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v as Record<string, unknown>;
 }
 
-function asNumber(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, Math.max(0, ms));
+  });
 }
 
-function asString(v: unknown): string | null {
-  return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
-}
+async function startCommandAttempt(attempt: CommandAttempt): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: CommandResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
 
-function parseCleanupPayload(raw: string): CleanupPayload | null {
-  let parsedValue: unknown;
-  try {
-    parsedValue = JSON.parse(raw) as unknown;
-  } catch {
-    return null;
-  }
-  const parsed = asRecord(parsedValue);
-  if (!parsed) return null;
-  const errors = Array.isArray(parsed.errors)
-    ? parsed.errors.filter((row): row is string => typeof row === "string" && row.trim().length > 0)
-    : [];
-  return {
-    ok: parsed.ok === true,
-    startedAt: asString(parsed.started_at),
-    finishedAt: asString(parsed.finished_at),
-    freedBytesEstimated: asNumber(parsed.freed_bytes_estimated),
-    freedBytesActual: asNumber(parsed.freed_bytes_actual),
-    deletedCount: asNumber(parsed.deleted_count),
-    errorList: errors,
-    estimate: parsed.estimate ?? null,
-  };
+    try {
+      const child = spawn(attempt.command, attempt.args, {
+        detached: true,
+        stdio: "ignore",
+      });
+
+      child.once("error", (err) => {
+        finish({
+          ok: false,
+          method: null,
+          error: errorMessage(err),
+        });
+      });
+
+      child.once("exit", (code, signal) => {
+        if (settled) return;
+        finish({
+          ok: code === 0,
+          method: code === 0 ? attempt.method : null,
+          error:
+            code === 0
+              ? null
+              : `cleanup process exited before start (${code ?? signal ?? "unknown"})`,
+        });
+      });
+
+      setTimeout(() => {
+        if (settled) return;
+        child.unref();
+        finish({
+          ok: true,
+          method: attempt.method,
+          error: null,
+        });
+      }, Math.max(50, COMMAND_START_GRACE_MS));
+    } catch (err: unknown) {
+      finish({
+        ok: false,
+        method: null,
+        error: errorMessage(err),
+      });
+    }
+  });
 }
 
 async function runCommandAttempts(attempts: CommandAttempt[]): Promise<CommandResult> {
   let lastError = "command failed";
-  let lastStdout = "";
-  let lastStderr = "";
 
   for (const attempt of attempts) {
-    try {
-      const run = await execFileAsync(attempt.command, attempt.args, {
-        timeout: COMMAND_TIMEOUT_MS,
-        maxBuffer: COMMAND_MAX_BUFFER_BYTES,
-      });
-      return {
-        ok: true,
-        method: attempt.method,
-        stdout: String(run.stdout ?? ""),
-        stderr: String(run.stderr ?? ""),
-        error: null,
-      };
-    } catch (err: unknown) {
-      const execErr = err as { stdout?: unknown; stderr?: unknown };
-      lastStdout = String(execErr.stdout ?? "");
-      lastStderr = String(execErr.stderr ?? "");
-      lastError = errorMessage(err);
+    const run = await startCommandAttempt(attempt);
+    if (run.ok) {
+      return run;
     }
+    lastError = run.error || lastError;
   }
 
   return {
     ok: false,
     method: null,
-    stdout: lastStdout,
-    stderr: lastStderr,
     error: lastError,
   };
 }
@@ -133,6 +121,30 @@ async function readStatusGarbageEstimate(): Promise<unknown | null> {
   } catch {
     return null;
   }
+}
+
+async function cleanupIsRunning(): Promise<boolean> {
+  try {
+    await readFile(RUNNING_PATH, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForRunningEstimate(): Promise<unknown | null> {
+  for (let attempt = 0; attempt < Math.max(1, RUNNING_POLL_ATTEMPTS); attempt += 1) {
+    const estimate = await readStatusGarbageEstimate();
+    const estimateRecord = asRecord(estimate);
+    if (estimateRecord?.running_cleanup === true) {
+      return estimate;
+    }
+    if (await cleanupIsRunning()) {
+      return estimate;
+    }
+    await delay(Math.max(50, RUNNING_POLL_MS));
+  }
+  return readStatusGarbageEstimate();
 }
 
 function buildPrivilegeHint(): string {
@@ -173,14 +185,10 @@ export async function POST(req: Request) {
       ];
 
       const command = await runCommandAttempts(attempts);
-      const payload = command.stdout.trim() ? parseCleanupPayload(command.stdout) : null;
-      const estimate = payload?.estimate ?? (await readStatusGarbageEstimate());
+      const estimate = await waitForRunningEstimate();
 
-      if (!command.ok || !payload?.ok) {
-        const detail =
-          payload?.errorList[0] ||
-          command.error ||
-          "safe garbage reclaim failed";
+      if (!command.ok) {
+        const detail = command.error || "safe garbage reclaim failed to start";
         const hint = buildPrivilegeHint();
         incrementCounter("ops.garbage_reclaim.failed.total", 1, {});
         await writeAuditLog({
@@ -190,10 +198,7 @@ export async function POST(req: Request) {
           detail,
           meta: {
             method: command.method,
-            stdout: truncate(command.stdout),
-            stderr: truncate(command.stderr),
             hint,
-            cleanup: payload,
           },
         });
         return NextResponse.json(
@@ -201,7 +206,6 @@ export async function POST(req: Request) {
             ok: false,
             error: detail,
             hint,
-            cleanup: payload,
             estimate,
           },
           { status: 409 }
@@ -212,19 +216,19 @@ export async function POST(req: Request) {
       await writeAuditLog({
         req,
         userId: access.identity.userId,
-        action: "ops.garbage_reclaim.ok",
-        detail: `freed=${payload.freedBytesActual ?? payload.freedBytesEstimated ?? 0} deleted=${payload.deletedCount ?? 0}`,
+        action: "ops.garbage_reclaim.started",
+        detail: "Safe garbage cleanup started.",
         meta: {
           method: command.method,
-          cleanup: payload,
         },
       });
 
       return NextResponse.json({
         ok: true,
-        cleanup: payload,
+        accepted: true,
+        detail: "Cleanup started. The tile will refresh after the reclaim pass completes.",
         estimate,
-      });
+      }, { status: 202 });
     }
   );
 }

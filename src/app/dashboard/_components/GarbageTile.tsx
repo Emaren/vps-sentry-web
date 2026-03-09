@@ -5,6 +5,8 @@ import type { DashboardGarbageEstimate } from "../_lib/derive";
 
 type GarbageReclaimResponse = {
   ok?: boolean;
+  accepted?: boolean;
+  detail?: string;
   error?: string;
   cleanup?: {
     freedBytesActual?: number | null;
@@ -54,8 +56,18 @@ export default function GarbageTile(props: {
 }) {
   const { canReclaim, connected, estimate, streamLabel } = props;
   const [busy, setBusy] = React.useState(false);
+  const [pending, setPending] = React.useState(false);
   const [feedback, setFeedback] = React.useState<string | null>(null);
   const [feedbackTone, setFeedbackTone] = React.useState<"ok" | "bad" | "meta">("meta");
+  const pendingTimerRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (pendingTimerRef.current !== null) {
+        window.clearTimeout(pendingTimerRef.current);
+      }
+    };
+  }, []);
 
   const reclaimable = estimate?.safeReclaimableBytes ?? estimate?.reclaimableBytesTotal ?? null;
   const topBuckets = estimate?.buckets.slice(0, 3) ?? [];
@@ -79,6 +91,20 @@ export default function GarbageTile(props: {
       const data = (await res.json().catch(() => ({}))) as GarbageReclaimResponse;
       if (!res.ok || !data.ok) {
         throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
+      if (data.accepted) {
+        setPending(true);
+        if (pendingTimerRef.current !== null) {
+          window.clearTimeout(pendingTimerRef.current);
+        }
+        pendingTimerRef.current = window.setTimeout(() => {
+          setPending(false);
+          pendingTimerRef.current = null;
+        }, 15_000);
+        setFeedbackTone("meta");
+        setFeedback(data.detail || "Cleanup started. The tile will refresh after the reclaim pass completes.");
+        return;
       }
 
       const freed = data.cleanup?.freedBytesActual ?? data.cleanup?.freedBytesEstimated ?? null;
@@ -134,9 +160,9 @@ export default function GarbageTile(props: {
           type="button"
           className="garbage-tile-button"
           onClick={handleReclaim}
-          disabled={!canReclaim || busy || estimate?.runningCleanup}
+          disabled={!canReclaim || busy || pending || estimate?.runningCleanup}
         >
-          {busy || estimate?.runningCleanup ? "Clearing…" : "Clear Safe Garbage"}
+          {busy || pending || estimate?.runningCleanup ? "Clearing…" : "Clear Safe Garbage"}
         </button>
         {!canReclaim ? <span className="garbage-tile-action-note">Ops role required.</span> : null}
       </div>
