@@ -131,6 +131,49 @@ export type ProjectStorageSnapshot = {
   projects?: Record<string, ProjectStorageProject>;
 };
 
+export type GarbageEstimateBucket = {
+  key?: string;
+  label?: string;
+  bytes?: number;
+  count?: number;
+};
+
+export type GarbageEstimateTopPath = {
+  path?: string;
+  bytes?: number;
+  bucket?: string;
+};
+
+export type GarbageCleanupBucket = {
+  key?: string;
+  label?: string;
+  estimated_bytes?: number;
+  deleted_count?: number;
+};
+
+export type GarbageCleanupResult = {
+  ok?: boolean;
+  started_at?: string;
+  finished_at?: string;
+  freed_bytes_estimated?: number;
+  freed_bytes_actual?: number;
+  deleted_count?: number;
+  buckets?: GarbageCleanupBucket[];
+  errors?: string[];
+};
+
+export type GarbageEstimateSnapshot = {
+  schema_version?: number;
+  measured_at?: string;
+  ttl_seconds?: number;
+  reclaimable_bytes_total?: number;
+  safe_reclaimable_bytes?: number;
+  buckets?: GarbageEstimateBucket[];
+  top_paths?: GarbageEstimateTopPath[];
+  running_cleanup?: boolean;
+  last_cleanup_result?: GarbageCleanupResult | null;
+};
+
 export type Status = {
   host: string;
   version: string;
@@ -177,6 +220,9 @@ export type Status = {
 
   // Optional: per-project disk footprint telemetry
   project_storage?: ProjectStorageSnapshot;
+
+  // Optional: cached reclaimable-space telemetry
+  garbage_estimate?: GarbageEstimateSnapshot;
 
   // Allow forward-compatible extra fields without TypeScript fights
   [k: string]: unknown;

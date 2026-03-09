@@ -3,6 +3,7 @@ import { readFile, statfs } from "node:fs/promises";
 import os from "node:os";
 import { promisify } from "node:util";
 import { MAIN_PROJECTS } from "@/app/dashboard/_lib/project-catalog";
+import type { DashboardGarbageEstimate } from "@/app/dashboard/_lib/derive";
 import { safeRequestUrl } from "@/lib/request-url";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,7 @@ type LivePulsePayload = {
     diskAvailableBytes: number | null;
   };
   projectVitals: Record<string, ProjectLiveVitals>;
+  garbageEstimate: DashboardGarbageEstimate | null;
 };
 
 type CpuSample = {
@@ -365,6 +367,7 @@ async function buildLivePulse(input: {
       diskAvailableBytes: env.last.project_storage?.host_filesystem?.available_bytes ?? null,
     },
     projectVitals: {},
+    garbageEstimate: derived.garbageEstimate,
   };
 }
 

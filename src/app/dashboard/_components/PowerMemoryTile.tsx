@@ -1,10 +1,11 @@
 "use client";
 
 import React from "react";
-import type { DerivedDashboard } from "../_lib/derive";
+import type { DashboardGarbageEstimate, DerivedDashboard } from "../_lib/derive";
 import type { ProjectStorageSnapshot } from "@/lib/status";
 import { MAIN_PROJECTS, type ProjectDef } from "../_lib/project-catalog";
 import Box from "./Box";
+import GarbageTile from "./GarbageTile";
 import PowerVitalsLiveGrid from "./PowerVitalsLiveGrid";
 
 type PortEntry = {
@@ -96,6 +97,7 @@ type LivePulsePayload = {
   ts?: string;
   hostVitals?: Partial<HostVitals>;
   projectVitals?: Record<string, Partial<ProjectLiveVitals>>;
+  garbageEstimate?: DashboardGarbageEstimate | null;
 };
 
 function fmtPercent(v: number | null): string {
@@ -201,6 +203,14 @@ function mergeProjectVitals(
   }
 
   return merged;
+}
+
+function mergeGarbageEstimate(
+  previous: DashboardGarbageEstimate | null,
+  next: DashboardGarbageEstimate | null | undefined
+): DashboardGarbageEstimate | null {
+  if (next === undefined) return previous;
+  return next ?? null;
 }
 
 function projectTelemetryBadge(vitals: ProjectLiveVitals | undefined): {
@@ -536,8 +546,8 @@ function resolveBackendLabel(project: Pick<ProjectDef, "subtitle" | "backendHref
   return project.subtitle?.trim() ?? "";
 }
 
-export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
-  const { derived: d } = props;
+export default function PowerMemoryTile(props: { derived: DerivedDashboard; canReclaim: boolean }) {
+  const { canReclaim, derived: d } = props;
 
   // Old process ranking (under “Processes” view).
   const topRows = d.vitalsProcesses.filter((x) => !x.isOther).slice(0, 5);
@@ -572,6 +582,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
     diskAvailableBytes: hostFilesystem?.availableBytes ?? null,
   };
   const [hostVitals, setHostVitals] = React.useState<HostVitals>(initialHostVitals);
+  const [garbageEstimate, setGarbageEstimate] = React.useState<DashboardGarbageEstimate | null>(d.garbageEstimate);
   const [projectLiveVitals, setProjectLiveVitals] = React.useState<Record<string, ProjectLiveVitals>>({});
   const [liveConnected, setLiveConnected] = React.useState(false);
   const [liveLastError, setLiveLastError] = React.useState<string | null>(null);
@@ -593,6 +604,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
         if (!payload || typeof payload !== "object") return;
         React.startTransition(() => {
           setHostVitals((current) => mergeHostVitals(current, payload.hostVitals));
+          setGarbageEstimate((current) => mergeGarbageEstimate(current, payload.garbageEstimate));
           setProjectLiveVitals((current) => mergeProjectVitals(current, payload.projectVitals));
         });
       } catch {
@@ -773,7 +785,14 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard }) {
           <span className={overviewChipClass}>{overviewChipLabel}</span>
         </div>
 
-        <PowerVitalsLiveGrid hostVitals={hostVitals} connected={liveConnected} streamLabel={liveStreamLabel} />
+        <PowerVitalsLiveGrid hostVitals={hostVitals} connected={liveConnected} streamLabel={liveStreamLabel}>
+          <GarbageTile
+            estimate={garbageEstimate}
+            connected={liveConnected}
+            streamLabel={liveStreamLabel}
+            canReclaim={canReclaim}
+          />
+        </PowerVitalsLiveGrid>
 
         {showCpuHotspot ? (
           <div className="pm-cpu-hotspot">

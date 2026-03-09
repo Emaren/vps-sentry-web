@@ -59,6 +59,7 @@ type LegacyPortsEnvelope = {
   ports_local?: unknown;
   ports_public?: unknown;
   project_storage?: unknown;
+  garbage_estimate?: unknown;
   ports?: {
     local?: unknown;
     public?: unknown;
@@ -458,6 +459,9 @@ export async function getStatusEnvelopeSafe() {
       const projectStorage =
         (status?.project_storage as LegacyPortsEnvelope["project_storage"]) ??
         (last?.project_storage as LegacyPortsEnvelope["project_storage"]);
+      const garbageEstimate =
+        (status?.garbage_estimate as LegacyPortsEnvelope["garbage_estimate"]) ??
+        (last?.garbage_estimate as LegacyPortsEnvelope["garbage_estimate"]);
 
       // Ensure BOTH roots expose ports_local/ports_public so downstream derive logic
       // can’t “miss” them depending on which root it uses.
@@ -466,6 +470,7 @@ export async function getStatusEnvelopeSafe() {
         ports_local: portsLocal,
         ports_public: portsPublic,
         project_storage: projectStorage,
+        garbage_estimate: garbageEstimate,
       };
 
       const patchedLast = {
@@ -474,6 +479,7 @@ export async function getStatusEnvelopeSafe() {
         ports_local: portsLocal,
         ports_public: portsPublic,
         project_storage: projectStorage,
+        garbage_estimate: garbageEstimate,
       };
 
       const patched = { ...obj, status: patchedStatus, last: patchedLast };

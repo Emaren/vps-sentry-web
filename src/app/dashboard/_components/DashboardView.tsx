@@ -100,7 +100,7 @@ export default function DashboardView(props: {
         </div>
       </div>
 
-      <PowerMemoryTile derived={d} />
+      <PowerMemoryTile derived={d} canReclaim={ops.access.canOps} />
       <ViewScreen status={s} derived={d} initialPulse={livePulse} />
       <ProtectionRecordSection ops={ops} snapshotTs={d.snapshotTs} />
 

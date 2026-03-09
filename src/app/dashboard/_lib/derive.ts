@@ -20,6 +20,12 @@ export function pickString(v: unknown): string | null {
   return typeof v === "string" && v.length ? v : null;
 }
 
+function pickBoolean(v: unknown): boolean | null {
+  if (v === true) return true;
+  if (v === false) return false;
+  return null;
+}
+
 function pickStringArray(v: unknown): string[] | null {
   if (!Array.isArray(v)) return null;
   const out: string[] = [];
@@ -43,6 +49,49 @@ export type DashboardVitalsProcess = {
   memoryMb: number | null;
   memoryCapacityPercent: number | null;
   isOther: boolean;
+};
+
+export type DashboardGarbageBucket = {
+  key: string;
+  label: string;
+  bytes: number | null;
+  count: number | null;
+};
+
+export type DashboardGarbageTopPath = {
+  path: string;
+  bytes: number | null;
+  bucket: string | null;
+};
+
+export type DashboardGarbageCleanupBucket = {
+  key: string;
+  label: string;
+  estimatedBytes: number | null;
+  deletedCount: number | null;
+};
+
+export type DashboardGarbageCleanupResult = {
+  ok: boolean | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  freedBytesEstimated: number | null;
+  freedBytesActual: number | null;
+  deletedCount: number | null;
+  buckets: DashboardGarbageCleanupBucket[];
+  errors: string[];
+};
+
+export type DashboardGarbageEstimate = {
+  schemaVersion: number | null;
+  measuredAt: string | null;
+  ttlSeconds: number | null;
+  reclaimableBytesTotal: number | null;
+  safeReclaimableBytes: number | null;
+  buckets: DashboardGarbageBucket[];
+  topPaths: DashboardGarbageTopPath[];
+  runningCleanup: boolean;
+  lastCleanupResult: DashboardGarbageCleanupResult | null;
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -97,6 +146,92 @@ function isPortsNoiseAlert(alert: AlertItem, expectedPortsLower: string[]): bool
   }
 
   return false;
+}
+
+function parseGarbageCleanupResult(v: unknown): DashboardGarbageCleanupResult | null {
+  const rec = asRecord(v);
+  if (!rec) return null;
+
+  const bucketRows = Array.isArray(rec.buckets) ? rec.buckets : [];
+  const buckets: DashboardGarbageCleanupBucket[] = [];
+  for (const raw of bucketRows) {
+    const bucket = asRecord(raw);
+    if (!bucket) continue;
+    buckets.push({
+      key: pickString(bucket.key) ?? "unknown",
+      label: pickString(bucket.label) ?? "Unknown",
+      estimatedBytes: pickNumber(bucket.estimated_bytes),
+      deletedCount: pickNumber(bucket.deleted_count),
+    });
+  }
+
+  const errors = Array.isArray(rec.errors)
+    ? rec.errors.filter((row): row is string => typeof row === "string" && row.trim().length > 0)
+    : [];
+
+  return {
+    ok: pickBoolean(rec.ok),
+    startedAt: pickString(rec.started_at),
+    finishedAt: pickString(rec.finished_at),
+    freedBytesEstimated: pickNumber(rec.freed_bytes_estimated),
+    freedBytesActual: pickNumber(rec.freed_bytes_actual),
+    deletedCount: pickNumber(rec.deleted_count),
+    buckets,
+    errors,
+  };
+}
+
+function parseGarbageEstimate(v: unknown): DashboardGarbageEstimate | null {
+  const rec = asRecord(v);
+  if (!rec) return null;
+  const hasSignal =
+    rec.measured_at !== undefined ||
+    rec.reclaimable_bytes_total !== undefined ||
+    rec.safe_reclaimable_bytes !== undefined ||
+    rec.last_cleanup_result !== undefined ||
+    Array.isArray(rec.buckets) ||
+    Array.isArray(rec.top_paths) ||
+    pickBoolean(rec.running_cleanup) !== null;
+  if (!hasSignal) return null;
+
+  const bucketRows = Array.isArray(rec.buckets) ? rec.buckets : [];
+  const buckets: DashboardGarbageBucket[] = [];
+  for (const raw of bucketRows) {
+    const bucket = asRecord(raw);
+    if (!bucket) continue;
+    buckets.push({
+      key: pickString(bucket.key) ?? "unknown",
+      label: pickString(bucket.label) ?? "Unknown",
+      bytes: pickNumber(bucket.bytes),
+      count: pickNumber(bucket.count),
+    });
+  }
+
+  const topPathRows = Array.isArray(rec.top_paths) ? rec.top_paths : [];
+  const topPaths: DashboardGarbageTopPath[] = [];
+  for (const raw of topPathRows) {
+    const row = asRecord(raw);
+    if (!row) continue;
+    const path = pickString(row.path);
+    if (!path) continue;
+    topPaths.push({
+      path,
+      bytes: pickNumber(row.bytes),
+      bucket: pickString(row.bucket),
+    });
+  }
+
+  return {
+    schemaVersion: pickNumber(rec.schema_version),
+    measuredAt: pickString(rec.measured_at),
+    ttlSeconds: pickNumber(rec.ttl_seconds),
+    reclaimableBytesTotal: pickNumber(rec.reclaimable_bytes_total),
+    safeReclaimableBytes: pickNumber(rec.safe_reclaimable_bytes),
+    buckets,
+    topPaths,
+    runningCleanup: pickBoolean(rec.running_cleanup) ?? false,
+    lastCleanupResult: parseGarbageCleanupResult(rec.last_cleanup_result),
+  };
 }
 
 function filterActionableAlerts(input: {
@@ -159,6 +294,7 @@ export type DerivedDashboard = {
   // Raw ports arrays for UI (Power/Memory tile + diagnostics)
   portsLocal: DashboardPort[];
   portsPublic: DashboardPort[];
+  garbageEstimate: DashboardGarbageEstimate | null;
 
   // Optional future signals (present = show)
   breachesOpen: number | null;
@@ -309,6 +445,7 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
   const portsLocal = pickPorts(canonicalRoot, "ports_local");
   const portsPublic = pickPorts(canonicalRoot, "ports_public");
   const canonicalStatus = canonicalRoot;
+  const garbageEstimate = parseGarbageEstimate(canonicalRoot.garbage_estimate);
 
   // ---- Alerts: best-effort filter out allowlisted ports noise ----
   const alertsRaw: AlertItem[] = Array.isArray(s.alerts) ? s.alerts : [];
@@ -410,6 +547,7 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
 
     portsLocal,
     portsPublic,
+    garbageEstimate,
 
     breachesOpen,
     breachesFixed,

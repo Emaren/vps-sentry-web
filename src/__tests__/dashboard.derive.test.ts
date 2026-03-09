@@ -61,6 +61,46 @@ describe("deriveDashboard", () => {
             },
           },
         },
+        garbage_estimate: {
+          schema_version: 1,
+          measured_at: "2026-02-07T00:05:00.000Z",
+          ttl_seconds: 600,
+          reclaimable_bytes_total: 812646400,
+          safe_reclaimable_bytes: 812646400,
+          buckets: [
+            {
+              key: "tmp_stale",
+              label: "Stale /tmp files",
+              bytes: 268435456,
+              count: 12,
+            },
+          ],
+          top_paths: [
+            {
+              path: "/tmp/tmp.drDlZXOgOZ",
+              bytes: 269484032,
+              bucket: "tmp_stale",
+            },
+          ],
+          running_cleanup: false,
+          last_cleanup_result: {
+            ok: true,
+            started_at: "2026-02-07T00:04:00.000Z",
+            finished_at: "2026-02-07T00:04:12.000Z",
+            freed_bytes_estimated: 693000000,
+            freed_bytes_actual: 680000000,
+            deleted_count: 14,
+            buckets: [
+              {
+                key: "tmp_stale",
+                label: "Stale /tmp files",
+                estimated_bytes: 693000000,
+                deleted_count: 14,
+              },
+            ],
+            errors: [],
+          },
+        },
       } as Status,
     });
 
@@ -72,5 +112,7 @@ describe("deriveDashboard", () => {
     expect(out.memoryUsedPercent).toBe(61.1);
     expect(out.vitalsProcesses.length).toBe(2);
     expect((out.canonicalStatus as Status).project_storage).toBeDefined();
+    expect(out.garbageEstimate?.safeReclaimableBytes).toBe(812646400);
+    expect(out.garbageEstimate?.lastCleanupResult?.freedBytesActual).toBe(680000000);
   });
 });

@@ -1,5 +1,7 @@
 "use client";
 
+import React from "react";
+
 type HostVitals = {
   source: "live" | "snapshot";
   updatedTs: string | null;
@@ -60,8 +62,9 @@ export default function PowerVitalsLiveGrid(props: {
   hostVitals: HostVitals;
   connected: boolean;
   streamLabel: string;
+  children?: React.ReactNode;
 }) {
-  const { connected, hostVitals, streamLabel } = props;
+  const { children, connected, hostVitals, streamLabel } = props;
 
   return (
     <div className="power-vitals-kpi-grid">
@@ -119,6 +122,8 @@ export default function PowerVitalsLiveGrid(props: {
           </div>
         </div>
       </div>
+
+      {children}
     </div>
   );
 }
