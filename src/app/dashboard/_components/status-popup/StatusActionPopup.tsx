@@ -170,23 +170,25 @@ function asInt(v: unknown): number {
   return 0;
 }
 
-function normalizeAlertCode(alert: FixStatusAlert): string {
+export function normalizeAlertCode(alert: FixStatusAlert): string {
   if (alert.code) return alert.code.trim().toLowerCase();
   const title = `${alert.title} ${alert.detail}`.toLowerCase();
   if (/watched files changed/.test(title)) return "watched_files_changed";
   if (/packages changed/.test(title)) return "packages_changed";
   if (/user list changed/.test(title)) return "user_list_changed";
+  if (/cron changed/.test(title)) return "cron_changed";
   if (/firewall changed/.test(title)) return "firewall_changed";
   if (/ports changed|public ports changed/.test(title)) return "ports_changed";
   return "";
 }
 
-function isBaselineDriftAlert(alert: FixStatusAlert): boolean {
+export function isBaselineDriftAlert(alert: FixStatusAlert): boolean {
   const code = normalizeAlertCode(alert);
   return (
     code === "watched_files_changed" ||
     code === "packages_changed" ||
     code === "user_list_changed" ||
+    code === "cron_changed" ||
     code === "firewall_changed" ||
     code === "ports_changed"
   );
