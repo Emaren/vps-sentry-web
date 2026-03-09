@@ -195,7 +195,8 @@ export type DashboardProtectionWinSource =
   | "audit"
   | "breach"
   | "incident"
-  | "remediation";
+  | "remediation"
+  | "counterstrike";
 
 export type DashboardProtectionWin = {
   id: string;

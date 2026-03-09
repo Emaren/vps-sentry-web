@@ -11,8 +11,10 @@ import StatCard from "../StatCard";
 import StatusActionPopup from "../StatusActionPopup";
 import NoobTip from "../NoobTip";
 import PanelStateBanner from "../PanelStateBanner";
+import CounterstrikeTile from "../CounterstrikeTile";
 import DashboardActions from "../../dashboard-actions";
 import type { DerivedDashboard } from "../../_lib/derive";
+import { hasRequiredRole } from "@/lib/rbac-policy";
 
 export default function TopArea(props: {
   status: Status;
@@ -132,6 +134,8 @@ export default function TopArea(props: {
               </div>
             ) : null}
           </Box>
+
+          <CounterstrikeTile canRun={hasRequiredRole(userRole, "ops")} />
         </div>
 
         <div className="dashboard-kpi-grid">

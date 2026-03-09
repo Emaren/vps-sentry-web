@@ -9,6 +9,7 @@ import { listIncidentRuns } from "@/lib/ops/incident-engine";
 import { buildSloSnapshot } from "@/lib/slo";
 import { getObservabilitySnapshot } from "@/lib/observability";
 import { INCIDENT_WORKFLOWS } from "@/lib/ops/workflows";
+import { listCounterstrikeHistory } from "@/lib/ops/counterstrike-state";
 import { readHostFleetPolicyConfig } from "@/lib/remediate/fleet-policy";
 import { buildIncidentTimeline, type SignalSeverity } from "@/lib/incident-signals";
 import {
@@ -195,7 +196,7 @@ async function getProtectionSnapshotForUser(input: {
     scopedAuditOr.push({ hostId: { in: input.hostIds } });
   }
 
-  const [auditCount, auditRows, incidentCount, incidentRows] = await Promise.all([
+  const [auditCount, auditRows, incidentCount, incidentRows, counterstrikeRuns] = await Promise.all([
     prisma.auditLog.count({
       where: {
         OR: scopedAuditOr,
@@ -251,6 +252,7 @@ async function getProtectionSnapshotForUser(input: {
         },
       },
     }),
+    listCounterstrikeHistory(20),
   ]);
 
   const wins: DashboardProtectionWin[] = [];
@@ -347,6 +349,23 @@ async function getProtectionSnapshotForUser(input: {
     });
   }
 
+  for (const run of counterstrikeRuns) {
+    if (run.status !== "contained") continue;
+    wins.push({
+      id: `counterstrike:${run.runId}`,
+      category: "neutralized",
+      source: "counterstrike",
+      title: run.playbookTitle,
+      summary: run.summary,
+      occurredAt: run.finishedAt ?? run.updatedAt ?? run.startedAt ?? new Date().toISOString(),
+      hostId: null,
+      hostName: run.host,
+      tone: "bad",
+      repeatCount: 1,
+      evidenceLabel: run.playbookLabel,
+    });
+  }
+
   const rolled = rollupProtectionWins(wins).slice(0, 40);
   const latest = rolled[0] ?? null;
   const times = rolled.map((row) => toMs(row.occurredAt)).filter((value) => value > 0);
@@ -359,15 +378,17 @@ async function getProtectionSnapshotForUser(input: {
   const remediationCount = (input.remediation?.recentRuns ?? []).filter(
     (run) => run.state === "succeeded" && classifyRemediationCategory(run.actionKey) === "remediation"
   ).length;
+  const counterstrikeContainedCount = counterstrikeRuns.filter((run) => run.status === "contained").length;
 
   const counts = {
-    neutralized: auditCount + (input.breaches?.counts.fixed ?? 0),
+    neutralized: auditCount + (input.breaches?.counts.fixed ?? 0) + counterstrikeContainedCount,
     recovered: incidentCount,
     hardening: hardeningCount,
     remediation: remediationCount,
     total:
       auditCount +
       (input.breaches?.counts.fixed ?? 0) +
+      counterstrikeContainedCount +
       incidentCount +
       hardeningCount +
       remediationCount,
