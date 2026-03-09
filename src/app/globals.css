@@ -775,6 +775,60 @@ html[data-site-theme="sepia"] .dashboard-shell {
   line-height: 1.45;
 }
 
+.garbage-tile-progress {
+  display: grid;
+  gap: 6px;
+  border-radius: 10px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--dash-link) 24%, var(--dash-card-border) 76%);
+  background: color-mix(in srgb, var(--dash-card-bg) 76%, rgba(15, 23, 42, 0.5) 24%);
+}
+
+.garbage-tile-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.garbage-tile-progress-title {
+  color: var(--dash-fg);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.garbage-tile-progress-count {
+  color: var(--dash-meta);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.garbage-tile-progress-meta {
+  color: var(--dash-meta);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.garbage-tile-console {
+  display: grid;
+  gap: 4px;
+  border-radius: 8px;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, #0f172a 72%, var(--dash-card-border) 28%);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.88)),
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 45%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.garbage-tile-console-line {
+  color: #cbd5e1;
+  font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "Fira Code", monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .garbage-tile-feedback-meta {
   border: 1px solid color-mix(in srgb, var(--dash-card-border) 76%, transparent 24%);
   background: color-mix(in srgb, var(--dash-btn-bg) 86%, transparent 14%);

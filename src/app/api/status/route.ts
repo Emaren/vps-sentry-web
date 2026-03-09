@@ -11,6 +11,7 @@ export const revalidate = 0;
 const STATUS_PATH = "/var/lib/vps-sentry/public/status.json";
 const LAST_PATH = "/var/lib/vps-sentry/public/last.json";
 const DIFF_PATH = "/var/lib/vps-sentry/public/diff.json";
+const GARBAGE_RUNNING_PATH = "/var/lib/vps-sentry/garbage-running-cleanup.json";
 const STATUS_CACHE_TTL_MS = readStatusCacheTtlMs();
 
 type StatusCacheEntry = {
@@ -102,6 +103,28 @@ function normalizePortsAndVitals(input: {
   const vitals = l?.vitals ?? s?.vitals ?? {};
 
   return { portsLocal, portsPublic, vitals };
+}
+
+function mergeGarbageEstimate(input: {
+  status: Dict | null;
+  last: Dict | null;
+  running: Dict | null;
+}): Dict | null {
+  const fromLast = asDict(input.last?.garbage_estimate);
+  const fromStatus = asDict(input.status?.garbage_estimate);
+  const merged: Dict = {
+    ...(fromLast ?? {}),
+    ...(fromStatus ?? {}),
+  };
+
+  if (input.running) {
+    merged.running_cleanup = true;
+    merged.cleanup_progress = input.running;
+  } else if ("cleanup_progress" in merged) {
+    delete merged.cleanup_progress;
+  }
+
+  return Object.keys(merged).length > 0 ? merged : null;
 }
 
 async function readJsonSafe(path: string): Promise<ReadResult> {
@@ -299,15 +322,17 @@ export async function GET(req: Request) {
     incrementCounter("status.api.cache.miss.total", 1);
     const ts = new Date().toISOString();
 
-    const [statusR, lastR, diffR] = await Promise.all([
+    const [statusR, lastR, diffR, runningR] = await Promise.all([
       readJsonSafe(STATUS_PATH),
       readJsonSafe(LAST_PATH),
       readJsonSafe(DIFF_PATH),
+      readJsonSafe(GARBAGE_RUNNING_PATH),
     ]);
 
     const statusRaw = statusR.ok ? asDict(statusR.data) : null;
     const lastRaw = lastR.ok ? asDict(lastR.data) : null;
     const diff = diffR.ok ? diffR.data : null;
+    const runningRaw = runningR.ok ? asDict(runningR.data) : null;
 
     // If literally everything is missing/unreadable, return hard 500.
     if (!statusRaw && !lastRaw && !diff) {
@@ -344,21 +369,50 @@ export async function GET(req: Request) {
       status: statusRaw,
       last: lastRaw,
     });
+    const garbageEstimate = mergeGarbageEstimate({
+      status: statusRaw,
+      last: lastRaw,
+      running: runningRaw,
+    });
 
     // 🔥 Make CPU/RAM “—” go away: add ps-derived rows for port PIDs into vitals.processes.top.
     const vitalsEnriched = await enrichVitalsTopForPortPids(vitals, portsLocal);
 
     // Ensure BOTH payloads carry ports_local/ports_public + vitals so downstream can rely on either.
     const statusOut: Dict | null = statusRaw
-      ? { ...statusRaw, ports_local: portsLocal, ports_public: portsPublic, vitals: vitalsEnriched }
+      ? {
+          ...statusRaw,
+          ports_local: portsLocal,
+          ports_public: portsPublic,
+          vitals: vitalsEnriched,
+          ...(garbageEstimate ? { garbage_estimate: garbageEstimate } : {}),
+        }
       : lastRaw
-        ? { ...lastRaw, ports_local: portsLocal, ports_public: portsPublic, vitals: vitalsEnriched }
+        ? {
+            ...lastRaw,
+            ports_local: portsLocal,
+            ports_public: portsPublic,
+            vitals: vitalsEnriched,
+            ...(garbageEstimate ? { garbage_estimate: garbageEstimate } : {}),
+          }
         : null;
 
     const lastOut: Dict | null = lastRaw
-      ? { ...lastRaw, ports_local: portsLocal, ports_public: portsPublic, vitals: vitalsEnriched }
+      ? {
+          ...lastRaw,
+          ports_local: portsLocal,
+          ports_public: portsPublic,
+          vitals: vitalsEnriched,
+          ...(garbageEstimate ? { garbage_estimate: garbageEstimate } : {}),
+        }
       : statusRaw
-        ? { ...statusRaw, ports_local: portsLocal, ports_public: portsPublic, vitals: vitalsEnriched }
+        ? {
+            ...statusRaw,
+            ports_local: portsLocal,
+            ports_public: portsPublic,
+            vitals: vitalsEnriched,
+            ...(garbageEstimate ? { garbage_estimate: garbageEstimate } : {}),
+          }
         : null;
 
     const body = {

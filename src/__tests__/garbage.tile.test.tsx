@@ -48,6 +48,7 @@ describe("GarbageTile", () => {
             buckets: [],
             errors: [],
           },
+          cleanupProgress: null,
         }}
       />
     );
@@ -56,5 +57,47 @@ describe("GarbageTile", () => {
     expect(html).toContain("Clear Safe Garbage");
     expect(html).toContain("Stale /tmp files");
     expect(html).toContain("Package manager caches");
+  });
+
+  it("renders cleanup progress details when a reclaim pass is running", () => {
+    const html = renderToStaticMarkup(
+      <GarbageTile
+        connected={true}
+        streamLabel="live"
+        canReclaim={true}
+        estimate={{
+          schemaVersion: 1,
+          measuredAt: "2026-02-09T00:00:00.000Z",
+          ttlSeconds: 600,
+          reclaimableBytesTotal: 812646400,
+          safeReclaimableBytes: 812646400,
+          buckets: [],
+          topPaths: [],
+          runningCleanup: true,
+          lastCleanupResult: null,
+          cleanupProgress: {
+            startedAt: "2026-02-09T00:00:00.000Z",
+            updatedAt: "2026-02-09T00:00:08.000Z",
+            phase: "reclaiming",
+            currentLabel: "VS Code cached VSIX downloads",
+            currentTarget: "/root/.vscode-server/data/CachedExtensionVSIXs",
+            currentCommand: "rm -rf /root/.vscode-server/data/CachedExtensionVSIXs",
+            completedSteps: 1,
+            totalSteps: 3,
+            errorsCount: 0,
+            etaSeconds: 12,
+            recentLines: [
+              "$ scan safe garbage candidates",
+              "$ rm -rf /root/.vscode-server/data/CachedExtensionVSIXs",
+            ],
+          },
+        }}
+      />
+    );
+
+    expect(html).toContain("VS Code cached VSIX downloads");
+    expect(html).toContain("1/3");
+    expect(html).toContain("ETA ~ 12s");
+    expect(html).toContain("$ rm -rf /root/.vscode-server/data/CachedExtensionVSIXs");
   });
 });

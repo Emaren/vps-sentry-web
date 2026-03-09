@@ -43,6 +43,33 @@ function ageLabel(ts: string | null | undefined): string {
   return `${days}d ago`;
 }
 
+function fmtDuration(seconds: number | null | undefined): string | null {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return null;
+  const rounded = Math.max(1, Math.round(seconds));
+  if (rounded < 60) return `${rounded}s`;
+  const minutes = Math.floor(rounded / 60);
+  const remainingSeconds = rounded % 60;
+  if (minutes < 60) return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+function cleanupPhaseLabel(phase: string | null | undefined): string {
+  switch ((phase ?? "").trim().toLowerCase()) {
+    case "scanning":
+      return "Scanning safe cleanup candidates";
+    case "reclaiming":
+      return "Removing matched garbage";
+    case "rescanning":
+      return "Re-scanning reclaimable space";
+    case "publishing":
+      return "Publishing refreshed snapshot";
+    default:
+      return "Cleanup in progress";
+  }
+}
+
 function liveBadgeClass(connected: boolean): string {
   if (connected) return "power-vitals-live-badge power-vitals-live-badge-snapshot";
   return "power-vitals-live-badge power-vitals-live-badge-disconnected";
@@ -57,6 +84,7 @@ export default function GarbageTile(props: {
   const { canReclaim, connected, estimate, streamLabel } = props;
   const [busy, setBusy] = React.useState(false);
   const [pending, setPending] = React.useState(false);
+  const [sawRunningProgress, setSawRunningProgress] = React.useState(false);
   const [feedback, setFeedback] = React.useState<string | null>(null);
   const [feedbackTone, setFeedbackTone] = React.useState<"ok" | "bad" | "meta">("meta");
   const pendingTimerRef = React.useRef<number | null>(null);
@@ -73,6 +101,31 @@ export default function GarbageTile(props: {
   const topBuckets = estimate?.buckets.slice(0, 3) ?? [];
   const cleanup = estimate?.lastCleanupResult ?? null;
   const cleanupFreed = cleanup?.freedBytesActual ?? cleanup?.freedBytesEstimated ?? null;
+  const progress = estimate?.cleanupProgress ?? null;
+  const progressLines = progress?.recentLines.slice(-4) ?? [];
+  const progressStepLabel = progress?.currentLabel ?? cleanupPhaseLabel(progress?.phase);
+  const progressEtaLabel = fmtDuration(progress?.etaSeconds);
+  const isCleanupActive = busy || pending || estimate?.runningCleanup || Boolean(progress);
+
+  React.useEffect(() => {
+    if (estimate?.runningCleanup || progress) {
+      setSawRunningProgress(true);
+    }
+  }, [estimate?.runningCleanup, progress]);
+
+  React.useEffect(() => {
+    if (!pending || !sawRunningProgress) return;
+    if (estimate?.runningCleanup || progress) return;
+    setPending(false);
+    setSawRunningProgress(false);
+    if (pendingTimerRef.current !== null) {
+      window.clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = null;
+    }
+    if (feedbackTone === "meta" && feedback && feedback.toLowerCase().includes("cleanup started")) {
+      setFeedback(null);
+    }
+  }, [pending, sawRunningProgress, estimate?.runningCleanup, progress, feedback, feedbackTone]);
 
   async function handleReclaim() {
     if (!canReclaim || busy) return;
@@ -95,6 +148,7 @@ export default function GarbageTile(props: {
 
       if (data.accepted) {
         setPending(true);
+        setSawRunningProgress(false);
         if (pendingTimerRef.current !== null) {
           window.clearTimeout(pendingTimerRef.current);
         }
@@ -160,18 +214,66 @@ export default function GarbageTile(props: {
           type="button"
           className="garbage-tile-button"
           onClick={handleReclaim}
-          disabled={!canReclaim || busy || pending || estimate?.runningCleanup}
+          disabled={!canReclaim || isCleanupActive}
         >
-          {busy || pending || estimate?.runningCleanup ? "Clearing…" : "Clear Safe Garbage"}
+          {isCleanupActive ? "Clearing…" : "Clear Safe Garbage"}
         </button>
         {!canReclaim ? <span className="garbage-tile-action-note">Ops role required.</span> : null}
       </div>
 
+      {progress ? (
+        <div className="garbage-tile-progress">
+          <div className="garbage-tile-progress-head">
+            <div className="garbage-tile-progress-title">{progressStepLabel}</div>
+            {typeof progress.completedSteps === "number" && typeof progress.totalSteps === "number" ? (
+              <div className="garbage-tile-progress-count">
+                {Math.max(0, progress.completedSteps)}/{Math.max(0, progress.totalSteps)}
+              </div>
+            ) : null}
+          </div>
+          <div className="garbage-tile-progress-meta">
+            {[
+              progress?.phase ? cleanupPhaseLabel(progress.phase) : null,
+              progressEtaLabel ? `ETA ~ ${progressEtaLabel}` : null,
+              progress?.updatedAt ? `updated ${ageLabel(progress.updatedAt)}` : null,
+              typeof progress?.errorsCount === "number" && progress.errorsCount > 0
+                ? `${progress.errorsCount} error${progress.errorsCount === 1 ? "" : "s"}`
+                : null,
+            ]
+              .filter((value): value is string => Boolean(value))
+              .join(" · ")}
+          </div>
+          {progress.currentCommand || progressLines.length > 0 ? (
+            <div className="garbage-tile-console" aria-label="Cleanup progress log">
+              {progressLines.length > 0 ? (
+                progressLines.map((line, index) => (
+                  <div key={`${progress.updatedAt ?? "line"}-${index}`} className="garbage-tile-console-line">
+                    {line}
+                  </div>
+                ))
+              ) : progress.currentCommand ? (
+                <div className="garbage-tile-console-line">{progress.currentCommand}</div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {feedback ? (
         <div className={`garbage-tile-feedback garbage-tile-feedback-${feedbackTone}`}>{feedback}</div>
       ) : cleanup?.finishedAt ? (
-        <div className="garbage-tile-feedback garbage-tile-feedback-meta">
-          Last cleanup: freed {fmtBytes(cleanupFreed)} {ageLabel(cleanup.finishedAt)}.
+        <div
+          className={`garbage-tile-feedback ${
+            cleanup.ok === false && cleanup.errors.length > 0
+              ? "garbage-tile-feedback-bad"
+              : "garbage-tile-feedback-meta"
+          }`}
+        >
+          {cleanup.ok === false && cleanup.errors.length > 0
+            ? `Partial cleanup: freed ${fmtBytes(cleanupFreed)} ${ageLabel(cleanup.finishedAt)} with ${cleanup.errors.length} error${
+                cleanup.errors.length === 1 ? "" : "s"
+              }.`
+            : `Last cleanup: freed ${fmtBytes(cleanupFreed)} ${ageLabel(cleanup.finishedAt)}.`}
         </div>
       ) : null}
     </div>

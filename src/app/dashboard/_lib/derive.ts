@@ -82,6 +82,20 @@ export type DashboardGarbageCleanupResult = {
   errors: string[];
 };
 
+export type DashboardGarbageCleanupProgress = {
+  startedAt: string | null;
+  updatedAt: string | null;
+  phase: string | null;
+  currentLabel: string | null;
+  currentTarget: string | null;
+  currentCommand: string | null;
+  completedSteps: number | null;
+  totalSteps: number | null;
+  errorsCount: number | null;
+  etaSeconds: number | null;
+  recentLines: string[];
+};
+
 export type DashboardGarbageEstimate = {
   schemaVersion: number | null;
   measuredAt: string | null;
@@ -92,6 +106,7 @@ export type DashboardGarbageEstimate = {
   topPaths: DashboardGarbageTopPath[];
   runningCleanup: boolean;
   lastCleanupResult: DashboardGarbageCleanupResult | null;
+  cleanupProgress: DashboardGarbageCleanupProgress | null;
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -181,6 +196,29 @@ function parseGarbageCleanupResult(v: unknown): DashboardGarbageCleanupResult | 
   };
 }
 
+function parseGarbageCleanupProgress(v: unknown): DashboardGarbageCleanupProgress | null {
+  const rec = asRecord(v);
+  if (!rec) return null;
+
+  const recentLines = Array.isArray(rec.recent_lines)
+    ? rec.recent_lines.filter((row): row is string => typeof row === "string" && row.trim().length > 0)
+    : [];
+
+  return {
+    startedAt: pickString(rec.started_at),
+    updatedAt: pickString(rec.updated_at),
+    phase: pickString(rec.phase),
+    currentLabel: pickString(rec.current_label),
+    currentTarget: pickString(rec.current_target),
+    currentCommand: pickString(rec.current_command),
+    completedSteps: pickNumber(rec.completed_steps),
+    totalSteps: pickNumber(rec.total_steps),
+    errorsCount: pickNumber(rec.errors_count),
+    etaSeconds: pickNumber(rec.eta_seconds),
+    recentLines,
+  };
+}
+
 function parseGarbageEstimate(v: unknown): DashboardGarbageEstimate | null {
   const rec = asRecord(v);
   if (!rec) return null;
@@ -189,6 +227,7 @@ function parseGarbageEstimate(v: unknown): DashboardGarbageEstimate | null {
     rec.reclaimable_bytes_total !== undefined ||
     rec.safe_reclaimable_bytes !== undefined ||
     rec.last_cleanup_result !== undefined ||
+    rec.cleanup_progress !== undefined ||
     Array.isArray(rec.buckets) ||
     Array.isArray(rec.top_paths) ||
     pickBoolean(rec.running_cleanup) !== null;
@@ -231,6 +270,7 @@ function parseGarbageEstimate(v: unknown): DashboardGarbageEstimate | null {
     topPaths,
     runningCleanup: pickBoolean(rec.running_cleanup) ?? false,
     lastCleanupResult: parseGarbageCleanupResult(rec.last_cleanup_result),
+    cleanupProgress: parseGarbageCleanupProgress(rec.cleanup_progress),
   };
 }
 

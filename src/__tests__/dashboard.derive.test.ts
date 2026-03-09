@@ -83,6 +83,22 @@ describe("deriveDashboard", () => {
             },
           ],
           running_cleanup: false,
+          cleanup_progress: {
+            started_at: "2026-02-07T00:05:30.000Z",
+            updated_at: "2026-02-07T00:05:36.000Z",
+            phase: "reclaiming",
+            current_label: "VS Code cached VSIX downloads",
+            current_target: "/root/.vscode-server/data/CachedExtensionVSIXs",
+            current_command: "rm -rf /root/.vscode-server/data/CachedExtensionVSIXs",
+            completed_steps: 1,
+            total_steps: 3,
+            errors_count: 0,
+            eta_seconds: 12,
+            recent_lines: [
+              "$ scan safe garbage candidates",
+              "$ rm -rf /root/.vscode-server/data/CachedExtensionVSIXs",
+            ],
+          },
           last_cleanup_result: {
             ok: true,
             started_at: "2026-02-07T00:04:00.000Z",
@@ -114,5 +130,7 @@ describe("deriveDashboard", () => {
     expect((out.canonicalStatus as Status).project_storage).toBeDefined();
     expect(out.garbageEstimate?.safeReclaimableBytes).toBe(812646400);
     expect(out.garbageEstimate?.lastCleanupResult?.freedBytesActual).toBe(680000000);
+    expect(out.garbageEstimate?.cleanupProgress?.currentLabel).toBe("VS Code cached VSIX downloads");
+    expect(out.garbageEstimate?.cleanupProgress?.totalSteps).toBe(3);
   });
 });

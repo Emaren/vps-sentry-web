@@ -162,6 +162,20 @@ export type GarbageCleanupResult = {
   errors?: string[];
 };
 
+export type GarbageCleanupProgress = {
+  started_at?: string;
+  updated_at?: string;
+  phase?: string;
+  current_label?: string;
+  current_target?: string;
+  current_command?: string;
+  completed_steps?: number;
+  total_steps?: number;
+  errors_count?: number;
+  eta_seconds?: number | null;
+  recent_lines?: string[];
+};
+
 export type GarbageEstimateSnapshot = {
   schema_version?: number;
   measured_at?: string;
@@ -172,6 +186,7 @@ export type GarbageEstimateSnapshot = {
   top_paths?: GarbageEstimateTopPath[];
   running_cleanup?: boolean;
   last_cleanup_result?: GarbageCleanupResult | null;
+  cleanup_progress?: GarbageCleanupProgress | null;
 };
 
 export type Status = {
@@ -186,6 +201,7 @@ export type Status = {
 
   public_ports_count: number;
   ports_public: Port[];
+  ports_local?: Port[];
 
   auth?: {
     new_ssh_accepts_count: number;
