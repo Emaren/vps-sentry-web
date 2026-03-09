@@ -14,7 +14,11 @@ type ViewScreenLivePulse = {
   ts: string;
   snapshotTs: string;
   alertsCount: number;
+  topAlertSeverity: "critical" | "high" | "medium" | "low" | "info" | "none";
   unexpectedPorts: number;
+  authFailed: number;
+  authInvalidUser: number;
+  threatSignals: number;
   openBreaches: number;
   incidentsOpen: number;
   queueQueued: number;
@@ -26,18 +30,6 @@ function minutesAgo(ts: string): number | null {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return null;
   return Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
-}
-
-function threatSignalCount(s: Status): number {
-  const t = s.threat;
-  if (!t || typeof t !== "object") return 0;
-
-  let n = 0;
-  if (Array.isArray(t.indicators)) n += t.indicators.length;
-  if (Array.isArray(t.suspicious_processes)) n += t.suspicious_processes.length;
-  if (Array.isArray(t.outbound_suspicious)) n += t.outbound_suspicious.length;
-  if (Array.isArray(t.persistence_hits)) n += t.persistence_hits.length;
-  return n;
 }
 
 function toneClass(msg: { tone: ViewScreenMessage["tone"] }): string {
@@ -118,18 +110,18 @@ export default function ViewScreen(props: {
       snapshotAgeMin: ageMin,
       stale,
       alertsCount: pulse.alertsCount,
-      topAlertSeverity: derived.topAlertSeverity,
+      topAlertSeverity: pulse.topAlertSeverity,
       unexpectedPorts: pulse.unexpectedPorts,
-      authFailed: status.auth?.ssh_failed_password ?? 0,
-      authInvalidUser: status.auth?.ssh_invalid_user ?? 0,
-      threatSignals: threatSignalCount(status),
+      authFailed: pulse.authFailed,
+      authInvalidUser: pulse.authInvalidUser,
+      threatSignals: pulse.threatSignals,
       openBreaches: pulse.openBreaches,
       incidentsOpen: pulse.incidentsOpen,
       queueQueued: pulse.queueQueued,
       queueDlq: pulse.queueDlq,
       shippingFailed24h: pulse.shippingFailed24h,
     });
-  }, [pulse, derived.stale, derived.topAlertSeverity, status]);
+  }, [pulse, derived.stale, status.host, status.version]);
 
   React.useEffect(() => {
     const pick = pickNextViewScreenMessage(messages, {

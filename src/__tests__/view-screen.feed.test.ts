@@ -58,6 +58,29 @@ describe("buildViewScreenMessages", () => {
     expect(queue?.tone).toBe("info");
   });
 
+  it("treats low SSH probe noise as informational", () => {
+    const out = buildViewScreenMessages({
+      ...baseInput(),
+      authInvalidUser: 2,
+    });
+
+    const auth = out.find((x) => x.id === "auth-watch");
+    expect(auth).toBeDefined();
+    expect(auth?.tone).toBe("info");
+  });
+
+  it("escalates heavier SSH probe noise to warn", () => {
+    const out = buildViewScreenMessages({
+      ...baseInput(),
+      authFailed: 8,
+      authInvalidUser: 5,
+    });
+
+    const auth = out.find((x) => x.id === "auth-watch");
+    expect(auth).toBeDefined();
+    expect(auth?.tone).toBe("warn");
+  });
+
   it("picks one message per tick and avoids immediate duplicate when options exist", () => {
     const messages = buildViewScreenMessages({
       ...baseInput(),

@@ -45,7 +45,15 @@ export default function DashboardView(props: {
     ts: new Date().toISOString(),
     snapshotTs: d.snapshotTs,
     alertsCount: d.alertsCount,
+    topAlertSeverity: d.topAlertSeverity,
     unexpectedPorts: d.publicPortsCount,
+    authFailed: s.auth?.ssh_failed_password ?? 0,
+    authInvalidUser: s.auth?.ssh_invalid_user ?? 0,
+    threatSignals:
+      (Array.isArray(s.threat?.indicators) ? s.threat.indicators.length : 0) +
+      (Array.isArray(s.threat?.suspicious_processes) ? s.threat.suspicious_processes.length : 0) +
+      (Array.isArray(s.threat?.outbound_suspicious) ? s.threat.outbound_suspicious.length : 0) +
+      (Array.isArray(s.threat?.persistence_hits) ? s.threat.persistence_hits.length : 0),
     openBreaches: ops.breaches?.counts.open ?? d.breachesOpen ?? 0,
     incidentsOpen: ops.incidents?.counts.open ?? 0,
     queueQueued: ops.queue?.counts.queued ?? ops.remediation?.counts.queued ?? 0,

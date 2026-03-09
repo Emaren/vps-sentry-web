@@ -25,7 +25,11 @@ type LivePulsePayload = {
   ts: string;
   snapshotTs: string;
   alertsCount: number;
+  topAlertSeverity: "critical" | "high" | "medium" | "low" | "info" | "none";
   unexpectedPorts: number;
+  authFailed: number;
+  authInvalidUser: number;
+  threatSignals: number;
   openBreaches: number;
   incidentsOpen: number;
   queueQueued: number;
@@ -78,6 +82,22 @@ function parsePort(value: string): number | null {
   if (!match) return null;
   const port = Number.parseInt(match[1] ?? "", 10);
   return Number.isFinite(port) ? port : null;
+}
+
+function threatSignalCount(status: Record<string, unknown> | null | undefined): number {
+  if (!status || typeof status !== "object") return 0;
+  const threat =
+    "threat" in status && status.threat && typeof status.threat === "object"
+      ? (status.threat as Record<string, unknown>)
+      : null;
+  if (!threat) return 0;
+
+  let n = 0;
+  if (Array.isArray(threat.indicators)) n += threat.indicators.length;
+  if (Array.isArray(threat.suspicious_processes)) n += threat.suspicious_processes.length;
+  if (Array.isArray(threat.outbound_suspicious)) n += threat.outbound_suspicious.length;
+  if (Array.isArray(threat.persistence_hits)) n += threat.persistence_hits.length;
+  return n;
 }
 
 async function readCpuSample(): Promise<CpuSample | null> {
@@ -345,7 +365,11 @@ async function buildLivePulse(input: {
     ts: new Date().toISOString(),
     snapshotTs: derived.snapshotTs,
     alertsCount: derived.alertsCount,
+    topAlertSeverity: derived.topAlertSeverity,
     unexpectedPorts: derived.publicPortsCount,
+    authFailed: env.last.auth?.ssh_failed_password ?? 0,
+    authInvalidUser: env.last.auth?.ssh_invalid_user ?? 0,
+    threatSignals: threatSignalCount(env.last),
     openBreaches: ops.breaches?.counts.open ?? derived.breachesOpen ?? 0,
     incidentsOpen: ops.incidents?.counts.open ?? 0,
     queueQueued: ops.queue?.counts.queued ?? ops.remediation?.counts.queued ?? 0,

@@ -32,6 +32,14 @@ export type ViewScreenModel = {
   shippingFailed24h: number;
 };
 
+function authWatchTone(input: ViewScreenModel): ViewScreenTone {
+  const total = input.authFailed + input.authInvalidUser;
+  if (input.authFailed >= 10 || input.authInvalidUser >= 5 || total >= 12) {
+    return "warn";
+  }
+  return "info";
+}
+
 export function buildViewScreenMessages(input: ViewScreenModel): ViewScreenMessage[] {
   const out: ViewScreenMessage[] = [];
 
@@ -88,9 +96,12 @@ export function buildViewScreenMessages(input: ViewScreenModel): ViewScreenMessa
     out.push({
       id: "auth-watch",
       sensor: "Auth Watch",
-      tone: "warn",
+      tone: authWatchTone(input),
       line1: `SSH noise seen: ${input.authFailed} failed password + ${input.authInvalidUser} invalid-user attempt(s).`,
-      line2: "Often scanner traffic, but spikes can hide real intrusion attempts.",
+      line2:
+        authWatchTone(input) === "warn"
+          ? "Probe volume is elevated enough to watch more closely."
+          : "Often scanner traffic, but worth keeping an eye on.",
     });
   }
 
