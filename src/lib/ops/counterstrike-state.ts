@@ -72,6 +72,13 @@ export type CounterstrikeRunResult = {
     reasons: string[];
     score: number | null;
   }>;
+  plannedActions: {
+    candidateCount: number;
+    stopPids: number[];
+    quarantinePaths: string[];
+    cronRemovedLines: number | null;
+    cronChangedTargets: string[];
+  } | null;
   quarantinedPaths: string[];
   cronRemovedLines: number | null;
   cronChangedTargets: string[];
@@ -207,6 +214,7 @@ function normalizeCandidate(raw: unknown): CounterstrikeRunResult["matchedCandid
 function normalizeRunResult(raw: JsonDict | null): CounterstrikeRunResult | null {
   if (!raw) return null;
   const playbook = playbookMeta(asString(raw.playbook));
+  const planned = asDict(raw.planned_actions);
   return {
     runId: asString(raw.run_id) ?? "unknown",
     playbook: playbook.id,
@@ -231,6 +239,15 @@ function normalizeRunResult(raw: JsonDict | null): CounterstrikeRunResult | null
     matchedCandidates: asList(raw.matched_candidates)
       .map((item) => normalizeCandidate(item))
       .filter((item): item is CounterstrikeRunResult["matchedCandidates"][number] => item !== null),
+    plannedActions: planned
+      ? {
+          candidateCount: Math.max(0, asInt(planned.candidate_count) ?? 0),
+          stopPids: asList(planned.stop_pids).map((pid) => asInt(pid)).filter((pid): pid is number => pid !== null),
+          quarantinePaths: asList(planned.quarantine_paths).map((path) => asString(path)).filter((path): path is string => Boolean(path)),
+          cronRemovedLines: asInt(planned.cron_removed_lines),
+          cronChangedTargets: asList(planned.cron_changed_targets).map((path) => asString(path)).filter((path): path is string => Boolean(path)),
+        }
+      : null,
     quarantinedPaths: asList(raw.quarantined_paths).map((line) => asString(line)).filter((line): line is string => Boolean(line)),
     cronRemovedLines: asInt(raw.cron_removed_lines),
     cronChangedTargets: asList(raw.cron_changed_targets).map((line) => asString(line)).filter((line): line is string => Boolean(line)),

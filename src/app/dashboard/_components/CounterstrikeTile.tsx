@@ -58,6 +58,13 @@ type CounterstrikeRunResult = {
     exe: string | null;
     reasons: string[];
   }>;
+  plannedActions: {
+    candidateCount: number;
+    stopPids: number[];
+    quarantinePaths: string[];
+    cronRemovedLines: number | null;
+    cronChangedTargets: string[];
+  } | null;
   quarantinedPaths: string[];
   cronRemovedLines: number | null;
   cronChangedTargets: string[];
@@ -83,6 +90,12 @@ type CounterstrikeRunResponse = {
   detail?: string;
   error?: string;
   snapshot?: CounterstrikeStatusResponse;
+};
+
+type CounterstrikeTileProps = {
+  canRun: boolean;
+  initialSnapshot?: CounterstrikeStatusResponse | null;
+  initialHistory?: CounterstrikeRunResult[];
 };
 
 function fmtTs(value: string | null | undefined): string {
@@ -144,12 +157,19 @@ function toneClass(tone: "meta" | "bad" | "ok"): string {
   return "counterstrike-feedback counterstrike-feedback-meta";
 }
 
-export default function CounterstrikeTile(props: { canRun: boolean }) {
-  const { canRun } = props;
-  const [snapshot, setSnapshot] = React.useState<CounterstrikeStatusResponse | null>(null);
-  const [history, setHistory] = React.useState<CounterstrikeRunResult[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [historyOpen, setHistoryOpen] = React.useState(false);
+function planSummary(plan: CounterstrikeRunResult["plannedActions"]): string | null {
+  if (!plan || plan.candidateCount <= 0) return null;
+  const cronLabel =
+    typeof plan.cronRemovedLines === "number" ? `${plan.cronRemovedLines} cron line(s)` : "0 cron line(s)";
+  return `Would stop ${plan.stopPids.length} process(es), quarantine ${plan.quarantinePaths.length} executable(s), and scrub ${cronLabel}.`;
+}
+
+export default function CounterstrikeTile(props: CounterstrikeTileProps) {
+  const { canRun, initialHistory = [], initialSnapshot = null } = props;
+  const [snapshot, setSnapshot] = React.useState<CounterstrikeStatusResponse | null>(initialSnapshot);
+  const [history, setHistory] = React.useState<CounterstrikeRunResult[]>(initialHistory);
+  const [loading, setLoading] = React.useState(initialSnapshot === null);
+  const [historyOpen, setHistoryOpen] = React.useState(initialHistory.length > 0);
   const [consoleOpen, setConsoleOpen] = React.useState(false);
   const [busyMode, setBusyMode] = React.useState<CounterstrikeMode | null>(null);
   const [feedback, setFeedback] = React.useState<string | null>(null);
@@ -281,6 +301,8 @@ export default function CounterstrikeTile(props: { canRun: boolean }) {
   const last = snapshot?.last ?? null;
   const consoleLines = running?.recentLines.length ? running.recentLines : last?.recentLines ?? [];
   const canMutate = canRun && snapshot?.canRun !== false;
+  const lastPlan = last?.plannedActions ?? null;
+  const lastPlanCopy = planSummary(lastPlan);
 
   return (
     <Box className="counterstrike-tile" style={{ marginTop: 12 }}>
@@ -401,6 +423,24 @@ export default function CounterstrikeTile(props: { canRun: boolean }) {
         </div>
       ) : null}
 
+      {!running &&
+      lastPlan &&
+      lastPlanCopy &&
+      (last?.status === "analysis_only" || last?.status === "dry_run") ? (
+        <div className="counterstrike-plan">
+          <div className="counterstrike-plan-title">Planned response</div>
+          <div className="counterstrike-plan-copy">{lastPlanCopy}</div>
+          <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
+            <span className="dashboard-chip">targets {lastPlan.candidateCount}</span>
+            <span className="dashboard-chip">stop {lastPlan.stopPids.length}</span>
+            <span className="dashboard-chip">quarantine {lastPlan.quarantinePaths.length}</span>
+            {typeof lastPlan.cronRemovedLines === "number" ? (
+              <span className="dashboard-chip">cron {lastPlan.cronRemovedLines}</span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {consoleOpen ? (
         <div className="counterstrike-console">
           <div className="counterstrike-console-title">Battlefeed console</div>
@@ -428,8 +468,10 @@ export default function CounterstrikeTile(props: { canRun: boolean }) {
           </div>
           {history.length > 0 ? (
             <div className="counterstrike-history-list">
-              {history.map((entry) => (
-                <div key={entry.runId} className="counterstrike-history-entry">
+              {history.map((entry) => {
+                const entryPlanCopy = planSummary(entry.plannedActions);
+                return (
+                  <div key={entry.runId} className="counterstrike-history-entry">
                   <div className="counterstrike-history-entry-head">
                     <div>
                       <span className={statusChipClass(entry.status)}>{statusLabel(entry.status)}</span>
@@ -438,10 +480,16 @@ export default function CounterstrikeTile(props: { canRun: boolean }) {
                     <div className="counterstrike-history-entry-mode">{entry.playbookLabel}</div>
                   </div>
                   <div className="counterstrike-history-entry-summary">{entry.summary}</div>
+                  {entryPlanCopy && (entry.status === "analysis_only" || entry.status === "dry_run") ? (
+                    <div className="counterstrike-history-entry-plan">{entryPlanCopy}</div>
+                  ) : null}
                   <div className="dashboard-chip-row" style={{ marginTop: 8 }}>
                     <span className="dashboard-chip">{entry.mode}</span>
                     {typeof entry.alertsCount === "number" ? (
                       <span className="dashboard-chip">alerts {entry.alertsCount}</span>
+                    ) : null}
+                    {entry.plannedActions ? (
+                      <span className="dashboard-chip">targets {entry.plannedActions.candidateCount}</span>
                     ) : null}
                     {typeof entry.cronRemovedLines === "number" ? (
                       <span className="dashboard-chip">cron removed {entry.cronRemovedLines}</span>
@@ -451,8 +499,9 @@ export default function CounterstrikeTile(props: { canRun: boolean }) {
                     ) : null}
                     {entry.evidenceCaptured ? <span className="dashboard-chip dashboard-chip-ok">evidence</span> : null}
                   </div>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="counterstrike-console-empty">No Counterstrike runs recorded yet.</div>

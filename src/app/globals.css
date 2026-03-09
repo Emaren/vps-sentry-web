@@ -2296,6 +2296,28 @@ html[data-site-theme="sepia"] .dashboard-shell {
   overflow-x: auto;
 }
 
+.counterstrike-plan {
+  border: 1px solid color-mix(in srgb, var(--dash-sev-medium-border) 72%, transparent 28%);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--dash-sev-medium-bg) 72%, transparent 28%);
+  padding: 11px 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.counterstrike-plan-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dash-meta);
+}
+
+.counterstrike-plan-copy {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .counterstrike-console {
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--dash-card-border) 82%, transparent 18%);
@@ -2404,6 +2426,15 @@ html[data-site-theme="sepia"] .dashboard-shell {
   margin-top: 8px;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.counterstrike-history-entry-plan {
+  margin-top: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--dash-sev-medium-border) 76%, transparent 24%);
+  padding-left: 10px;
+  color: var(--dash-meta);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .dashboard-kpi-grid {
