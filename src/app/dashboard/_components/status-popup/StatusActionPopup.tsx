@@ -171,7 +171,9 @@ function asInt(v: unknown): number {
 }
 
 export function normalizeAlertCode(alert: FixStatusAlert): string {
-  if (alert.code) return alert.code.trim().toLowerCase();
+  const code = alert.code?.trim().toLowerCase() ?? "";
+  if (code === "public_ports_changed") return "ports_changed";
+  if (code) return code;
   const title = `${alert.title} ${alert.detail}`.toLowerCase();
   if (/watched files changed/.test(title)) return "watched_files_changed";
   if (/packages changed/.test(title)) return "packages_changed";
