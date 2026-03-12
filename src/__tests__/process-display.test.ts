@@ -35,4 +35,16 @@ describe("resolveProcessDisplay", () => {
     expect(out.friendlyName).toBe("QEMU guest agent");
     expect(out.secondaryText).toBe("pid 271721 · qemu-ga");
   });
+
+  it("prefers project service wording over vague app unit names", () => {
+    const out = resolveProcessDisplay({
+      pid: 3439509,
+      rawName: "next-server",
+      unit: "wheatandstone-app.service",
+      cwd: "/var/www/WheatAndStone/ws-app",
+      ports: [3010],
+    });
+
+    expect(out.friendlyName).toBe("wheatandstone-web :3010");
+  });
 });

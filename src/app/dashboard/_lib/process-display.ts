@@ -206,7 +206,7 @@ function usefulUnitLabel(unit: string | null | undefined, rawName: string): stri
   ]);
 
   const unitSlug = slugify(base);
-  if (!unitSlug || generic.has(unitSlug) || unitSlug === slugify(rawName)) return null;
+  if (!unitSlug || generic.has(unitSlug) || unitSlug === slugify(rawName) || unitSlug.endsWith("-app")) return null;
   return base;
 }
 
