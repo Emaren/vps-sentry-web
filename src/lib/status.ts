@@ -40,6 +40,16 @@ export type Shipping = {
 export type VitalsProcess = {
   pid?: number;
   name?: string;
+  label?: string;
+  ports?: number[];
+  unit?: string;
+  exe?: string;
+  cmdline?: string;
+  cwd?: string;
+  project?: string;
+  project_label?: string;
+  service_kind?: string;
+  tech?: string;
   cpu_share_percent?: number;
   cpu_capacity_percent?: number;
   memory_mb?: number;

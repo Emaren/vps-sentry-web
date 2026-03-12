@@ -2,6 +2,7 @@
 import React from "react";
 import { minutesAgo, fmt, type Status, type Breach, type Port, type Shipping } from "@/lib/status";
 import { buildActionSummary } from "./explain";
+import { resolveProcessDisplay } from "./process-display";
 import {
   applyAlertPolicy,
   type AlertItem as RawAlertItem,
@@ -38,12 +39,38 @@ function pickStringArray(v: unknown): string[] | null {
   return out.length ? out : null;
 }
 
+function pickNumberArray(v: unknown): number[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: number[] = [];
+  for (const x of v) {
+    if (typeof x === "number" && Number.isFinite(x)) {
+      out.push(Math.trunc(x));
+      continue;
+    }
+    if (typeof x === "string") {
+      const parsed = Number.parseInt(x, 10);
+      if (Number.isFinite(parsed)) out.push(parsed);
+    }
+  }
+  return out.length ? out : null;
+}
+
 type AlertItem = RawAlertItem;
 type DashboardPort = Pick<Port, "proto" | "host" | "port" | "proc" | "pid">;
 
 export type DashboardVitalsProcess = {
   pid: number | null;
   name: string;
+  friendlyName: string;
+  secondaryText: string;
+  detailTitle: string | null;
+  ports: number[];
+  unit: string | null;
+  exe: string | null;
+  cmdline: string | null;
+  cwd: string | null;
+  project: string | null;
+  serviceKind: string | null;
   cpuSharePercent: number | null;
   cpuCapacityPercent: number | null;
   memoryMb: number | null;
@@ -396,6 +423,33 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
     Boolean(shipping?.last_ship_ts) ||
     Boolean(shipping?.last_ship_error);
 
+  // ---- Canonical status + ports arrays ----
+  const rawObj = asRecord(env.raw);
+  const canonicalRoot =
+    asRecord(rawObj?.status) ??
+    asRecord(rawObj?.last) ??
+    asRecord(s) ??
+    {};
+
+  const portsLocal = pickPorts(canonicalRoot, "ports_local");
+  const portsPublic = pickPorts(canonicalRoot, "ports_public");
+  const canonicalStatus = canonicalRoot;
+  const garbageEstimate = parseGarbageEstimate(canonicalRoot.garbage_estimate);
+
+  const processPortsByPid = new Map<number, number[]>();
+  for (const portRow of [...portsLocal, ...portsPublic]) {
+    const pid = pickNumber(portRow.pid);
+    const port = pickNumber(portRow.port);
+    if (pid === null || port === null) continue;
+    const pidValue = Math.max(0, Math.trunc(pid));
+    const portValue = Math.max(0, Math.trunc(port));
+    if (pidValue <= 0 || portValue <= 0) continue;
+    const existing = processPortsByPid.get(pidValue) ?? [];
+    if (!existing.includes(portValue)) existing.push(portValue);
+    existing.sort((a, b) => a - b);
+    processPortsByPid.set(pidValue, existing);
+  }
+
   // ---- Resource vitals (optional) ----
   const vitalsRoot = asRecord(s.vitals);
   const vitalsCpu = asRecord(vitalsRoot?.cpu);
@@ -422,10 +476,37 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
     const pidRaw = pickNumber(rec.pid);
     const pid = pidRaw === null ? null : Math.max(0, Math.trunc(pidRaw));
     const fallbackName = pid !== null && pid > 0 ? `pid ${pid}` : "unknown";
+    const rawName = pickString(rec.name) ?? fallbackName;
+    const display = resolveProcessDisplay({
+      pid,
+      rawName,
+      label: pickString(rec.label),
+      unit: pickString(rec.unit),
+      exe: pickString(rec.exe),
+      cmdline: pickString(rec.cmdline),
+      cwd: pickString(rec.cwd),
+      ports: [
+        ...(pickNumberArray(rec.ports) ?? []),
+        ...((pid !== null && pid > 0 ? processPortsByPid.get(pid) : []) ?? []),
+      ],
+      project: pickString(rec.project),
+      projectLabel: pickString(rec.project_label),
+      serviceKind: pickString(rec.service_kind),
+    });
 
     vitalsProcessRows.push({
       pid,
-      name: pickString(rec.name) ?? fallbackName,
+      name: rawName,
+      friendlyName: display.friendlyName,
+      secondaryText: display.secondaryText,
+      detailTitle: display.detailTitle,
+      ports: display.ports,
+      unit: pickString(rec.unit),
+      exe: pickString(rec.exe),
+      cmdline: pickString(rec.cmdline),
+      cwd: pickString(rec.cwd),
+      project: display.project,
+      serviceKind: display.serviceKind,
       cpuSharePercent: pickNumber(rec.cpu_share_percent),
       cpuCapacityPercent: pickNumber(rec.cpu_capacity_percent),
       memoryMb: pickNumber(rec.memory_mb),
@@ -436,9 +517,25 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
 
   const otherRaw = asRecord(vitalsProcesses?.other);
   if (otherRaw) {
+    const rawName = pickString(otherRaw.name) ?? "other-processes";
+    const display = resolveProcessDisplay({
+      pid: null,
+      rawName,
+      isOther: true,
+    });
     vitalsProcessRows.push({
       pid: null,
-      name: pickString(otherRaw.name) ?? "other-processes",
+      name: rawName,
+      friendlyName: display.friendlyName,
+      secondaryText: display.secondaryText,
+      detailTitle: display.detailTitle,
+      ports: [],
+      unit: null,
+      exe: null,
+      cmdline: null,
+      cwd: null,
+      project: null,
+      serviceKind: null,
       cpuSharePercent: pickNumber(otherRaw.cpu_share_percent),
       cpuCapacityPercent: pickNumber(otherRaw.cpu_capacity_percent),
       memoryMb: pickNumber(otherRaw.memory_mb),
@@ -473,19 +570,6 @@ export function deriveDashboard(env: { raw: unknown; last: Status }) {
   // - if unexpected list exists, use it (only actionable ports)
   // - else fallback to raw list
   const portsPublicForAction = portsPublicUnexpected ?? (s.ports_public ?? []);
-
-  // ---- Canonical status + ports arrays (fixes "local 0" / DOWN tiles when env.raw carries the ports) ----
-  const rawObj = asRecord(env.raw);
-  const canonicalRoot =
-    asRecord(rawObj?.status) ??
-    asRecord(rawObj?.last) ??
-    asRecord(s) ??
-    {};
-
-  const portsLocal = pickPorts(canonicalRoot, "ports_local");
-  const portsPublic = pickPorts(canonicalRoot, "ports_public");
-  const canonicalStatus = canonicalRoot;
-  const garbageEstimate = parseGarbageEstimate(canonicalRoot.garbage_estimate);
 
   // ---- Alerts: best-effort filter out allowlisted ports noise ----
   const alertsRaw: AlertItem[] = Array.isArray(s.alerts) ? s.alerts : [];

@@ -1045,10 +1045,15 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           {rows.length ? (
             <div className="power-vitals-list" role="list" aria-label="Top VPS process load">
               {rows.map((row) => (
-                <div key={`${row.name}-${row.pid ?? "other"}`} className="power-vitals-row" role="listitem">
+                <div
+                  key={`${row.friendlyName}-${row.pid ?? "other"}`}
+                  className="power-vitals-row"
+                  role="listitem"
+                  title={row.detailTitle ?? undefined}
+                >
                   <div className="power-vitals-row-name">
-                    <span className="power-vitals-row-proc">{row.name}</span>
-                    <span className="power-vitals-row-pid">{row.pid ? `pid ${row.pid}` : "aggregated"}</span>
+                    <span className="power-vitals-row-proc">{row.friendlyName}</span>
+                    <span className="power-vitals-row-pid">{row.secondaryText}</span>
                   </div>
                   <div className="power-vitals-row-metric">
                     <span className="power-vitals-row-metric-label">Load</span>

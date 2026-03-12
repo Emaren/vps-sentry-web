@@ -133,4 +133,52 @@ describe("deriveDashboard", () => {
     expect(out.garbageEstimate?.cleanupProgress?.currentLabel).toBe("VS Code cached VSIX downloads");
     expect(out.garbageEstimate?.cleanupProgress?.totalSteps).toBe(3);
   });
+
+  it("enriches process rows with friendly labels while keeping raw pid/process details", () => {
+    const out = deriveDashboard({
+      raw: {},
+      last: {
+        host: "test",
+        version: "1.0.0",
+        ts: "2026-02-07T00:00:00.000Z",
+        alerts_count: 0,
+        alerts: [],
+        public_ports_count: 0,
+        ports_public: [],
+        ports_local: [
+          {
+            proto: "tcp",
+            host: "127.0.0.1",
+            port: 3030,
+            proc: "node",
+            pid: 3431042,
+            public: false,
+            sig: "tcp|127.0.0.1|3030|node",
+          },
+        ],
+        vitals: {
+          cpu: { used_percent: 47.2, capacity_percent: 100, cores: 2 },
+          memory: { used_percent: 61.1, total_mb: 4096, used_mb: 2500.5, available_mb: 1595.5 },
+          processes: {
+            sampled_count: 100,
+            top: [
+              {
+                pid: 3431042,
+                name: "next-server",
+                cpu_share_percent: 44.4,
+                cpu_capacity_percent: 22.2,
+                memory_mb: 512.2,
+                memory_capacity_percent: 12.5,
+              },
+            ],
+            cpu_share_total_percent: 44.4,
+          },
+        },
+      } as Status,
+    });
+
+    expect(out.vitalsProcesses[0]?.friendlyName).toBe("aoe2hdbets-web :3030");
+    expect(out.vitalsProcesses[0]?.secondaryText).toBe("pid 3431042 · next-server");
+    expect(out.vitalsProcesses[0]?.detailTitle).toContain("Ports: :3030");
+  });
 });
