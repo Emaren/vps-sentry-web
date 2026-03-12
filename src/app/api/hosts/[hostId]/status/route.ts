@@ -106,6 +106,7 @@ async function loadDeps() {
     heartbeatMod,
     hostKeysMod,
     hostKeyAuthMod,
+    autoBreachesMod,
     remediateMod,
     obsMod,
   ] = await Promise.all([
@@ -114,6 +115,7 @@ async function loadDeps() {
     import("@/lib/host-heartbeat"),
     import("@/lib/host-keys"),
     import("@/lib/host-key-auth"),
+    import("@/lib/auto-breaches"),
     import("@/lib/remediate/autonomous-runtime"),
     import("@/lib/observability").catch(() => ({} as any)),
   ]);
@@ -128,6 +130,7 @@ async function loadDeps() {
     readBearerToken: hostKeyAuthMod.readBearerToken,
     touchHostKeyLastUsed: hostKeyAuthMod.touchHostKeyLastUsed,
     verifyHostTokenForScope: hostKeyAuthMod.verifyHostTokenForScope,
+    reconcileAutoBreachesForHost: autoBreachesMod.reconcileAutoBreachesForHost,
     queueAutonomousRemediationForHost: remediateMod.queueAutonomousRemediationForHost,
     // observability (optional)
     incrementCounter: (obsMod as any).incrementCounter ?? (() => {}),
@@ -282,7 +285,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ hostId: string
         });
       }
 
-      await deps.prisma.$transaction([
+      const txResults = await deps.prisma.$transaction([
         deps.prisma.hostApiKey.update({
           where: { id: key.id },
           data: { lastUsedAt: new Date() },
@@ -302,6 +305,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ hostId: string
             alertsCount: parsed.alertsCount,
             publicPortsCount: parsed.publicPortsCount,
           },
+          select: {
+            id: true,
+          },
         }),
         deps.prisma.auditLog.create({
           data: {
@@ -311,6 +317,44 @@ export async function POST(req: Request, ctx: { params: Promise<{ hostId: string
           },
         }),
       ]);
+      const snapshotRow = txResults[2] as { id: string };
+
+      let breaches: Awaited<ReturnType<typeof deps.reconcileAutoBreachesForHost>> | null = null;
+      try {
+        breaches = await deps.reconcileAutoBreachesForHost({
+          prisma: deps.prisma,
+          hostId,
+          snapshotId: snapshotRow.id,
+          status: statusForStore,
+          ts: parsed.ts,
+        });
+
+        if (breaches.opened > 0) {
+          deps.incrementCounter("host.status.breach.opened.total", breaches.opened);
+        }
+        if (breaches.fixed > 0) {
+          deps.incrementCounter("host.status.breach.fixed.total", breaches.fixed);
+        }
+        if (breaches.opened > 0 || breaches.fixed > 0) {
+          await deps.prisma.auditLog.create({
+            data: {
+              hostId,
+              action: "host.ingest.breach.sync",
+              detail: `Auto breach sync: opened=${breaches.opened} fixed=${breaches.fixed} active=${breaches.active} suppressed=${breaches.suppressed}`,
+            },
+          });
+        }
+      } catch (err: unknown) {
+        const errorText = String(err).slice(0, 500);
+        deps.incrementCounter("host.status.breach.error.total", 1);
+        await deps.prisma.auditLog.create({
+          data: {
+            hostId,
+            action: "host.ingest.breach.error",
+            detail: `Auto breach reconciliation failed: ${errorText}`,
+          },
+        });
+      }
 
       let autonomous: Awaited<ReturnType<typeof deps.queueAutonomousRemediationForHost>> | null = null;
       try {
@@ -353,6 +397,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ hostId: string
         publicPortsTotalCount: parsed.publicPortsTotalCount,
         unexpectedPublicPortsCount: parsed.unexpectedPublicPortsCount,
         expectedPublicPorts: parsed.expectedPublicPorts,
+        breaches,
         autonomous,
       });
     }
