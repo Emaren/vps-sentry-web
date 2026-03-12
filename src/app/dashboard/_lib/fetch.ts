@@ -40,6 +40,7 @@ import {
   panelForbidden,
   panelReady,
 } from "./panel-health";
+import { buildShippingEventWhere } from "./shipping-scope";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -817,17 +818,11 @@ async function getBreachesSnapshotForHosts(input: {
 
 async function getShippingSnapshotForUser(input: {
   userId: string;
+  userEmail?: string | null;
   hostIds: string[];
 }): Promise<DashboardShippingSnapshot> {
   const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const scopedOr: Array<Record<string, unknown>> = [
-    { endpoint: { userId: input.userId } },
-  ];
-  if (input.hostIds.length > 0) {
-    scopedOr.push({ hostId: { in: input.hostIds } });
-  }
-
-  const where = { OR: scopedOr };
+  const where = buildShippingEventWhere(input);
 
   const [total, delivered, failed, pending, last24h, failed24h, rows] =
     await Promise.all([
@@ -1266,6 +1261,7 @@ async function getAdaptiveSnapshotForUser(input: {
 
 export async function getDashboardOpsSnapshot(input: {
   userId: string;
+  userEmail?: string | null;
   userRole: AppRole;
 }): Promise<DashboardOpsSnapshot> {
   const canOps = hasRequiredRole(input.userRole, "ops");
@@ -1284,6 +1280,7 @@ export async function getDashboardOpsSnapshot(input: {
     getBreachesSnapshotForHosts({ hostIds }),
     getShippingSnapshotForUser({
       userId: input.userId,
+      userEmail: input.userEmail ?? null,
       hostIds,
     }),
     getRemediationSnapshotForHosts({ hostIds }),
@@ -1302,7 +1299,10 @@ export async function getDashboardOpsSnapshot(input: {
               `Live breach ledger connected (${breachesRes.value.counts.total} records).`,
               updatedAtIso
             )
-          : panelEmpty("Breach ledger connected; no breach records found.", updatedAtIso)
+          : panelEmpty(
+              "Breach ledger connected; no breach records have been created yet.",
+              updatedAtIso
+            )
         : panelError(
             `Breach ledger unavailable: ${errorMessage(breachesRes.reason)}`,
             updatedAtIso
@@ -1314,7 +1314,10 @@ export async function getDashboardOpsSnapshot(input: {
               `Live notification ledger connected (${shippingRes.value.counts.total} events).`,
               updatedAtIso
             )
-          : panelEmpty("Notification ledger connected; no shipping events found.", updatedAtIso)
+          : panelEmpty(
+              "Notification ledger connected; no shipping events matched this account yet.",
+              updatedAtIso
+            )
         : panelError(
             `Notification ledger unavailable: ${errorMessage(shippingRes.reason)}`,
             updatedAtIso

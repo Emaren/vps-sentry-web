@@ -108,6 +108,7 @@ function normalizeDetail(v: string | null | undefined): string {
 function buildPayload(input: {
   title: string;
   detail: string;
+  userId: string;
   hostId?: string | null;
   requestedByEmail: string;
   observability?: DispatchNotifyTestInput["observability"];
@@ -118,6 +119,7 @@ function buildPayload(input: {
     title: input.title,
     detail: input.detail,
     hostId: input.hostId ?? null,
+    requestedByUserId: input.userId,
     requestedBy: input.requestedByEmail,
     source: "vps-sentry-web",
     observability: input.observability
@@ -214,6 +216,7 @@ export async function dispatchNotifyTest(input: DispatchNotifyTestInput): Promis
   const payload = buildPayload({
     title,
     detail,
+    userId: input.userId,
     hostId: input.hostId,
     requestedByEmail: input.requestedByEmail,
     observability: input.observability,

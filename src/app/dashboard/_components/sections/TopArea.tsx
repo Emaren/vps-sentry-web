@@ -244,7 +244,9 @@ export default function TopArea(props: {
               <SupportMetric label="Total breaches tracked" value={breachTotal} />
               <div className="dashboard-support-note">
                 {liveBreaches
-                  ? "Live breach ledger connected from datastore."
+                  ? breachTotal > 0
+                    ? "Live breach ledger connected from datastore."
+                    : "Breach ledger is connected. It stays empty until a breach record is created."
                   : d.hasBreachSignals
                   ? "Snapshot breach counts available from latest host status."
                   : "No breach records have been observed yet."}
@@ -274,7 +276,9 @@ export default function TopArea(props: {
               <SupportMetric label="Last ship error" value={shippingLastError ?? "—"} />
               <div className="dashboard-support-note">
                 {liveShipping
-                  ? "Live delivery health is connected from notification events."
+                  ? liveShipping.counts.total > 0
+                    ? "Live delivery health is connected from notification events."
+                    : "Notification ledger is connected, but no delivery events matched this account yet."
                   : d.hasShippingSignals
                   ? "Snapshot shipping data available from latest host status."
                   : "No shipping events captured yet."}

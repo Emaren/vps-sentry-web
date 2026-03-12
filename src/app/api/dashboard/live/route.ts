@@ -345,6 +345,7 @@ async function readLiveHostVitals(input: {
 
 async function buildLivePulse(input: {
   userId: string;
+  userEmail: string | null;
   userRole: "viewer" | "ops" | "admin" | "owner";
 }, deps: {
   deriveDashboard: (typeof import("@/app/dashboard/_lib/derive"))["deriveDashboard"];
@@ -355,6 +356,7 @@ async function buildLivePulse(input: {
     deps.getStatusEnvelopeSafe(),
     deps.getDashboardOpsSnapshot({
       userId: input.userId,
+      userEmail: input.userEmail,
       userRole: input.userRole,
     }),
   ]);
@@ -448,6 +450,7 @@ export async function GET(req: Request) {
         try {
           const snapshotPayload = await buildLivePulse({
             userId: access.identity.userId,
+            userEmail: access.identity.email ?? null,
             userRole: access.identity.role,
           }, { deriveDashboard, getDashboardOpsSnapshot, getStatusEnvelopeSafe });
           const currentCpuSample = await readCpuSample();

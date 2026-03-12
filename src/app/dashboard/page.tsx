@@ -30,6 +30,7 @@ export default async function DashboardPage() {
     getUserBilling(email),
     getDashboardOpsSnapshot({
       userId: access.identity.userId,
+      userEmail: access.identity.email ?? null,
       userRole: access.identity.role,
     }),
   ]);
