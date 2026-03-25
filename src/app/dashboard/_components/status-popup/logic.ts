@@ -243,7 +243,7 @@ export function buildExplainText(input: {
 
   lines.push("");
   lines.push(
-    "Fix Now runs safe automations (build safe remediation plan, queue/execute allowed actions, then drain queue + refresh report). It can still finish with blockers when the latest snapshot still shows unresolved runtime IOC or drift. Risky changes, like closing ports, stay manual by design."
+    "Fix Now runs safe automations (build safe remediation plan, queue/execute allowed actions, then drain queue + refresh report). It can still finish with blockers when the latest snapshot still shows unresolved runtime IOC or drift. Runtime IOC auto-fix only quarantines user-writable executables, so system binaries stay manual by design. Risky changes, like closing ports, stay manual too."
   );
 
   return lines.join("\n");
@@ -288,7 +288,7 @@ export function buildFixSteps(input: {
   if (runtimeContainmentNeeded) {
     steps.push({
       id: "contain-runtime-ioc",
-      label: "Contain suspicious runtime IOC process(es); host stays red until this signal clears",
+      label: "Contain suspicious runtime IOC process(es) when safe; system-path binaries stay manual and keep the host red",
       status: "idle",
     });
   }

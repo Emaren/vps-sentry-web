@@ -42,12 +42,20 @@ type FixStatusAlert = {
   detail: string;
 };
 
+type FixThreatProcess = {
+  pid: number;
+  proc: string;
+  exe: string;
+  reasons: string[];
+};
+
 type FixStatusSnapshot = {
   alerts: FixStatusAlert[];
   unexpectedPublicPortsCount: number;
   sshFailedPassword: number;
   sshInvalidUser: number;
   threatIndicatorCount: number;
+  suspiciousProcesses: FixThreatProcess[];
 };
 
 function asRecord(v: unknown): JsonRecord | null {
@@ -218,16 +226,45 @@ function isRuntimeThreatAlert(alert: FixStatusAlert): boolean {
   );
 }
 
+function isSystemPathExecutable(exe: string): boolean {
+  const lower = exe.trim().toLowerCase();
+  return (
+    lower.startsWith("/bin/") ||
+    lower.startsWith("/sbin/") ||
+    lower.startsWith("/usr/bin/") ||
+    lower.startsWith("/usr/sbin/") ||
+    lower.startsWith("/usr/lib/") ||
+    lower.startsWith("/lib/") ||
+    lower.startsWith("/lib64/") ||
+    lower.startsWith("/opt/") ||
+    lower.startsWith("/snap/") ||
+    lower.startsWith("/etc/")
+  );
+}
+
+function formatThreatProcess(process: FixThreatProcess): string {
+  const base = process.exe || process.proc || "process";
+  return process.pid > 0 ? `${base} #${process.pid}` : base;
+}
+
 function buildSnapshotBlockers(snapshot: FixStatusSnapshot): string[] {
   const blockers: string[] = [];
   const runtimeAlerts = snapshot.alerts.filter(isRuntimeThreatAlert).length;
   const driftAlerts = snapshot.alerts.filter(isBaselineDriftAlert).length;
   const otherAlerts = Math.max(0, snapshot.alerts.length - runtimeAlerts - driftAlerts);
+  const suspiciousCount = snapshot.suspiciousProcesses.length;
+  const systemPathRuntime = snapshot.suspiciousProcesses.find((process) => isSystemPathExecutable(process.exe));
 
-  if (runtimeAlerts > 0 || snapshot.threatIndicatorCount > 0) {
-    const indicatorCount = Math.max(runtimeAlerts, snapshot.threatIndicatorCount);
+  if (runtimeAlerts > 0 || snapshot.threatIndicatorCount > 0 || suspiciousCount > 0) {
+    const indicatorCount = Math.max(runtimeAlerts, snapshot.threatIndicatorCount, suspiciousCount);
+    const sample = systemPathRuntime ?? snapshot.suspiciousProcesses[0] ?? null;
+    const sampleText = sample
+      ? systemPathRuntime
+        ? `; auto-containment blocked for system binary ${formatThreatProcess(sample)}`
+        : `; sample ${formatThreatProcess(sample)}`
+      : "";
     blockers.push(
-      `runtime IOC still active (${indicatorCount} threat signal${indicatorCount === 1 ? "" : "s"})`
+      `runtime IOC still active (${indicatorCount} threat signal${indicatorCount === 1 ? "" : "s"}${sampleText})`
     );
   }
   if (snapshot.unexpectedPublicPortsCount > 0) {
@@ -315,13 +352,24 @@ async function readFixStatusSnapshot(): Promise<FixStatusSnapshot | null> {
     const auth = asRecord(status.auth);
     const threat = asRecord(status.threat);
     const indicators = asArray(threat?.indicators);
+    const suspiciousProcesses = asArray(threat?.suspicious_processes)
+      .map((item) => asRecord(item))
+      .filter((item): item is JsonRecord => item !== null)
+      .map((item) => ({
+        pid: asInt(item.pid),
+        proc: asStringOrEmpty(item.proc) || "process",
+        exe: asStringOrEmpty(item.exe),
+        reasons: asArray(item.reasons).map((reason) => asStringOrEmpty(reason)).filter(Boolean),
+      }))
+      .filter((item) => item.pid > 0 || item.exe.length > 0 || item.proc.length > 0);
 
     return {
       alerts,
       unexpectedPublicPortsCount: asInt(status.unexpected_public_ports_count),
       sshFailedPassword: asInt(auth?.ssh_failed_password),
       sshInvalidUser: asInt(auth?.ssh_invalid_user),
-      threatIndicatorCount: indicators.length,
+      threatIndicatorCount: Math.max(indicators.length, suspiciousProcesses.length),
+      suspiciousProcesses,
     };
   } catch {
     return null;
@@ -678,16 +726,45 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         };
       }
 
+      const matched = Math.max(0, asInt(run.payload.matched));
       const considered = Math.max(0, asInt(run.payload.considered));
       const containable = Math.max(0, asInt(run.payload.containable));
       const contained = Math.max(0, asInt(run.payload.contained));
       const failed = Math.max(0, asInt(run.payload.failed));
       const skipped = Math.max(0, asInt(run.payload.skipped));
+      const blocked = Math.max(0, asInt(run.payload.blocked));
+      const blockedCandidates = asArray(run.payload.blockedCandidates)
+        .map((item) => asRecord(item))
+        .filter((item): item is JsonRecord => item !== null)
+        .map((item) => {
+          const exe = asString(item.exe);
+          const detail = asString(item.detail);
+          const pid = asInt(item.pid);
+          const proc = asString(item.proc);
+          const label = exe ?? proc ?? "runtime IOC";
+          const withPid = pid > 0 ? `${label} #${pid}` : label;
+          return detail ? `${withPid}: ${detail}` : withPid;
+        })
+        .slice(0, 2);
 
-      if (considered === 0) {
+      if (considered === 0 && blocked === 0) {
         return {
           ok: true,
           detail: "No containable runtime IOC process candidates were present in the latest snapshot.",
+        };
+      }
+
+      if (considered === 0 && blocked > 0) {
+        const summaryParts = [
+          `Auto-containment was intentionally blocked for ${blocked}/${Math.max(blocked, matched)} suspicious runtime IOC candidate(s).`,
+        ];
+        if (blockedCandidates.length > 0) {
+          summaryParts.push(blockedCandidates.join(" | "));
+        }
+        summaryParts.push("Manual security follow-up is required before this host can turn green.");
+        return {
+          ok: false,
+          detail: summaryParts.join(" "),
         };
       }
 
@@ -698,6 +775,12 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       if (containable > 0) {
         parts.push(`Containable by policy: ${containable}.`);
       }
+      if (blocked > 0) {
+        parts.push(`Manual-only candidates still active: ${blocked}.`);
+        if (blockedCandidates.length > 0) {
+          parts.push(blockedCandidates.join(" | "));
+        }
+      }
       const host = asString(run.payload.host);
       if (host) {
         parts.push(`Host: ${host}.`);
@@ -707,7 +790,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         parts.push(`Snapshot: ${snapshotTs}.`);
       }
 
-      if (failed > 0) {
+      if (failed > 0 || blocked > 0) {
         return {
           ok: false,
           detail: parts.join(" "),

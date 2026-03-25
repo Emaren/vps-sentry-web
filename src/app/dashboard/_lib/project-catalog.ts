@@ -131,4 +131,26 @@ export const MAIN_PROJECTS: ProjectDef[] = [
       { label: "api", port: 3400, required: true },
     ],
   },
+  {
+    key: "traffic",
+    name: "Traffic",
+    subtitle: "traffic.tokentap.ca/api/overview",
+    href: "https://traffic.tokentap.ca",
+    backendHref: "https://traffic.tokentap.ca/api/overview",
+    services: [
+      { label: "web", port: 3045, required: true },
+      { label: "api", port: 3345, required: true },
+    ],
+  },
+  {
+    key: "wallyverse",
+    name: "Wallyverse",
+    subtitle: "api.wallyverse.tokentap.ca/health",
+    href: "https://wallyverse.tokentap.ca",
+    backendHref: "https://api.wallyverse.tokentap.ca/health",
+    services: [
+      { label: "web", port: 3110, required: true },
+      { label: "api", port: 3410, required: true },
+    ],
+  },
 ];

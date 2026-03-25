@@ -34,6 +34,7 @@ describe("status-popup logic", () => {
     expect(text).toContain("Why this was marked:");
     expect(text).toContain("[HIGH] Alerts reported by the agent");
     expect(text).toContain("Fix Now runs safe automations");
+    expect(text).toContain("system binaries stay manual");
   });
 
   it("explains cpu hotspot alerts with operator-safe language", () => {
@@ -122,6 +123,7 @@ describe("status-popup logic", () => {
       "alerts",
       "report",
     ]);
+    expect(steps.find((s) => s.id === "contain-runtime-ioc")?.label).toContain("system-path binaries stay manual");
   });
 
   it("includes queue follow-up guidance in actions list when backlog exists", () => {

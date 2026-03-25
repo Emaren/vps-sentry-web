@@ -52,6 +52,21 @@ type SuspiciousCandidate = {
   reasons: string[];
 };
 
+type SuspiciousCandidateAssessment = SuspiciousCandidate & {
+  containable: boolean;
+  manualReason: string | null;
+};
+
+type BlockedCandidate = {
+  pid: number;
+  user: string;
+  proc: string;
+  exe: string;
+  cmdline: string;
+  reasons: string[];
+  detail: string;
+};
+
 type CommandAttempt = {
   command: string;
   args: string[];
@@ -151,15 +166,31 @@ function isContainablePath(exe: string): boolean {
   return USER_WRITABLE_PREFIXES.some((prefix) => lower.startsWith(prefix));
 }
 
-function parseCandidate(row: JsonRecord): SuspiciousCandidate | null {
+function manualContainmentReason(exe: string, reasons: string[]): string {
+  const lower = exe.toLowerCase();
+  if (SYSTEM_PATH_PREFIXES.some((prefix) => lower.startsWith(prefix))) {
+    return "Executable is in a protected system path, so VPSSentry will not auto-quarantine it.";
+  }
+  if (!hasContainmentReason(reasons)) {
+    return "Snapshot flagged the process, but it did not include a safe auto-containment reason.";
+  }
+  if (!USER_WRITABLE_PREFIXES.some((prefix) => lower.startsWith(prefix))) {
+    return "Executable is outside the approved user-writable containment paths.";
+  }
+  return "Manual review is required before VPSSentry can contain this runtime IOC.";
+}
+
+function parseCandidate(row: JsonRecord): SuspiciousCandidateAssessment | null {
   const pid = asInt(row.pid);
   if (pid <= 1) return null;
 
   const exe = cleanExePath(asString(row.exe));
   const reasons = normalizeReasons(row.reasons);
-  if (!exe || !isContainablePath(exe) || !hasContainmentReason(reasons)) {
+  if (!exe) {
     return null;
   }
+
+  const containable = isContainablePath(exe) && hasContainmentReason(reasons);
 
   return {
     pid,
@@ -168,27 +199,71 @@ function parseCandidate(row: JsonRecord): SuspiciousCandidate | null {
     exe,
     cmdline: asString(row.cmdline),
     reasons,
+    containable,
+    manualReason: containable ? null : manualContainmentReason(exe, reasons),
   };
 }
 
-function extractCandidates(status: JsonRecord): SuspiciousCandidate[] {
+function extractCandidates(status: JsonRecord): {
+  matched: number;
+  containableCount: number;
+  blockedCount: number;
+  candidates: SuspiciousCandidate[];
+  blocked: BlockedCandidate[];
+} {
   const threat = asRecord(status.threat);
   const rows = asArray(threat?.suspicious_processes)
     .map((item) => asRecord(item))
     .filter((item): item is JsonRecord => item !== null);
 
   const out: SuspiciousCandidate[] = [];
+  const blocked: BlockedCandidate[] = [];
   const seen = new Set<number>();
+  let matched = 0;
+  let containableCount = 0;
+  let blockedCount = 0;
   for (const row of rows) {
     const candidate = parseCandidate(row);
     if (!candidate) continue;
     if (seen.has(candidate.pid)) continue;
     seen.add(candidate.pid);
-    out.push(candidate);
-    if (out.length >= MAX_CANDIDATES) break;
+    matched += 1;
+    if (candidate.containable) {
+      containableCount += 1;
+      if (out.length < MAX_CANDIDATES) {
+        out.push({
+          pid: candidate.pid,
+          user: candidate.user,
+          proc: candidate.proc,
+          exe: candidate.exe,
+          cmdline: candidate.cmdline,
+          reasons: candidate.reasons,
+        });
+      }
+      continue;
+    }
+
+    blockedCount += 1;
+    if (blocked.length < MAX_CANDIDATES) {
+      blocked.push({
+        pid: candidate.pid,
+        user: candidate.user,
+        proc: candidate.proc,
+        exe: candidate.exe,
+        cmdline: candidate.cmdline,
+        reasons: candidate.reasons,
+        detail: candidate.manualReason ?? "Manual review required.",
+      });
+    }
   }
 
-  return out;
+  return {
+    matched,
+    containableCount,
+    blockedCount,
+    candidates: out,
+    blocked,
+  };
 }
 
 async function runCommandAttempts(attempts: CommandAttempt[]): Promise<CommandResult> {
@@ -553,26 +628,65 @@ export async function POST(req: Request) {
 
       const host = asString(status.host) || "unknown";
       const snapshotTs = asString(status.ts) || null;
-      const candidates = extractCandidates(status);
+      const classified = extractCandidates(status);
+      const candidates = classified.candidates;
+      const blocked = classified.blocked;
 
-      if (candidates.length === 0) {
+      if (classified.matched === 0) {
         incrementCounter("ops.contain_runtime_ioc.ok.total", 1, { result: "noop" });
         await writeAuditLog({
           req,
           userId: access.identity.userId,
           action: "ops.contain_runtime_ioc.ok",
-          detail: "No containable runtime IOC candidates in latest snapshot.",
-          meta: { host, snapshotTs, considered: 0 },
+          detail: "No suspicious runtime IOC candidates were present in the latest snapshot.",
+          meta: { host, snapshotTs, matched: 0, considered: 0, blocked: 0 },
         });
         return NextResponse.json({
           ok: true,
           host,
           snapshotTs,
+          matched: 0,
           considered: 0,
           containable: 0,
           contained: 0,
           skipped: 0,
           failed: 0,
+          blocked: 0,
+          blockedCandidates: [],
+          manualFollowUpRequired: false,
+          results: [],
+        });
+      }
+
+      if (classified.containableCount === 0) {
+        incrementCounter("ops.contain_runtime_ioc.ok.total", 1, { result: "manual_only" });
+        await writeAuditLog({
+          req,
+          userId: access.identity.userId,
+          action: "ops.contain_runtime_ioc.ok",
+          detail: "Runtime IOC candidates require manual follow-up; auto-containment was intentionally blocked.",
+          meta: {
+            host,
+            snapshotTs,
+            matched: classified.matched,
+            considered: 0,
+            blocked: classified.blockedCount,
+            blockedCandidates: blocked,
+          },
+        });
+        return NextResponse.json({
+          ok: true,
+          host,
+          snapshotTs,
+          matched: classified.matched,
+          considered: 0,
+          containable: 0,
+          contained: 0,
+          skipped: 0,
+          failed: 0,
+          blocked: classified.blockedCount,
+          blockedCandidates: blocked,
+          manualFollowUpRequired: true,
           results: [],
         });
       }
@@ -612,28 +726,31 @@ export async function POST(req: Request) {
       }
 
       const considered = candidates.length;
-      const containable = candidates.length;
+      const containable = classified.containableCount;
       const contained = results.filter((row) => row.contained).length;
       const failed = results.filter((row) => !row.contained && !row.skipped).length;
       const skipped = results.filter((row) => row.skipped).length;
 
       incrementCounter("ops.contain_runtime_ioc.ok.total", 1, {
-        result: failed > 0 ? "partial" : "success",
+        result: failed > 0 || classified.blockedCount > 0 ? "partial" : "success",
       });
 
       await writeAuditLog({
         req,
         userId: access.identity.userId,
-        action: failed > 0 ? "ops.contain_runtime_ioc.partial" : "ops.contain_runtime_ioc.ok",
-        detail: `host=${host} considered=${considered} contained=${contained} failed=${failed}`,
+        action: failed > 0 || classified.blockedCount > 0 ? "ops.contain_runtime_ioc.partial" : "ops.contain_runtime_ioc.ok",
+        detail: `host=${host} considered=${considered} contained=${contained} failed=${failed} blocked=${classified.blockedCount}`,
         meta: {
           host,
           snapshotTs,
+          matched: classified.matched,
           considered,
           containable,
           contained,
           skipped,
           failed,
+          blocked: classified.blockedCount,
+          blockedCandidates: blocked,
           results: results.map((row) => ({
             pid: row.pid,
             user: row.user,
@@ -661,11 +778,15 @@ export async function POST(req: Request) {
         ok: true,
         host,
         snapshotTs,
+        matched: classified.matched,
         considered,
         containable,
         contained,
         skipped,
         failed,
+        blocked: classified.blockedCount,
+        blockedCandidates: blocked,
+        manualFollowUpRequired: classified.blockedCount > 0,
         results,
       });
     }
