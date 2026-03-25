@@ -3,7 +3,7 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import type { Panel, StatusActionPopupProps } from "./types";
+import type { FixResult, Panel, StatusActionPopupProps } from "./types";
 import { buildActionsNeeded, buildExplainText, buildFixSteps, sleep } from "./logic";
 import { css, btn, caretBtn, okBtn, xBtn } from "./styles";
 import { useTypewriter } from "./hooks/useTypewriter";
@@ -200,6 +200,94 @@ function isBaselineDriftOnlySnapshot(snapshot: FixStatusSnapshot): boolean {
   if (snapshot.alerts.length === 0) return false;
   if (snapshot.unexpectedPublicPortsCount > 0) return false;
   return snapshot.alerts.every(isBaselineDriftAlert);
+}
+
+function normalizeAlertSignal(alert: FixStatusAlert): string {
+  return `${alert.code ?? ""} ${alert.title} ${alert.detail}`.toLowerCase();
+}
+
+function isRuntimeThreatAlert(alert: FixStatusAlert): boolean {
+  const signal = normalizeAlertSignal(alert);
+  return (
+    signal.includes("suspicious_process_ioc") ||
+    signal.includes("suspicious process ioc") ||
+    signal.includes("outbound_scan_ioc") ||
+    signal.includes("outbound scan ioc") ||
+    signal.includes("cpu_hotspot") ||
+    signal.includes("cpu hotspot")
+  );
+}
+
+function buildSnapshotBlockers(snapshot: FixStatusSnapshot): string[] {
+  const blockers: string[] = [];
+  const runtimeAlerts = snapshot.alerts.filter(isRuntimeThreatAlert).length;
+  const driftAlerts = snapshot.alerts.filter(isBaselineDriftAlert).length;
+  const otherAlerts = Math.max(0, snapshot.alerts.length - runtimeAlerts - driftAlerts);
+
+  if (runtimeAlerts > 0 || snapshot.threatIndicatorCount > 0) {
+    const indicatorCount = Math.max(runtimeAlerts, snapshot.threatIndicatorCount);
+    blockers.push(
+      `runtime IOC still active (${indicatorCount} threat signal${indicatorCount === 1 ? "" : "s"})`
+    );
+  }
+  if (snapshot.unexpectedPublicPortsCount > 0) {
+    blockers.push(
+      `${snapshot.unexpectedPublicPortsCount} unexpected public port${snapshot.unexpectedPublicPortsCount === 1 ? "" : "s"} still exposed`
+    );
+  }
+  if (driftAlerts > 0) {
+    blockers.push(
+      `${driftAlerts} drift alert${driftAlerts === 1 ? "" : "s"} still need review or baseline acceptance`
+    );
+  }
+  if (otherAlerts > 0) {
+    blockers.push(`${otherAlerts} other alert${otherAlerts === 1 ? "" : "s"} still active`);
+  }
+
+  return blockers;
+}
+
+function buildFixResultDetails(input: {
+  beforeSnapshot: FixStatusSnapshot | null;
+  afterSnapshot: FixStatusSnapshot | null;
+  snapshotAdvanced: boolean;
+  postRefreshSnapshotTs: string | null;
+}): string[] {
+  const details: string[] = [];
+  const { afterSnapshot, beforeSnapshot, postRefreshSnapshotTs, snapshotAdvanced } = input;
+
+  if (beforeSnapshot && afterSnapshot) {
+    const alertsBefore = beforeSnapshot.alerts.length;
+    const alertsAfter = afterSnapshot.alerts.length;
+    details.push(`Alerts: ${alertsBefore} -> ${alertsAfter} (${Math.max(0, alertsBefore - alertsAfter)} closed).`);
+    details.push(
+      `Unexpected public ports: ${beforeSnapshot.unexpectedPublicPortsCount} -> ${afterSnapshot.unexpectedPublicPortsCount}.`
+    );
+    details.push(`Threat signals: ${beforeSnapshot.threatIndicatorCount} -> ${afterSnapshot.threatIndicatorCount}.`);
+  } else if (afterSnapshot) {
+    details.push(`Latest snapshot still reports ${afterSnapshot.alerts.length} active alert(s).`);
+  } else {
+    details.push("Could not re-read the latest status snapshot after auto-fix.");
+  }
+
+  if (!snapshotAdvanced) {
+    details.push(
+      postRefreshSnapshotTs
+        ? `Snapshot timestamp did not advance yet (latest visible: ${postRefreshSnapshotTs}).`
+        : "Snapshot timestamp did not advance yet."
+    );
+  }
+
+  if (afterSnapshot) {
+    const blockers = buildSnapshotBlockers(afterSnapshot);
+    if (blockers.length > 0) {
+      details.push(`Still red because ${blockers.join("; ")}.`);
+    } else if (afterSnapshot.alerts.length === 0 && afterSnapshot.unexpectedPublicPortsCount === 0) {
+      details.push("No blockers remain in the latest snapshot.");
+    }
+  }
+
+  return details;
 }
 
 async function readFixStatusSnapshot(): Promise<FixStatusSnapshot | null> {
@@ -502,7 +590,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       queueDlqCount: queueDlq,
     })
   );
-  const [fixResult, setFixResult] = React.useState<null | { ok: boolean; message: string }>(null);
+  const [fixResult, setFixResult] = React.useState<FixResult | null>(null);
   const [fixRunning, setFixRunning] = React.useState(false);
   const reportTriggeredRef = React.useRef(false);
 
@@ -898,6 +986,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     setFixResult(null);
     setFixRunning(true);
     reportTriggeredRef.current = false;
+    const beforeSnapshot = await readFixStatusSnapshot();
 
     // reset to idle first
     setSteps((prev) => prev.map((s) => ({ ...s, status: "idle", detail: undefined })));
@@ -918,6 +1007,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
 
     let snapshotAdvanced = false;
     let postRefreshSnapshotTs: string | null = null;
+    let afterSnapshot: FixStatusSnapshot | null = null;
 
     try {
       for (let i = 0; i < localSteps.length; i++) {
@@ -961,23 +1051,35 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         await sleep(900);
         router.refresh();
       }
+      afterSnapshot = await readFixStatusSnapshot();
     } finally {
       setFixRunning(false);
     }
 
+    const resultDetails = buildFixResultDetails({
+      beforeSnapshot,
+      afterSnapshot,
+      snapshotAdvanced,
+      postRefreshSnapshotTs,
+    });
+
     if (failed === 0) {
+      const blockers = afterSnapshot ? buildSnapshotBlockers(afterSnapshot) : [];
       if (snapshotAdvanced) {
         setFixResult({
           ok: true,
-          message: `Auto-fix completed. Dashboard refreshed with snapshot ${
-            postRefreshSnapshotTs ?? "update"
-          }.`,
+          message:
+            blockers.length > 0
+              ? `Auto-fix completed, but the host is still not green after snapshot ${postRefreshSnapshotTs ?? "refresh"}.`
+              : `Auto-fix completed. Dashboard refreshed with snapshot ${postRefreshSnapshotTs ?? "update"}.`,
+          details: resultDetails,
         });
       } else {
         setFixResult({
           ok: true,
           message:
             "Auto-fix completed, but snapshot timestamp has not advanced yet. Status will update once the next snapshot is written.",
+          details: resultDetails,
         });
       }
       return;
@@ -986,6 +1088,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     setFixResult({
       ok: false,
       message: `Auto-fix finished with ${failed} step(s) needing manual follow-up.`,
+      details: resultDetails,
     });
   }
 

@@ -303,6 +303,13 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
   const canMutate = canRun && snapshot?.canRun !== false;
   const lastPlan = last?.plannedActions ?? null;
   const lastPlanCopy = planSummary(lastPlan);
+  const analysisOnlyNoShot =
+    !running &&
+    last?.status === "analysis_only" &&
+    (last?.plannedActions?.candidateCount ?? 0) === 0;
+  const analysisOnlyBlockerCopy = analysisOnlyNoShot
+    ? "No safe kill shot found. Counterstrike analyzed the threat feed, but the latest run still had zero containable candidates, so the host remains red."
+    : null;
 
   return (
     <Box className="counterstrike-tile" style={{ marginTop: 12 }}>
@@ -395,6 +402,14 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
 
       {!canMutate ? (
         <div className="counterstrike-note">Ops role required to launch Counterstrike playbooks.</div>
+      ) : null}
+
+      {analysisOnlyBlockerCopy ? (
+        <div className="counterstrike-blocker">
+          <div className="counterstrike-blocker-title">Why You’re Still Red</div>
+          <div className="counterstrike-blocker-copy">{analysisOnlyBlockerCopy}</div>
+          <div className="counterstrike-blocker-note">{armed.reason || last?.summary}</div>
+        </div>
       ) : null}
 
       {running ? (

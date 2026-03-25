@@ -59,6 +59,15 @@ export default function FixPanel(props: {
         >
           {fixResult.ok ? "✅ " : "❌ "}
           {fixResult.message}
+          {fixResult.details?.length ? (
+            <div style={{ marginTop: 10, display: "grid", gap: 6, fontWeight: 600, fontSize: 12 }}>
+              {fixResult.details.map((detail, index) => (
+                <div key={`${detail}-${index}`} style={{ opacity: 0.88 }}>
+                  • {detail}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </PanelShell>

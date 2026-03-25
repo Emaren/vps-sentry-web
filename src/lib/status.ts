@@ -154,6 +154,44 @@ export type GarbageEstimateTopPath = {
   bucket?: string;
 };
 
+export type GarbageEstimateCategoryTotal = {
+  key?: string;
+  label?: string;
+  description?: string;
+  bytes?: number;
+  count?: number;
+};
+
+export type GarbageEstimateRiskTotal = {
+  key?: string;
+  label?: string;
+  bytes?: number;
+  count?: number;
+};
+
+export type GarbageEstimateCandidate = {
+  id?: string;
+  key?: string;
+  label?: string;
+  path?: string;
+  bytes?: number;
+  action?: string;
+  kind?: string;
+  category?: string;
+  category_label?: string;
+  risk?: string;
+  risk_label?: string;
+  requires_stop?: boolean;
+  regrows?: boolean;
+  explanation?: string;
+  preview_command?: string;
+  execute_command?: string;
+  project_id?: string;
+  project_label?: string;
+  project_url?: string;
+  service_refs?: string[];
+};
+
 export type GarbageCleanupBucket = {
   key?: string;
   label?: string;
@@ -192,8 +230,15 @@ export type GarbageEstimateSnapshot = {
   ttl_seconds?: number;
   reclaimable_bytes_total?: number;
   safe_reclaimable_bytes?: number;
+  garbage_reclaimable_bytes?: number;
+  rebuildable_bytes?: number;
+  guided_reclaimable_bytes?: number;
+  blocked_reclaimable_bytes?: number;
+  category_totals?: GarbageEstimateCategoryTotal[];
+  risk_totals?: GarbageEstimateRiskTotal[];
   buckets?: GarbageEstimateBucket[];
   top_paths?: GarbageEstimateTopPath[];
+  candidates?: GarbageEstimateCandidate[];
   running_cleanup?: boolean;
   last_cleanup_result?: GarbageCleanupResult | null;
   cleanup_progress?: GarbageCleanupProgress | null;

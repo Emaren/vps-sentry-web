@@ -91,6 +91,47 @@ export type DashboardGarbageTopPath = {
   bucket: string | null;
 };
 
+export type DashboardGarbageCategoryKey = "garbage" | "recycling" | "guided" | "blocked";
+export type DashboardGarbageRiskKey = "safe" | "guided" | "dangerous" | "blocked";
+
+export type DashboardGarbageCategoryTotal = {
+  key: DashboardGarbageCategoryKey;
+  label: string;
+  description: string | null;
+  bytes: number | null;
+  count: number | null;
+};
+
+export type DashboardGarbageRiskTotal = {
+  key: DashboardGarbageRiskKey;
+  label: string;
+  bytes: number | null;
+  count: number | null;
+};
+
+export type DashboardGarbageCandidate = {
+  id: string;
+  key: string;
+  label: string;
+  path: string;
+  bytes: number | null;
+  action: string | null;
+  kind: string | null;
+  category: DashboardGarbageCategoryKey;
+  categoryLabel: string;
+  risk: DashboardGarbageRiskKey;
+  riskLabel: string;
+  requiresStop: boolean;
+  regrows: boolean;
+  explanation: string | null;
+  previewCommand: string | null;
+  executeCommand: string | null;
+  projectId: string | null;
+  projectLabel: string | null;
+  projectUrl: string | null;
+  serviceRefs: string[];
+};
+
 export type DashboardGarbageCleanupBucket = {
   key: string;
   label: string;
@@ -129,8 +170,15 @@ export type DashboardGarbageEstimate = {
   ttlSeconds: number | null;
   reclaimableBytesTotal: number | null;
   safeReclaimableBytes: number | null;
+  garbageReclaimableBytes: number | null;
+  rebuildableBytes: number | null;
+  guidedReclaimableBytes: number | null;
+  blockedReclaimableBytes: number | null;
+  categoryTotals: DashboardGarbageCategoryTotal[];
+  riskTotals: DashboardGarbageRiskTotal[];
   buckets: DashboardGarbageBucket[];
   topPaths: DashboardGarbageTopPath[];
+  candidates: DashboardGarbageCandidate[];
   runningCleanup: boolean;
   lastCleanupResult: DashboardGarbageCleanupResult | null;
   cleanupProgress: DashboardGarbageCleanupProgress | null;
@@ -246,6 +294,269 @@ function parseGarbageCleanupProgress(v: unknown): DashboardGarbageCleanupProgres
   };
 }
 
+function normalizeGarbageCategoryKey(raw: string | null | undefined): DashboardGarbageCategoryKey {
+  switch ((raw ?? "").trim().toLowerCase()) {
+    case "recycling":
+      return "recycling";
+    case "guided":
+      return "guided";
+    case "blocked":
+      return "blocked";
+    default:
+      return "garbage";
+  }
+}
+
+function normalizeGarbageRiskKey(raw: string | null | undefined): DashboardGarbageRiskKey {
+  switch ((raw ?? "").trim().toLowerCase()) {
+    case "guided":
+      return "guided";
+    case "dangerous":
+      return "dangerous";
+    case "blocked":
+      return "blocked";
+    default:
+      return "safe";
+  }
+}
+
+function defaultGarbageCategoryLabel(key: DashboardGarbageCategoryKey): string {
+  if (key === "recycling") return "Recycling Center";
+  if (key === "guided") return "Guided Reclaim";
+  if (key === "blocked") return "Blocked / Manual";
+  return "Garbage Dump";
+}
+
+function defaultGarbageCategoryDescription(key: DashboardGarbageCategoryKey): string | null {
+  if (key === "recycling") return "Caches and rebuildable artifacts that can be regenerated later.";
+  if (key === "guided") return "Bigger wins that should be reviewed before execution.";
+  if (key === "blocked") return "Candidates that need manual review or extra access before cleanup.";
+  return "Dead-weight junk that is usually safe to delete outright.";
+}
+
+function defaultGarbageRiskLabel(key: DashboardGarbageRiskKey): string {
+  if (key === "guided") return "Guided";
+  if (key === "dangerous") return "Dangerous";
+  if (key === "blocked") return "Blocked";
+  return "Safe now";
+}
+
+function guessGarbageCategory(input: {
+  key?: string | null;
+  label?: string | null;
+  path?: string | null;
+}): DashboardGarbageCategoryKey {
+  const signal = `${input.key ?? ""} ${input.label ?? ""} ${input.path ?? ""}`.toLowerCase();
+  if (
+    signal.includes("cache") ||
+    signal.includes("vsix") ||
+    signal.includes("vscode") ||
+    signal.includes(".next") ||
+    signal.includes("package manager")
+  ) {
+    return "recycling";
+  }
+  if (signal.includes("guided")) return "guided";
+  if (signal.includes("blocked")) return "blocked";
+  return "garbage";
+}
+
+function parseGarbageCandidates(
+  rec: Record<string, unknown>,
+  buckets: DashboardGarbageBucket[],
+  topPaths: DashboardGarbageTopPath[]
+): DashboardGarbageCandidate[] {
+  const bucketLabelByKey = new Map<string, string>();
+  for (const bucket of buckets) {
+    if (bucket.key && bucket.label) bucketLabelByKey.set(bucket.key, bucket.label);
+  }
+
+  const rows = Array.isArray(rec.candidates) ? rec.candidates : [];
+  const candidates: DashboardGarbageCandidate[] = [];
+
+  for (const raw of rows) {
+    const row = asRecord(raw);
+    if (!row) continue;
+    const path = pickString(row.path);
+    if (!path) continue;
+    const guessedCategory = guessGarbageCategory({
+      key: pickString(row.key),
+      label: pickString(row.label),
+      path,
+    });
+    const category = normalizeGarbageCategoryKey(pickString(row.category) ?? guessedCategory);
+    const risk = normalizeGarbageRiskKey(pickString(row.risk));
+    const serviceRefs = Array.isArray(row.service_refs)
+      ? row.service_refs.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      : [];
+
+    candidates.push({
+      id: pickString(row.id) ?? `${pickString(row.action) ?? "cleanup"}:${path}`,
+      key: pickString(row.key) ?? "candidate",
+      label: pickString(row.label) ?? bucketLabelByKey.get(pickString(row.key) ?? "") ?? "Candidate",
+      path,
+      bytes: pickNumber(row.bytes),
+      action: pickString(row.action),
+      kind: pickString(row.kind),
+      category,
+      categoryLabel: pickString(row.category_label) ?? defaultGarbageCategoryLabel(category),
+      risk,
+      riskLabel: pickString(row.risk_label) ?? defaultGarbageRiskLabel(risk),
+      requiresStop: pickBoolean(row.requires_stop) ?? false,
+      regrows: pickBoolean(row.regrows) ?? false,
+      explanation: pickString(row.explanation),
+      previewCommand: pickString(row.preview_command),
+      executeCommand: pickString(row.execute_command),
+      projectId: pickString(row.project_id),
+      projectLabel: pickString(row.project_label),
+      projectUrl: pickString(row.project_url),
+      serviceRefs,
+    });
+  }
+
+  if (candidates.length > 0) {
+    return candidates.sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1));
+  }
+
+  for (const topPath of topPaths) {
+    if (!topPath.path) continue;
+    const category = guessGarbageCategory({
+      key: topPath.bucket,
+      label: topPath.bucket ? bucketLabelByKey.get(topPath.bucket) : null,
+      path: topPath.path,
+    });
+    candidates.push({
+      id: `legacy:${topPath.path}`,
+      key: topPath.bucket ?? "candidate",
+      label: topPath.bucket ? bucketLabelByKey.get(topPath.bucket) ?? "Candidate" : "Candidate",
+      path: topPath.path,
+      bytes: topPath.bytes,
+      action: "remove_path",
+      kind: "path",
+      category,
+      categoryLabel: defaultGarbageCategoryLabel(category),
+      risk: "safe",
+      riskLabel: defaultGarbageRiskLabel("safe"),
+      requiresStop: false,
+      regrows: category === "recycling",
+      explanation: null,
+      previewCommand: null,
+      executeCommand: null,
+      projectId: null,
+      projectLabel: null,
+      projectUrl: null,
+      serviceRefs: [],
+    });
+  }
+
+  return candidates;
+}
+
+function parseGarbageCategoryTotals(
+  rec: Record<string, unknown>,
+  buckets: DashboardGarbageBucket[],
+  candidates: DashboardGarbageCandidate[]
+): DashboardGarbageCategoryTotal[] {
+  const rows = Array.isArray(rec.category_totals) ? rec.category_totals : [];
+  const totals: DashboardGarbageCategoryTotal[] = [];
+
+  for (const raw of rows) {
+    const row = asRecord(raw);
+    if (!row) continue;
+    const key = normalizeGarbageCategoryKey(pickString(row.key));
+    totals.push({
+      key,
+      label: pickString(row.label) ?? defaultGarbageCategoryLabel(key),
+      description: pickString(row.description) ?? defaultGarbageCategoryDescription(key),
+      bytes: pickNumber(row.bytes),
+      count: pickNumber(row.count),
+    });
+  }
+
+  if (totals.length > 0) {
+    return totals.sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1));
+  }
+
+  const aggregated = new Map<DashboardGarbageCategoryKey, DashboardGarbageCategoryTotal>();
+  for (const candidate of candidates) {
+    const existing =
+      aggregated.get(candidate.category) ??
+      {
+        key: candidate.category,
+        label: candidate.categoryLabel || defaultGarbageCategoryLabel(candidate.category),
+        description: defaultGarbageCategoryDescription(candidate.category),
+        bytes: 0,
+        count: 0,
+      };
+    existing.bytes = (existing.bytes ?? 0) + (candidate.bytes ?? 0);
+    existing.count = (existing.count ?? 0) + 1;
+    aggregated.set(candidate.category, existing);
+  }
+
+  if (aggregated.size > 0) {
+    return Array.from(aggregated.values()).sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1));
+  }
+
+  for (const bucket of buckets) {
+    const category = guessGarbageCategory({ key: bucket.key, label: bucket.label });
+    const existing =
+      aggregated.get(category) ??
+      {
+        key: category,
+        label: defaultGarbageCategoryLabel(category),
+        description: defaultGarbageCategoryDescription(category),
+        bytes: 0,
+        count: 0,
+      };
+    existing.bytes = (existing.bytes ?? 0) + (bucket.bytes ?? 0);
+    existing.count = (existing.count ?? 0) + (bucket.count ?? 0);
+    aggregated.set(category, existing);
+  }
+
+  return Array.from(aggregated.values()).sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1));
+}
+
+function parseGarbageRiskTotals(
+  rec: Record<string, unknown>,
+  candidates: DashboardGarbageCandidate[]
+): DashboardGarbageRiskTotal[] {
+  const rows = Array.isArray(rec.risk_totals) ? rec.risk_totals : [];
+  const totals: DashboardGarbageRiskTotal[] = [];
+
+  for (const raw of rows) {
+    const row = asRecord(raw);
+    if (!row) continue;
+    const key = normalizeGarbageRiskKey(pickString(row.key));
+    totals.push({
+      key,
+      label: pickString(row.label) ?? defaultGarbageRiskLabel(key),
+      bytes: pickNumber(row.bytes),
+      count: pickNumber(row.count),
+    });
+  }
+
+  if (totals.length > 0) {
+    return totals.sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1));
+  }
+
+  const aggregated = new Map<DashboardGarbageRiskKey, DashboardGarbageRiskTotal>();
+  for (const candidate of candidates) {
+    const existing =
+      aggregated.get(candidate.risk) ??
+      {
+        key: candidate.risk,
+        label: candidate.riskLabel || defaultGarbageRiskLabel(candidate.risk),
+        bytes: 0,
+        count: 0,
+      };
+    existing.bytes = (existing.bytes ?? 0) + (candidate.bytes ?? 0);
+    existing.count = (existing.count ?? 0) + 1;
+    aggregated.set(candidate.risk, existing);
+  }
+
+  return Array.from(aggregated.values()).sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1));
+}
+
 function parseGarbageEstimate(v: unknown): DashboardGarbageEstimate | null {
   const rec = asRecord(v);
   if (!rec) return null;
@@ -287,14 +598,47 @@ function parseGarbageEstimate(v: unknown): DashboardGarbageEstimate | null {
     });
   }
 
+  const candidates = parseGarbageCandidates(rec, buckets, topPaths);
+  const categoryTotals = parseGarbageCategoryTotals(rec, buckets, candidates);
+  const riskTotals = parseGarbageRiskTotals(rec, candidates);
+  const safeReclaimableBytes =
+    pickNumber(rec.safe_reclaimable_bytes) ??
+    candidates
+      .filter((candidate) => candidate.risk === "safe")
+      .reduce((sum, candidate) => sum + (candidate.bytes ?? 0), 0);
+  const garbageReclaimableBytes =
+    pickNumber(rec.garbage_reclaimable_bytes) ??
+    categoryTotals.find((row) => row.key === "garbage")?.bytes ??
+    0;
+  const rebuildableBytes =
+    pickNumber(rec.rebuildable_bytes) ??
+    categoryTotals.find((row) => row.key === "recycling")?.bytes ??
+    0;
+  const guidedReclaimableBytes =
+    pickNumber(rec.guided_reclaimable_bytes) ??
+    riskTotals.find((row) => row.key === "guided")?.bytes ??
+    0;
+  const blockedReclaimableBytes =
+    pickNumber(rec.blocked_reclaimable_bytes) ??
+    riskTotals
+      .filter((row) => row.key === "dangerous" || row.key === "blocked")
+      .reduce((sum, row) => sum + (row.bytes ?? 0), 0);
+
   return {
     schemaVersion: pickNumber(rec.schema_version),
     measuredAt: pickString(rec.measured_at),
     ttlSeconds: pickNumber(rec.ttl_seconds),
     reclaimableBytesTotal: pickNumber(rec.reclaimable_bytes_total),
-    safeReclaimableBytes: pickNumber(rec.safe_reclaimable_bytes),
+    safeReclaimableBytes,
+    garbageReclaimableBytes,
+    rebuildableBytes,
+    guidedReclaimableBytes,
+    blockedReclaimableBytes,
+    categoryTotals,
+    riskTotals,
     buckets,
     topPaths,
+    candidates,
     runningCleanup: pickBoolean(rec.running_cleanup) ?? false,
     lastCleanupResult: parseGarbageCleanupResult(rec.last_cleanup_result),
     cleanupProgress: parseGarbageCleanupProgress(rec.cleanup_progress),

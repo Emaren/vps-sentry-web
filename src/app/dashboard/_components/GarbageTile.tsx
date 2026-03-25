@@ -2,78 +2,15 @@
 
 import React from "react";
 import type { DashboardGarbageEstimate } from "../_lib/derive";
-
-type GarbageReclaimResponse = {
-  ok?: boolean;
-  accepted?: boolean;
-  detail?: string;
-  error?: string;
-  cleanup?: {
-    freedBytesActual?: number | null;
-    freedBytesEstimated?: number | null;
-    deletedCount?: number | null;
-  } | null;
-};
-
-function fmtBytes(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "—";
-  if (value === 0) return "0B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let amount = value;
-  let unitIndex = 0;
-  while (amount >= 1024 && unitIndex < units.length - 1) {
-    amount /= 1024;
-    unitIndex += 1;
-  }
-  const decimals = amount >= 10 || unitIndex === 0 ? 0 : 1;
-  return `${amount.toFixed(decimals)}${units[unitIndex]}`;
-}
-
-function ageLabel(ts: string | null | undefined): string {
-  if (!ts) return "—";
-  const ms = Date.parse(ts);
-  if (!Number.isFinite(ms)) return "—";
-  const deltaMs = Date.now() - ms;
-  if (deltaMs < 60_000) return "just now";
-  const minutes = Math.round(deltaMs / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
-}
-
-function fmtDuration(seconds: number | null | undefined): string | null {
-  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return null;
-  const rounded = Math.max(1, Math.round(seconds));
-  if (rounded < 60) return `${rounded}s`;
-  const minutes = Math.floor(rounded / 60);
-  const remainingSeconds = rounded % 60;
-  if (minutes < 60) return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
-}
-
-function cleanupPhaseLabel(phase: string | null | undefined): string {
-  switch ((phase ?? "").trim().toLowerCase()) {
-    case "scanning":
-      return "Scanning safe cleanup candidates";
-    case "reclaiming":
-      return "Removing matched garbage";
-    case "rescanning":
-      return "Re-scanning reclaimable space";
-    case "publishing":
-      return "Publishing refreshed snapshot";
-    default:
-      return "Cleanup in progress";
-  }
-}
-
-function liveBadgeClass(connected: boolean): string {
-  if (connected) return "power-vitals-live-badge power-vitals-live-badge-snapshot";
-  return "power-vitals-live-badge power-vitals-live-badge-disconnected";
-}
+import {
+  ageLabel,
+  cleanupPhaseLabel,
+  feedbackToneClass,
+  fmtBytes,
+  fmtDuration,
+  liveBadgeClass,
+  triggerGarbageReclaim,
+} from "./reclaim-utils";
 
 export default function GarbageTile(props: {
   estimate: DashboardGarbageEstimate | null;
@@ -84,6 +21,7 @@ export default function GarbageTile(props: {
   const { canReclaim, connected, estimate, streamLabel } = props;
   const [busy, setBusy] = React.useState(false);
   const [pending, setPending] = React.useState(false);
+  const [previewOpen, setPreviewOpen] = React.useState(false);
   const [sawRunningProgress, setSawRunningProgress] = React.useState(false);
   const [feedback, setFeedback] = React.useState<string | null>(null);
   const [feedbackTone, setFeedbackTone] = React.useState<"ok" | "bad" | "meta">("meta");
@@ -97,8 +35,12 @@ export default function GarbageTile(props: {
     };
   }, []);
 
-  const reclaimable = estimate?.safeReclaimableBytes ?? estimate?.reclaimableBytesTotal ?? null;
-  const topBuckets = estimate?.buckets.slice(0, 3) ?? [];
+  const reclaimable = estimate?.reclaimableBytesTotal ?? estimate?.safeReclaimableBytes ?? null;
+  const safeNow = estimate?.safeReclaimableBytes ?? reclaimable;
+  const recycling = estimate?.rebuildableBytes ?? null;
+  const guided = estimate?.guidedReclaimableBytes ?? null;
+  const blocked = estimate?.blockedReclaimableBytes ?? null;
+  const topCandidates = estimate?.candidates?.slice(0, 4) ?? [];
   const cleanup = estimate?.lastCleanupResult ?? null;
   const cleanupFreed = cleanup?.freedBytesActual ?? cleanup?.freedBytesEstimated ?? null;
   const progress = estimate?.cleanupProgress ?? null;
@@ -131,21 +73,10 @@ export default function GarbageTile(props: {
     if (!canReclaim || busy) return;
     setBusy(true);
     setFeedbackTone("meta");
-    setFeedback("Clearing safe garbage…");
+    setFeedback("Launching Space Hog Slaughter in safe mode…");
 
     try {
-      const res = await fetch("/api/ops/garbage/reclaim", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ profile: "safe" }),
-      });
-      const data = (await res.json().catch(() => ({}))) as GarbageReclaimResponse;
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-
+      const data = await triggerGarbageReclaim("safe");
       if (data.accepted) {
         setPending(true);
         setSawRunningProgress(false);
@@ -166,7 +97,7 @@ export default function GarbageTile(props: {
       setFeedbackTone("ok");
       setFeedback(
         freed !== null
-          ? `Freed ${fmtBytes(freed)}${typeof deleted === "number" ? ` across ${deleted} item(s)` : ""}.`
+          ? `Freed ${fmtBytes(freed)}${typeof deleted === "number" ? ` across ${deleted} target(s)` : ""}.`
           : "Cleanup completed."
       );
     } catch (error: unknown) {
@@ -193,19 +124,43 @@ export default function GarbageTile(props: {
                 ? ` · refreshes about every ${Math.max(1, Math.round(estimate.ttlSeconds / 60))}m`
                 : ""
             }.`
-          : "Safe-garbage scan pending."}
+          : "Reclaim scan pending."}
+      </div>
+
+      <div className="garbage-summary-grid">
+        <div className="garbage-summary-pill">
+          <span className="garbage-summary-label">Safe now</span>
+          <span className="garbage-summary-value">{fmtBytes(safeNow)}</span>
+        </div>
+        <div className="garbage-summary-pill">
+          <span className="garbage-summary-label">Recycling</span>
+          <span className="garbage-summary-value">{fmtBytes(recycling)}</span>
+        </div>
+        <div className="garbage-summary-pill">
+          <span className="garbage-summary-label">Guided</span>
+          <span className="garbage-summary-value">{fmtBytes(guided)}</span>
+        </div>
+        <div className="garbage-summary-pill">
+          <span className="garbage-summary-label">Blocked</span>
+          <span className="garbage-summary-value">{fmtBytes(blocked)}</span>
+        </div>
       </div>
 
       <div className="garbage-tile-highlights">
-        {topBuckets.length > 0 ? (
-          topBuckets.map((bucket) => (
-            <div key={bucket.key} className="garbage-tile-highlight">
-              <span className="garbage-tile-highlight-label">{bucket.label}</span>
-              <span className="garbage-tile-highlight-value">{fmtBytes(bucket.bytes)}</span>
+        {topCandidates.length > 0 ? (
+          topCandidates.map((candidate) => (
+            <div key={candidate.id} className="garbage-tile-highlight">
+              <div className="garbage-tile-highlight-copy">
+                <span className="garbage-tile-highlight-label">{candidate.label}</span>
+                <span className="garbage-tile-highlight-note">
+                  {candidate.projectLabel ?? candidate.categoryLabel}
+                </span>
+              </div>
+              <span className="garbage-tile-highlight-value">{fmtBytes(candidate.bytes)}</span>
             </div>
           ))
         ) : (
-          <div className="garbage-tile-empty">No safe garbage buckets matched in the latest scan.</div>
+          <div className="garbage-tile-empty">No reclaim candidates matched in the latest scan.</div>
         )}
       </div>
 
@@ -216,10 +171,49 @@ export default function GarbageTile(props: {
           onClick={handleReclaim}
           disabled={!canReclaim || isCleanupActive}
         >
-          {isCleanupActive ? "Clearing…" : "Clear Safe Garbage"}
+          {isCleanupActive ? "Slaughtering…" : "Slaughter Safe Hogs"}
+        </button>
+        <button
+          type="button"
+          className="garbage-tile-button garbage-tile-button-secondary"
+          onClick={() => setPreviewOpen((value) => !value)}
+        >
+          {previewOpen ? "Hide Preview" : "Preview Hogs"}
         </button>
         {!canReclaim ? <span className="garbage-tile-action-note">Ops role required.</span> : null}
       </div>
+
+      {previewOpen ? (
+        <div className="garbage-preview-list" aria-label="Reclaim candidate preview">
+          {topCandidates.length > 0 ? (
+            topCandidates.map((candidate) => (
+              <div key={`${candidate.id}-preview`} className="garbage-preview-row">
+                <div className="garbage-preview-head">
+                  <span className="garbage-preview-title">{candidate.label}</span>
+                  <span className="garbage-preview-bytes">{fmtBytes(candidate.bytes)}</span>
+                </div>
+                <div className="garbage-preview-meta">
+                  {[
+                    candidate.categoryLabel,
+                    candidate.riskLabel,
+                    candidate.projectLabel,
+                    candidate.requiresStop ? "requires stop-plan" : null,
+                    candidate.regrows ? "regrows automatically" : null,
+                  ]
+                    .filter((value): value is string => Boolean(value))
+                    .join(" · ")}
+                </div>
+                <div className="garbage-preview-path">{candidate.path}</div>
+                {candidate.explanation ? (
+                  <div className="garbage-preview-note">{candidate.explanation}</div>
+                ) : null}
+              </div>
+            ))
+          ) : (
+            <div className="garbage-tile-empty">No preview rows available yet.</div>
+          )}
+        </div>
+      ) : null}
 
       {progress ? (
         <div className="garbage-tile-progress">
@@ -259,23 +253,14 @@ export default function GarbageTile(props: {
         </div>
       ) : null}
 
-      {feedback ? (
-        <div className={`garbage-tile-feedback garbage-tile-feedback-${feedbackTone}`}>{feedback}</div>
-      ) : cleanup?.finishedAt ? (
-        <div
-          className={`garbage-tile-feedback ${
-            cleanup.ok === false && cleanup.errors.length > 0
-              ? "garbage-tile-feedback-bad"
-              : "garbage-tile-feedback-meta"
-          }`}
-        >
-          {cleanup.ok === false && cleanup.errors.length > 0
-            ? `Partial cleanup: freed ${fmtBytes(cleanupFreed)} ${ageLabel(cleanup.finishedAt)} with ${cleanup.errors.length} error${
-                cleanup.errors.length === 1 ? "" : "s"
-              }.`
-            : `Last cleanup: freed ${fmtBytes(cleanupFreed)} ${ageLabel(cleanup.finishedAt)}.`}
+      {cleanup ? (
+        <div className="garbage-tile-meta-strip">
+          Last pass: {cleanup.ok ? "clean" : "partial"} · reclaimed {fmtBytes(cleanupFreed)} ·{" "}
+          {typeof cleanup.deletedCount === "number" ? `${cleanup.deletedCount} target(s)` : "details pending"}
         </div>
       ) : null}
+
+      {feedback ? <div className={feedbackToneClass(feedbackTone)}>{feedback}</div> : null}
     </div>
   );
 }

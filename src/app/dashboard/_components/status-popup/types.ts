@@ -13,7 +13,7 @@ export type FixStep = {
   detail?: string;
 };
 
-export type FixResult = { ok: boolean; message: string };
+export type FixResult = { ok: boolean; message: string; details?: string[] };
 
 export type StatusAlertPreview = {
   title: string;

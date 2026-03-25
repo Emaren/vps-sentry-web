@@ -13,6 +13,7 @@ const RUNNING_PATH = "/var/lib/vps-sentry/garbage-running-cleanup.json";
 const COMMAND_START_GRACE_MS = Number(process.env.VPS_GARBAGE_RECLAIM_START_GRACE_MS || 500);
 const RUNNING_POLL_MS = Number(process.env.VPS_GARBAGE_RECLAIM_RUNNING_POLL_MS || 250);
 const RUNNING_POLL_ATTEMPTS = Number(process.env.VPS_GARBAGE_RECLAIM_RUNNING_POLL_ATTEMPTS || 8);
+const RECLAIM_PROFILES = new Set(["safe", "garbage", "recycling"]);
 
 type CommandAttempt = {
   command: string;
@@ -167,20 +168,23 @@ export async function POST(req: Request) {
 
       const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
       const profile = typeof body.profile === "string" ? body.profile.trim().toLowerCase() : "safe";
-      if (profile !== "safe") {
-        return NextResponse.json({ ok: false, error: "Only the safe cleanup profile is supported." }, { status: 400 });
+      if (!RECLAIM_PROFILES.has(profile)) {
+        return NextResponse.json(
+          { ok: false, error: "Cleanup profile must be one of: safe, garbage, recycling." },
+          { status: 400 }
+        );
       }
 
       const attempts: CommandAttempt[] = [
         {
           command: "sudo",
-          args: ["-n", "/usr/local/bin/vps-sentry-garbage-reclaim", "--json"],
-          method: "sudo -n /usr/local/bin/vps-sentry-garbage-reclaim --json",
+          args: ["-n", "/usr/local/bin/vps-sentry-garbage-reclaim", "--json", "--profile", profile],
+          method: `sudo -n /usr/local/bin/vps-sentry-garbage-reclaim --json --profile ${profile}`,
         },
         {
           command: "/usr/local/bin/vps-sentry-garbage-reclaim",
-          args: ["--json"],
-          method: "/usr/local/bin/vps-sentry-garbage-reclaim --json",
+          args: ["--json", "--profile", profile],
+          method: `/usr/local/bin/vps-sentry-garbage-reclaim --json --profile ${profile}`,
         },
       ];
 
@@ -217,16 +221,17 @@ export async function POST(req: Request) {
         req,
         userId: access.identity.userId,
         action: "ops.garbage_reclaim.started",
-        detail: "Safe garbage cleanup started.",
+        detail: `${profile} garbage cleanup started.`,
         meta: {
           method: command.method,
+          profile,
         },
       });
 
       return NextResponse.json({
         ok: true,
         accepted: true,
-        detail: "Cleanup started. The tile will refresh after the reclaim pass completes.",
+        detail: `Cleanup started for the ${profile} profile. The tile will refresh after the reclaim pass completes.`,
         estimate,
       }, { status: 202 });
     }

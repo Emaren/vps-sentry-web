@@ -122,7 +122,7 @@ export function buildActionsNeeded(input: {
 
   if (runtimeContainmentNeeded) {
     out.push(
-      "Runtime IOC follow-up: contain suspicious process candidates before normal remediation so hostile/runtime-degraded workloads cannot keep burning CPU."
+      "Runtime IOC follow-up: contain suspicious process candidates before normal remediation. The host will stay red until that threat signal clears."
     );
   }
 
@@ -243,7 +243,7 @@ export function buildExplainText(input: {
 
   lines.push("");
   lines.push(
-    "Fix Now runs safe automations (build safe remediation plan, queue/execute allowed actions, then drain queue + refresh report). Any risky change, like closing ports, stays manual by design."
+    "Fix Now runs safe automations (build safe remediation plan, queue/execute allowed actions, then drain queue + refresh report). It can still finish with blockers when the latest snapshot still shows unresolved runtime IOC or drift. Risky changes, like closing ports, stay manual by design."
   );
 
   return lines.join("\n");
@@ -288,7 +288,7 @@ export function buildFixSteps(input: {
   if (runtimeContainmentNeeded) {
     steps.push({
       id: "contain-runtime-ioc",
-      label: "Contain suspicious runtime IOC process(es) and quarantine executable path",
+      label: "Contain suspicious runtime IOC process(es); host stays red until this signal clears",
       status: "idle",
     });
   }

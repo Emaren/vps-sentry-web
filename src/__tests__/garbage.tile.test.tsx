@@ -16,6 +16,34 @@ describe("GarbageTile", () => {
           ttlSeconds: 600,
           reclaimableBytesTotal: 812646400,
           safeReclaimableBytes: 812646400,
+          garbageReclaimableBytes: 268435456,
+          rebuildableBytes: 544210944,
+          guidedReclaimableBytes: 0,
+          blockedReclaimableBytes: 0,
+          categoryTotals: [
+            {
+              key: "garbage",
+              label: "Garbage Dump",
+              description: "Dead-weight junk.",
+              bytes: 268435456,
+              count: 12,
+            },
+            {
+              key: "recycling",
+              label: "Recycling Center",
+              description: "Caches that can regenerate.",
+              bytes: 544210944,
+              count: 7,
+            },
+          ],
+          riskTotals: [
+            {
+              key: "safe",
+              label: "Safe now",
+              bytes: 812646400,
+              count: 19,
+            },
+          ],
           buckets: [
             {
               key: "tmp_stale",
@@ -37,6 +65,52 @@ describe("GarbageTile", () => {
               bucket: "tmp_stale",
             },
           ],
+          candidates: [
+            {
+              id: "tmp-1",
+              key: "tmp_stale",
+              label: "Stale /tmp files",
+              path: "/tmp/tmp.drDlZXOgOZ",
+              bytes: 269484032,
+              action: "remove_path",
+              kind: "path",
+              category: "garbage",
+              categoryLabel: "Garbage Dump",
+              risk: "safe",
+              riskLabel: "Safe now",
+              requiresStop: false,
+              regrows: false,
+              explanation: "Temporary scratch directory.",
+              previewCommand: "du -sh /tmp/tmp.drDlZXOgOZ",
+              executeCommand: "rm -rf /tmp/tmp.drDlZXOgOZ",
+              projectId: null,
+              projectLabel: null,
+              projectUrl: null,
+              serviceRefs: [],
+            },
+            {
+              id: "cache-1",
+              key: "pkg_cache",
+              label: "Package manager caches",
+              path: "/root/.npm",
+              bytes: 134217728,
+              action: "remove_path",
+              kind: "path",
+              category: "recycling",
+              categoryLabel: "Recycling Center",
+              risk: "safe",
+              riskLabel: "Safe now",
+              requiresStop: false,
+              regrows: true,
+              explanation: "Package caches can be re-downloaded.",
+              previewCommand: "du -sh /root/.npm",
+              executeCommand: "rm -rf /root/.npm",
+              projectId: null,
+              projectLabel: null,
+              projectUrl: null,
+              serviceRefs: [],
+            },
+          ],
           runningCleanup: false,
           lastCleanupResult: {
             ok: true,
@@ -54,9 +128,10 @@ describe("GarbageTile", () => {
     );
 
     expect(html).toContain("Reclaimable Space");
-    expect(html).toContain("Clear Safe Garbage");
+    expect(html).toContain("Slaughter Safe Hogs");
     expect(html).toContain("Stale /tmp files");
     expect(html).toContain("Package manager caches");
+    expect(html).toContain("Preview Hogs");
   });
 
   it("renders cleanup progress details when a reclaim pass is running", () => {
@@ -71,8 +146,15 @@ describe("GarbageTile", () => {
           ttlSeconds: 600,
           reclaimableBytesTotal: 812646400,
           safeReclaimableBytes: 812646400,
+          garbageReclaimableBytes: 268435456,
+          rebuildableBytes: 544210944,
+          guidedReclaimableBytes: 0,
+          blockedReclaimableBytes: 0,
+          categoryTotals: [],
+          riskTotals: [],
           buckets: [],
           topPaths: [],
+          candidates: [],
           runningCleanup: true,
           lastCleanupResult: null,
           cleanupProgress: {

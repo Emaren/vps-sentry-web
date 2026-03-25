@@ -7,6 +7,7 @@ import { MAIN_PROJECTS, type ProjectDef } from "../_lib/project-catalog";
 import Box from "./Box";
 import GarbageTile from "./GarbageTile";
 import PowerVitalsLiveGrid from "./PowerVitalsLiveGrid";
+import ReclaimCategoryTile from "./ReclaimCategoryTile";
 
 type PortEntry = {
   proto?: string;
@@ -787,6 +788,28 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
 
         <PowerVitalsLiveGrid hostVitals={hostVitals} connected={liveConnected} streamLabel={liveStreamLabel}>
           <GarbageTile
+            estimate={garbageEstimate}
+            connected={liveConnected}
+            streamLabel={liveStreamLabel}
+            canReclaim={canReclaim}
+          />
+          <ReclaimCategoryTile
+            title="Garbage Dump"
+            subtitle="Dead-weight junk you can usually delete outright."
+            category="garbage"
+            actionLabel="Clean Safe Junk"
+            emptyLabel="No garbage-dump targets matched in the latest scan."
+            estimate={garbageEstimate}
+            connected={liveConnected}
+            streamLabel={liveStreamLabel}
+            canReclaim={canReclaim}
+          />
+          <ReclaimCategoryTile
+            title="Recycling Center"
+            subtitle="Caches and rebuildable artifacts that can regenerate later."
+            category="recycling"
+            actionLabel="Recycle Caches"
+            emptyLabel="No recycling targets matched in the latest scan."
             estimate={garbageEstimate}
             connected={liveConnected}
             streamLabel={liveStreamLabel}
