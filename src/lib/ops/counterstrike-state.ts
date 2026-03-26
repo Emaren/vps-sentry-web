@@ -78,6 +78,7 @@ export type CounterstrikeRunResult = {
     quarantinePaths: string[];
     cronRemovedLines: number | null;
     cronChangedTargets: string[];
+    containerRemoveNames?: string[];
   } | null;
   quarantinedPaths: string[];
   cronRemovedLines: number | null;
@@ -246,6 +247,9 @@ function normalizeRunResult(raw: JsonDict | null): CounterstrikeRunResult | null
           quarantinePaths: asList(planned.quarantine_paths).map((path) => asString(path)).filter((path): path is string => Boolean(path)),
           cronRemovedLines: asInt(planned.cron_removed_lines),
           cronChangedTargets: asList(planned.cron_changed_targets).map((path) => asString(path)).filter((path): path is string => Boolean(path)),
+          containerRemoveNames: asList(planned.container_remove_names)
+            .map((name) => asString(name))
+            .filter((name): name is string => Boolean(name)),
         }
       : null,
     quarantinedPaths: asList(raw.quarantined_paths).map((line) => asString(line)).filter((line): line is string => Boolean(line)),

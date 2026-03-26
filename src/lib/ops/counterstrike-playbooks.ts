@@ -5,6 +5,7 @@ export type CounterstrikePlaybook = {
   label: string;
   title: string;
   description: string;
+  operatorHint: string;
 };
 
 export const COUNTERSTRIKE_PLAYBOOKS: CounterstrikePlaybook[] = [
@@ -14,6 +15,16 @@ export const COUNTERSTRIKE_PLAYBOOKS: CounterstrikePlaybook[] = [
     title: "Miner Persistence Purge",
     description:
       "Kill suspicious miner-style processes in writable paths, quarantine binaries, and scrub matching cron persistence.",
+    operatorHint: "Best when the suspicious executable lives in /tmp, /var/tmp, /dev/shm, or another writable path.",
+  },
+  {
+    id: "zap-02-busybox-loader-cutoff",
+    label: "Zap! #2",
+    title: "BusyBox Loader Cutoff",
+    description:
+      "Cut containerized BusyBox or shell loader loops, preserve decoded payload evidence, and remove the restartable rogue container when it matches the IOC profile.",
+    operatorHint:
+      "Best when the threat hides behind /bin/busybox or /bin/sh, especially inside a restartable Docker container with host mounts.",
   },
 ];
 

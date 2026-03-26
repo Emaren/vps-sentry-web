@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/lib/audit-log";
 import { incrementCounter, runObservedRoute } from "@/lib/observability";
 import type { AppRole } from "@/lib/rbac-policy";
 import {
+  COUNTERSTRIKE_PLAYBOOKS,
   DEFAULT_COUNTERSTRIKE_PLAYBOOK,
   getCounterstrikePlaybook,
   normalizeCounterstrikeMode,
@@ -234,7 +235,10 @@ export async function POST(req: Request) {
           detail: `${playbook.label} started in ${mode} mode.`,
           playbook,
           mode,
-          snapshot,
+          snapshot: {
+            playbooks: COUNTERSTRIKE_PLAYBOOKS,
+            ...snapshot,
+          },
         },
         { status: 202 }
       );

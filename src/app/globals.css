@@ -646,7 +646,27 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
 .power-vitals-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: minmax(0, 3fr) minmax(300px, 1.24fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.power-vitals-core-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.power-vitals-reclaim-rail {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.power-vitals-reclaim-subgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -663,12 +683,17 @@ html[data-site-theme="sepia"] .dashboard-shell {
   gap: 8px;
 }
 
+.power-vitals-core-grid .power-vitals-kpi-card-live {
+  min-height: 212px;
+}
+
 .power-vitals-kpi-card-garbage {
   align-content: start;
 }
 
 .power-vitals-kpi-card-garbage-sub {
   align-content: start;
+  min-height: 0;
 }
 
 .power-vitals-kpi-headline {
@@ -2336,6 +2361,68 @@ html[data-site-theme="sepia"] .dashboard-shell {
   line-height: 1.45;
 }
 
+.counterstrike-playbooks-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.counterstrike-playbook-card {
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 84%, transparent 16%);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 92%, transparent 8%), color-mix(in srgb, var(--dash-card-bg) 76%, transparent 24%)),
+    var(--dash-card-bg);
+  padding: 12px;
+  display: grid;
+  gap: 7px;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.counterstrike-playbook-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--dash-sev-medium-border) 54%, var(--dash-card-border) 46%);
+}
+
+.counterstrike-playbook-card-active {
+  border-color: color-mix(in srgb, var(--dash-sev-ok-border) 70%, var(--dash-card-border) 30%);
+  background:
+    radial-gradient(120% 160% at 0% 0%, color-mix(in srgb, var(--dash-sev-ok-bg) 62%, transparent 38%), transparent 58%),
+    linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 92%, transparent 8%), color-mix(in srgb, var(--dash-sev-medium-bg) 30%, transparent 70%)),
+    var(--dash-card-bg);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent 92%);
+}
+
+.counterstrike-playbook-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.counterstrike-playbook-label {
+  color: var(--dash-meta);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.counterstrike-playbook-title {
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.counterstrike-playbook-copy {
+  color: var(--dash-meta);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .counterstrike-meta-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3195,10 +3282,29 @@ html[data-site-theme="sepia"] .dashboard-shell {
   .dashboard-protection-grid {
     grid-template-columns: 1fr;
   }
+
+  .power-vitals-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .power-vitals-reclaim-rail {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .power-vitals-reclaim-subgrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 980px) {
   .power-vitals-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .power-vitals-core-grid,
+  .power-vitals-reclaim-rail,
+  .power-vitals-reclaim-subgrid {
     grid-template-columns: 1fr;
   }
 
@@ -3220,6 +3326,10 @@ html[data-site-theme="sepia"] .dashboard-shell {
   }
 
   .counterstrike-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .counterstrike-playbooks-grid {
     grid-template-columns: 1fr;
   }
 

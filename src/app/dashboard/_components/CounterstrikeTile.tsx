@@ -2,7 +2,12 @@
 
 import React from "react";
 import Box from "./Box";
-import { DEFAULT_COUNTERSTRIKE_PLAYBOOK, type CounterstrikeMode } from "@/lib/ops/counterstrike-playbooks";
+import {
+  COUNTERSTRIKE_PLAYBOOKS,
+  DEFAULT_COUNTERSTRIKE_PLAYBOOK,
+  type CounterstrikeMode,
+  type CounterstrikePlaybook,
+} from "@/lib/ops/counterstrike-playbooks";
 
 type CounterstrikeArmedState = {
   active: boolean;
@@ -13,6 +18,7 @@ type CounterstrikeArmedState = {
 
 type CounterstrikeRunState = {
   runId: string;
+  playbook: string;
   playbookLabel: string;
   playbookTitle: string;
   mode: CounterstrikeMode;
@@ -34,6 +40,7 @@ type CounterstrikeRunState = {
 
 type CounterstrikeRunResult = {
   runId: string;
+  playbook: string;
   playbookLabel: string;
   playbookTitle: string;
   mode: string;
@@ -64,6 +71,7 @@ type CounterstrikeRunResult = {
     quarantinePaths: string[];
     cronRemovedLines: number | null;
     cronChangedTargets: string[];
+    containerRemoveNames?: string[];
   } | null;
   quarantinedPaths: string[];
   cronRemovedLines: number | null;
@@ -77,6 +85,7 @@ type CounterstrikeStatusResponse = {
   armed: CounterstrikeArmedState;
   running: CounterstrikeRunState | null;
   last: CounterstrikeRunResult | null;
+  playbooks?: CounterstrikePlaybook[];
 };
 
 type CounterstrikeHistoryResponse = {
@@ -159,9 +168,19 @@ function toneClass(tone: "meta" | "bad" | "ok"): string {
 
 function planSummary(plan: CounterstrikeRunResult["plannedActions"]): string | null {
   if (!plan || plan.candidateCount <= 0) return null;
+  const artifactLabel =
+    plan.containerRemoveNames && plan.containerRemoveNames.length > 0 ? "artifact(s)" : "executable(s)";
+  const containerCopy =
+    plan.containerRemoveNames && plan.containerRemoveNames.length > 0
+      ? ` remove ${plan.containerRemoveNames.length} container(s),`
+      : "";
   const cronLabel =
     typeof plan.cronRemovedLines === "number" ? `${plan.cronRemovedLines} cron line(s)` : "0 cron line(s)";
-  return `Would stop ${plan.stopPids.length} process(es), quarantine ${plan.quarantinePaths.length} executable(s), and scrub ${cronLabel}.`;
+  return `Would stop ${plan.stopPids.length} process(es),${containerCopy} quarantine ${plan.quarantinePaths.length} ${artifactLabel}, and scrub ${cronLabel}.`;
+}
+
+function findPlaybook(playbooks: CounterstrikePlaybook[], playbookId: string | null | undefined): CounterstrikePlaybook {
+  return playbooks.find((playbook) => playbook.id === playbookId) ?? DEFAULT_COUNTERSTRIKE_PLAYBOOK;
 }
 
 export default function CounterstrikeTile(props: CounterstrikeTileProps) {
@@ -172,16 +191,26 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
   const [historyOpen, setHistoryOpen] = React.useState(initialHistory.length > 0);
   const [consoleOpen, setConsoleOpen] = React.useState(false);
   const [busyMode, setBusyMode] = React.useState<CounterstrikeMode | null>(null);
+  const [selectedPlaybookId, setSelectedPlaybookId] = React.useState<string>(
+    initialSnapshot?.last?.playbook ?? DEFAULT_COUNTERSTRIKE_PLAYBOOK.id
+  );
   const [feedback, setFeedback] = React.useState<string | null>(null);
   const [feedbackTone, setFeedbackTone] = React.useState<"meta" | "bad" | "ok">("meta");
   const running = snapshot?.running ?? null;
   const isRunning = Boolean(running);
+  const playbooks = snapshot?.playbooks?.length ? snapshot.playbooks : COUNTERSTRIKE_PLAYBOOKS;
+  const selectedPlaybook = findPlaybook(playbooks, selectedPlaybookId);
   const armed = snapshot?.armed ?? {
     active: false,
     label: "standby",
     reason: "Loading Counterstrike status…",
     candidateCount: 0,
   };
+
+  React.useEffect(() => {
+    if (playbooks.some((playbook) => playbook.id === selectedPlaybookId)) return;
+    setSelectedPlaybookId(DEFAULT_COUNTERSTRIKE_PLAYBOOK.id);
+  }, [playbooks, selectedPlaybookId]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -264,7 +293,7 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
     setBusyMode(mode);
     setConsoleOpen(true);
     setFeedbackTone("meta");
-    setFeedback(`${DEFAULT_COUNTERSTRIKE_PLAYBOOK.label} is starting in ${mode} mode…`);
+    setFeedback(`${selectedPlaybook.label} is starting in ${mode} mode…`);
 
     try {
       const res = await fetch("/api/ops/counterstrike/run", {
@@ -273,7 +302,7 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          playbook: DEFAULT_COUNTERSTRIKE_PLAYBOOK.id,
+          playbook: selectedPlaybook.id,
           mode,
         }),
       });
@@ -286,7 +315,7 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
         setSnapshot(data.snapshot);
       }
       setFeedbackTone("meta");
-      setFeedback(data.detail || `${DEFAULT_COUNTERSTRIKE_PLAYBOOK.label} started.`);
+      setFeedback(data.detail || `${selectedPlaybook.label} started.`);
       if (historyOpen) {
         setHistory((current) => current);
       }
@@ -307,8 +336,11 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
     !running &&
     last?.status === "analysis_only" &&
     (last?.plannedActions?.candidateCount ?? 0) === 0;
+  const recommendZapTwo = analysisOnlyNoShot && last?.playbook === DEFAULT_COUNTERSTRIKE_PLAYBOOK.id;
   const analysisOnlyBlockerCopy = analysisOnlyNoShot
-    ? "No safe kill shot found. Counterstrike analyzed the threat feed, but the latest run still had zero containable candidates, so the host remains red."
+    ? last?.playbook === DEFAULT_COUNTERSTRIKE_PLAYBOOK.id
+      ? "No safe kill shot found yet. Zap #1 analyzed the threat feed, but the latest run still had zero containable writable-path candidates, so the host remains red."
+      : "No safe kill shot found yet. The latest Counterstrike analysis still had zero containable candidates, so the host remains red."
     : null;
 
   return (
@@ -326,7 +358,33 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
         </div>
       </div>
 
-      <div className="counterstrike-copy">{DEFAULT_COUNTERSTRIKE_PLAYBOOK.description}</div>
+      <div className="counterstrike-playbooks-grid">
+        {playbooks.map((playbook) => {
+          const active = playbook.id === selectedPlaybook.id;
+          const recommended = recommendZapTwo && playbook.id === "zap-02-busybox-loader-cutoff";
+          return (
+            <button
+              key={playbook.id}
+              type="button"
+              className={`counterstrike-playbook-card${active ? " counterstrike-playbook-card-active" : ""}`}
+              onClick={() => setSelectedPlaybookId(playbook.id)}
+              aria-pressed={active}
+            >
+              <div className="counterstrike-playbook-head">
+                <span className="counterstrike-playbook-label">{playbook.label}</span>
+                {recommended ? <span className="dashboard-chip dashboard-chip-warn">recommended</span> : null}
+                {active ? <span className="dashboard-chip dashboard-chip-ok">selected</span> : null}
+              </div>
+              <div className="counterstrike-playbook-title">{playbook.title}</div>
+              <div className="counterstrike-playbook-copy">{playbook.description}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="counterstrike-copy">
+        <strong>{selectedPlaybook.title}.</strong> {selectedPlaybook.operatorHint}
+      </div>
 
       <div className="counterstrike-meta-grid">
         <div className="counterstrike-meta-card">
@@ -366,7 +424,7 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
           onClick={() => void handleRun("execute")}
           disabled={!canMutate || Boolean(running) || Boolean(busyMode)}
         >
-          {busyMode === "execute" ? "Launching…" : DEFAULT_COUNTERSTRIKE_PLAYBOOK.label}
+          {busyMode === "execute" ? "Launching…" : selectedPlaybook.label}
         </button>
         <button
           type="button"
@@ -374,7 +432,7 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
           onClick={() => void handleRun("analyze")}
           disabled={!canMutate || Boolean(running) || Boolean(busyMode)}
         >
-          {busyMode === "analyze" ? "Launching…" : "Analyze Only"}
+          {busyMode === "analyze" ? "Launching…" : "Analyze Selected"}
         </button>
         <button
           type="button"
@@ -382,7 +440,7 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
           onClick={() => void handleRun("dry-run")}
           disabled={!canMutate || Boolean(running) || Boolean(busyMode)}
         >
-          {busyMode === "dry-run" ? "Launching…" : "Dry Run"}
+          {busyMode === "dry-run" ? "Launching…" : "Dry Run Selected"}
         </button>
         <button
           type="button"
@@ -408,7 +466,11 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
         <div className="counterstrike-blocker">
           <div className="counterstrike-blocker-title">Why You’re Still Red</div>
           <div className="counterstrike-blocker-copy">{analysisOnlyBlockerCopy}</div>
-          <div className="counterstrike-blocker-note">{armed.reason || last?.summary}</div>
+          <div className="counterstrike-blocker-note">
+            {recommendZapTwo
+              ? "This is where Zap #2 comes in: it is meant for system-binary loader cases like BusyBox or sh running from a rogue container, not just writable-path binaries."
+              : armed.reason || last?.summary}
+          </div>
         </div>
       ) : null}
 
@@ -449,6 +511,9 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
             <span className="dashboard-chip">targets {lastPlan.candidateCount}</span>
             <span className="dashboard-chip">stop {lastPlan.stopPids.length}</span>
             <span className="dashboard-chip">quarantine {lastPlan.quarantinePaths.length}</span>
+            {lastPlan.containerRemoveNames && lastPlan.containerRemoveNames.length > 0 ? (
+              <span className="dashboard-chip">containers {lastPlan.containerRemoveNames.length}</span>
+            ) : null}
             {typeof lastPlan.cronRemovedLines === "number" ? (
               <span className="dashboard-chip">cron {lastPlan.cronRemovedLines}</span>
             ) : null}
@@ -505,6 +570,9 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
                     ) : null}
                     {entry.plannedActions ? (
                       <span className="dashboard-chip">targets {entry.plannedActions.candidateCount}</span>
+                    ) : null}
+                    {entry.plannedActions?.containerRemoveNames?.length ? (
+                      <span className="dashboard-chip">containers {entry.plannedActions.containerRemoveNames.length}</span>
                     ) : null}
                     {typeof entry.cronRemovedLines === "number" ? (
                       <span className="dashboard-chip">cron removed {entry.cronRemovedLines}</span>

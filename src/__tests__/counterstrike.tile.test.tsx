@@ -20,6 +20,7 @@ describe("CounterstrikeTile", () => {
           running: null,
           last: {
             runId: "run-1",
+            playbook: "zap-01-miner-persistence-purge",
             playbookLabel: "Zap! #1",
             playbookTitle: "Miner Persistence Purge",
             mode: "analyze",
@@ -70,6 +71,7 @@ describe("CounterstrikeTile", () => {
         initialHistory={[
           {
             runId: "run-1",
+            playbook: "zap-01-miner-persistence-purge",
             playbookLabel: "Zap! #1",
             playbookTitle: "Miner Persistence Purge",
             mode: "dry-run",
