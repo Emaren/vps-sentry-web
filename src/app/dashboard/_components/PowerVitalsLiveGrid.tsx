@@ -65,9 +65,6 @@ export default function PowerVitalsLiveGrid(props: {
   children?: React.ReactNode;
 }) {
   const { children, connected, hostVitals, streamLabel } = props;
-  const reclaimCards = React.Children.toArray(children);
-  const reclaimHero = reclaimCards[0] ?? null;
-  const reclaimSupport = reclaimCards.slice(1);
 
   return (
     <div className="power-vitals-kpi-grid">
@@ -128,14 +125,7 @@ export default function PowerVitalsLiveGrid(props: {
         </div>
       </div>
 
-      {reclaimCards.length > 0 ? (
-        <div className="power-vitals-reclaim-rail">
-          {reclaimHero}
-          {reclaimSupport.length > 0 ? (
-            <div className="power-vitals-reclaim-subgrid">{reclaimSupport}</div>
-          ) : null}
-        </div>
-      ) : null}
+      {children}
     </div>
   );
 }

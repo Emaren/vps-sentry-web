@@ -792,29 +792,30 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
             connected={liveConnected}
             streamLabel={liveStreamLabel}
             canReclaim={canReclaim}
-          />
-          <ReclaimCategoryTile
-            title="Garbage Dump"
-            subtitle="Dead-weight junk you can usually delete outright."
-            category="garbage"
-            actionLabel="Clean Safe Junk"
-            emptyLabel="No garbage-dump targets matched in the latest scan."
-            estimate={garbageEstimate}
-            connected={liveConnected}
-            streamLabel={liveStreamLabel}
-            canReclaim={canReclaim}
-          />
-          <ReclaimCategoryTile
-            title="Recycling Center"
-            subtitle="Caches and rebuildable artifacts that can regenerate later."
-            category="recycling"
-            actionLabel="Recycle Caches"
-            emptyLabel="No recycling targets matched in the latest scan."
-            estimate={garbageEstimate}
-            connected={liveConnected}
-            streamLabel={liveStreamLabel}
-            canReclaim={canReclaim}
-          />
+          >
+            <ReclaimCategoryTile
+              title="Garbage Dump"
+              subtitle="Dead-weight junk you can usually delete outright."
+              category="garbage"
+              actionLabel="Clean Safe Junk"
+              emptyLabel="No garbage-dump targets matched in the latest scan."
+              estimate={garbageEstimate}
+              connected={liveConnected}
+              streamLabel={liveStreamLabel}
+              canReclaim={canReclaim}
+            />
+            <ReclaimCategoryTile
+              title="Recycling Center"
+              subtitle="Caches and rebuildable artifacts that can regenerate later."
+              category="recycling"
+              actionLabel="Recycle Caches"
+              emptyLabel="No recycling targets matched in the latest scan."
+              estimate={garbageEstimate}
+              connected={liveConnected}
+              streamLabel={liveStreamLabel}
+              canReclaim={canReclaim}
+            />
+          </GarbageTile>
         </PowerVitalsLiveGrid>
 
         {showCpuHotspot ? (

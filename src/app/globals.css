@@ -646,7 +646,6 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
 .power-vitals-kpi-grid {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(300px, 1.24fr);
   gap: 12px;
   align-items: start;
 }
@@ -656,18 +655,6 @@ html[data-site-theme="sepia"] .dashboard-shell {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   min-width: 0;
-}
-
-.power-vitals-reclaim-rail {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-}
-
-.power-vitals-reclaim-subgrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
 }
 
 .power-vitals-kpi-card {
@@ -694,6 +681,93 @@ html[data-site-theme="sepia"] .dashboard-shell {
 .power-vitals-kpi-card-garbage-sub {
   align-content: start;
   min-height: 0;
+}
+
+.power-vitals-reclaim-stage {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+}
+
+.power-vitals-reclaim-stage-tab-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-right: 12px;
+}
+
+.power-vitals-reclaim-stage-tab {
+  width: min(100%, 322px);
+  border-bottom: none;
+  border-radius: 18px 18px 0 0;
+  padding-bottom: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 94%, transparent 6%), color-mix(in srgb, var(--dash-card-bg) 84%, transparent 16%)),
+    var(--dash-card-bg);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 7%, transparent 93%);
+}
+
+.power-vitals-reclaim-stage-body {
+  margin-top: -1px;
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 84%, transparent 16%);
+  border-radius: 20px;
+  background:
+    radial-gradient(135% 160% at 100% 0%, color-mix(in srgb, var(--dash-sev-medium-bg) 30%, transparent 70%), transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 90%, transparent 10%), color-mix(in srgb, var(--dash-card-bg) 80%, transparent 20%)),
+    var(--dash-card-bg);
+  padding: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(340px, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.power-vitals-reclaim-stage-main {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+}
+
+.power-vitals-reclaim-stage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.power-vitals-reclaim-stage-kicker {
+  color: var(--dash-meta);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.power-vitals-reclaim-stage-title {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.power-vitals-reclaim-stage-pill {
+  border: 1px solid color-mix(in srgb, var(--dash-sev-ok-border) 72%, transparent 28%);
+  border-radius: 999px;
+  padding: 8px 11px;
+  background: color-mix(in srgb, var(--dash-sev-ok-bg) 68%, transparent 32%);
+  color: var(--dash-sev-ok-text);
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.power-vitals-reclaim-stage-support {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
 }
 
 .power-vitals-kpi-headline {
@@ -3283,29 +3357,23 @@ html[data-site-theme="sepia"] .dashboard-shell {
     grid-template-columns: 1fr;
   }
 
-  .power-vitals-kpi-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .power-vitals-reclaim-rail {
-    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .power-vitals-reclaim-subgrid {
+  .power-vitals-reclaim-stage-body {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 980px) {
-  .power-vitals-kpi-grid {
+  .power-vitals-core-grid,
+  .power-vitals-reclaim-stage-support {
     grid-template-columns: 1fr;
   }
 
-  .power-vitals-core-grid,
-  .power-vitals-reclaim-rail,
-  .power-vitals-reclaim-subgrid {
-    grid-template-columns: 1fr;
+  .power-vitals-reclaim-stage-tab-row {
+    padding-right: 0;
+  }
+
+  .power-vitals-reclaim-stage-tab {
+    width: 100%;
   }
 
   .power-vitals-row {

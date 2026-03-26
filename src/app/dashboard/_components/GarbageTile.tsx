@@ -17,8 +17,9 @@ export default function GarbageTile(props: {
   connected: boolean;
   streamLabel: string;
   canReclaim: boolean;
+  children?: React.ReactNode;
 }) {
-  const { canReclaim, connected, estimate, streamLabel } = props;
+  const { canReclaim, children, connected, estimate, streamLabel } = props;
   const [busy, setBusy] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);
@@ -48,6 +49,7 @@ export default function GarbageTile(props: {
   const progressStepLabel = progress?.currentLabel ?? cleanupPhaseLabel(progress?.phase);
   const progressEtaLabel = fmtDuration(progress?.etaSeconds);
   const isCleanupActive = busy || pending || estimate?.runningCleanup || Boolean(progress);
+  const supportCards = React.Children.toArray(children);
 
   React.useEffect(() => {
     if (estimate?.runningCleanup || progress) {
@@ -109,158 +111,184 @@ export default function GarbageTile(props: {
   }
 
   return (
-    <div className="power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-kpi-card-garbage">
-      <div className="power-vitals-kpi-headline">
-        <div className="power-vitals-kpi-label">Reclaimable Space</div>
-        <span className={liveBadgeClass(connected)}>{streamLabel}</span>
-      </div>
+    <div className="power-vitals-reclaim-stage">
+      <div className="power-vitals-reclaim-stage-tab-row">
+        <div className="power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-kpi-card-garbage power-vitals-reclaim-stage-tab">
+          <div className="power-vitals-kpi-headline">
+            <div className="power-vitals-kpi-label">Reclaimable Space</div>
+            <span className={liveBadgeClass(connected)}>{streamLabel}</span>
+          </div>
 
-      <div className="power-vitals-kpi-value">{fmtBytes(reclaimable)}</div>
+          <div className="power-vitals-kpi-value">{fmtBytes(reclaimable)}</div>
 
-      <div className="power-vitals-kpi-meta">
-        {estimate?.measuredAt
-          ? `Scanned ${ageLabel(estimate.measuredAt)}${
-              typeof estimate.ttlSeconds === "number" && estimate.ttlSeconds > 0
-                ? ` · refreshes about every ${Math.max(1, Math.round(estimate.ttlSeconds / 60))}m`
-                : ""
-            }.`
-          : "Reclaim scan pending."}
-      </div>
+          <div className="power-vitals-kpi-meta">
+            {estimate?.measuredAt
+              ? `Scanned ${ageLabel(estimate.measuredAt)}${
+                  typeof estimate.ttlSeconds === "number" && estimate.ttlSeconds > 0
+                    ? ` · refreshes about every ${Math.max(1, Math.round(estimate.ttlSeconds / 60))}m`
+                    : ""
+                }.`
+              : "Reclaim scan pending."}
+          </div>
 
-      <div className="garbage-summary-grid">
-        <div className="garbage-summary-pill">
-          <span className="garbage-summary-label">Safe now</span>
-          <span className="garbage-summary-value">{fmtBytes(safeNow)}</span>
-        </div>
-        <div className="garbage-summary-pill">
-          <span className="garbage-summary-label">Recycling</span>
-          <span className="garbage-summary-value">{fmtBytes(recycling)}</span>
-        </div>
-        <div className="garbage-summary-pill">
-          <span className="garbage-summary-label">Guided</span>
-          <span className="garbage-summary-value">{fmtBytes(guided)}</span>
-        </div>
-        <div className="garbage-summary-pill">
-          <span className="garbage-summary-label">Blocked</span>
-          <span className="garbage-summary-value">{fmtBytes(blocked)}</span>
-        </div>
-      </div>
-
-      <div className="garbage-tile-highlights">
-        {topCandidates.length > 0 ? (
-          topCandidates.map((candidate) => (
-            <div key={candidate.id} className="garbage-tile-highlight">
-              <div className="garbage-tile-highlight-copy">
-                <span className="garbage-tile-highlight-label">{candidate.label}</span>
-                <span className="garbage-tile-highlight-note">
-                  {candidate.projectLabel ?? candidate.categoryLabel}
-                </span>
-              </div>
-              <span className="garbage-tile-highlight-value">{fmtBytes(candidate.bytes)}</span>
+          <div className="garbage-summary-grid">
+            <div className="garbage-summary-pill">
+              <span className="garbage-summary-label">Safe now</span>
+              <span className="garbage-summary-value">{fmtBytes(safeNow)}</span>
             </div>
-          ))
-        ) : (
-          <div className="garbage-tile-empty">No reclaim candidates matched in the latest scan.</div>
-        )}
-      </div>
-
-      <div className="garbage-tile-actions">
-        <button
-          type="button"
-          className="garbage-tile-button"
-          onClick={handleReclaim}
-          disabled={!canReclaim || isCleanupActive}
-        >
-          {isCleanupActive ? "Slaughtering…" : "Slaughter Safe Hogs"}
-        </button>
-        <button
-          type="button"
-          className="garbage-tile-button garbage-tile-button-secondary"
-          onClick={() => setPreviewOpen((value) => !value)}
-        >
-          {previewOpen ? "Hide Preview" : "Preview Hogs"}
-        </button>
-        {!canReclaim ? <span className="garbage-tile-action-note">Ops role required.</span> : null}
-      </div>
-
-      {previewOpen ? (
-        <div className="garbage-preview-list" aria-label="Reclaim candidate preview">
-          {topCandidates.length > 0 ? (
-            topCandidates.map((candidate) => (
-              <div key={`${candidate.id}-preview`} className="garbage-preview-row">
-                <div className="garbage-preview-head">
-                  <span className="garbage-preview-title">{candidate.label}</span>
-                  <span className="garbage-preview-bytes">{fmtBytes(candidate.bytes)}</span>
-                </div>
-                <div className="garbage-preview-meta">
-                  {[
-                    candidate.categoryLabel,
-                    candidate.riskLabel,
-                    candidate.projectLabel,
-                    candidate.requiresStop ? "requires stop-plan" : null,
-                    candidate.regrows ? "regrows automatically" : null,
-                  ]
-                    .filter((value): value is string => Boolean(value))
-                    .join(" · ")}
-                </div>
-                <div className="garbage-preview-path">{candidate.path}</div>
-                {candidate.explanation ? (
-                  <div className="garbage-preview-note">{candidate.explanation}</div>
-                ) : null}
-              </div>
-            ))
-          ) : (
-            <div className="garbage-tile-empty">No preview rows available yet.</div>
-          )}
+            <div className="garbage-summary-pill">
+              <span className="garbage-summary-label">Recycling</span>
+              <span className="garbage-summary-value">{fmtBytes(recycling)}</span>
+            </div>
+            <div className="garbage-summary-pill">
+              <span className="garbage-summary-label">Guided</span>
+              <span className="garbage-summary-value">{fmtBytes(guided)}</span>
+            </div>
+            <div className="garbage-summary-pill">
+              <span className="garbage-summary-label">Blocked</span>
+              <span className="garbage-summary-value">{fmtBytes(blocked)}</span>
+            </div>
+          </div>
         </div>
-      ) : null}
+      </div>
 
-      {progress ? (
-        <div className="garbage-tile-progress">
-          <div className="garbage-tile-progress-head">
-            <div className="garbage-tile-progress-title">{progressStepLabel}</div>
-            {typeof progress.completedSteps === "number" && typeof progress.totalSteps === "number" ? (
-              <div className="garbage-tile-progress-count">
-                {Math.max(0, progress.completedSteps)}/{Math.max(0, progress.totalSteps)}
+      <div className="power-vitals-reclaim-stage-body">
+        <div className="power-vitals-reclaim-stage-main">
+          <div className="power-vitals-reclaim-stage-head">
+            <div>
+              <div className="power-vitals-reclaim-stage-kicker">Reclaim Workbench</div>
+              <div className="power-vitals-reclaim-stage-title">
+                Safe hog preview, cleanup controls, and last-pass telemetry.
+              </div>
+            </div>
+            {cleanup ? (
+              <div className="power-vitals-reclaim-stage-pill">
+                Last pass {cleanup.ok ? "clean" : "partial"} · {fmtBytes(cleanupFreed)}
               </div>
             ) : null}
           </div>
-          <div className="garbage-tile-progress-meta">
-            {[
-              progress?.phase ? cleanupPhaseLabel(progress.phase) : null,
-              progressEtaLabel ? `ETA ~ ${progressEtaLabel}` : null,
-              progress?.updatedAt ? `updated ${ageLabel(progress.updatedAt)}` : null,
-              typeof progress?.errorsCount === "number" && progress.errorsCount > 0
-                ? `${progress.errorsCount} error${progress.errorsCount === 1 ? "" : "s"}`
-                : null,
-            ]
-              .filter((value): value is string => Boolean(value))
-              .join(" · ")}
+
+          <div className="garbage-tile-highlights">
+            {topCandidates.length > 0 ? (
+              topCandidates.map((candidate) => (
+                <div key={candidate.id} className="garbage-tile-highlight">
+                  <div className="garbage-tile-highlight-copy">
+                    <span className="garbage-tile-highlight-label">{candidate.label}</span>
+                    <span className="garbage-tile-highlight-note">
+                      {candidate.projectLabel ?? candidate.categoryLabel}
+                    </span>
+                  </div>
+                  <span className="garbage-tile-highlight-value">{fmtBytes(candidate.bytes)}</span>
+                </div>
+              ))
+            ) : (
+              <div className="garbage-tile-empty">No reclaim candidates matched in the latest scan.</div>
+            )}
           </div>
-          {progress.currentCommand || progressLines.length > 0 ? (
-            <div className="garbage-tile-console" aria-label="Cleanup progress log">
-              {progressLines.length > 0 ? (
-                progressLines.map((line, index) => (
-                  <div key={`${progress.updatedAt ?? "line"}-${index}`} className="garbage-tile-console-line">
-                    {line}
+
+          <div className="garbage-tile-actions">
+            <button
+              type="button"
+              className="garbage-tile-button"
+              onClick={handleReclaim}
+              disabled={!canReclaim || isCleanupActive}
+            >
+              {isCleanupActive ? "Slaughtering…" : "Slaughter Safe Hogs"}
+            </button>
+            <button
+              type="button"
+              className="garbage-tile-button garbage-tile-button-secondary"
+              onClick={() => setPreviewOpen((value) => !value)}
+            >
+              {previewOpen ? "Hide Preview" : "Preview Hogs"}
+            </button>
+            {!canReclaim ? <span className="garbage-tile-action-note">Ops role required.</span> : null}
+          </div>
+
+          {previewOpen ? (
+            <div className="garbage-preview-list" aria-label="Reclaim candidate preview">
+              {topCandidates.length > 0 ? (
+                topCandidates.map((candidate) => (
+                  <div key={`${candidate.id}-preview`} className="garbage-preview-row">
+                    <div className="garbage-preview-head">
+                      <span className="garbage-preview-title">{candidate.label}</span>
+                      <span className="garbage-preview-bytes">{fmtBytes(candidate.bytes)}</span>
+                    </div>
+                    <div className="garbage-preview-meta">
+                      {[
+                        candidate.categoryLabel,
+                        candidate.riskLabel,
+                        candidate.projectLabel,
+                        candidate.requiresStop ? "requires stop-plan" : null,
+                        candidate.regrows ? "regrows automatically" : null,
+                      ]
+                        .filter((value): value is string => Boolean(value))
+                        .join(" · ")}
+                    </div>
+                    <div className="garbage-preview-path">{candidate.path}</div>
+                    {candidate.explanation ? (
+                      <div className="garbage-preview-note">{candidate.explanation}</div>
+                    ) : null}
                   </div>
                 ))
-              ) : progress.currentCommand ? (
-                <div className="garbage-tile-console-line">{progress.currentCommand}</div>
+              ) : (
+                <div className="garbage-tile-empty">No preview rows available yet.</div>
+              )}
+            </div>
+          ) : null}
+
+          {progress ? (
+            <div className="garbage-tile-progress">
+              <div className="garbage-tile-progress-head">
+                <div className="garbage-tile-progress-title">{progressStepLabel}</div>
+                {typeof progress.completedSteps === "number" && typeof progress.totalSteps === "number" ? (
+                  <div className="garbage-tile-progress-count">
+                    {Math.max(0, progress.completedSteps)}/{Math.max(0, progress.totalSteps)}
+                  </div>
+                ) : null}
+              </div>
+              <div className="garbage-tile-progress-meta">
+                {[
+                  progress?.phase ? cleanupPhaseLabel(progress.phase) : null,
+                  progressEtaLabel ? `ETA ~ ${progressEtaLabel}` : null,
+                  progress?.updatedAt ? `updated ${ageLabel(progress.updatedAt)}` : null,
+                  typeof progress?.errorsCount === "number" && progress.errorsCount > 0
+                    ? `${progress.errorsCount} error${progress.errorsCount === 1 ? "" : "s"}`
+                    : null,
+                ]
+                  .filter((value): value is string => Boolean(value))
+                  .join(" · ")}
+              </div>
+              {progress.currentCommand || progressLines.length > 0 ? (
+                <div className="garbage-tile-console" aria-label="Cleanup progress log">
+                  {progressLines.length > 0 ? (
+                    progressLines.map((line, index) => (
+                      <div key={`${progress.updatedAt ?? "line"}-${index}`} className="garbage-tile-console-line">
+                        {line}
+                      </div>
+                    ))
+                  ) : progress.currentCommand ? (
+                    <div className="garbage-tile-console-line">{progress.currentCommand}</div>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           ) : null}
-        </div>
-      ) : null}
 
-      {cleanup ? (
-        <div className="garbage-tile-meta-strip">
-          Last pass: {cleanup.ok ? "clean" : "partial"} · reclaimed {fmtBytes(cleanupFreed)} ·{" "}
-          {typeof cleanup.deletedCount === "number" ? `${cleanup.deletedCount} target(s)` : "details pending"}
-        </div>
-      ) : null}
+          {cleanup ? (
+            <div className="garbage-tile-meta-strip">
+              Last pass: {cleanup.ok ? "clean" : "partial"} · reclaimed {fmtBytes(cleanupFreed)} ·{" "}
+              {typeof cleanup.deletedCount === "number" ? `${cleanup.deletedCount} target(s)` : "details pending"}
+            </div>
+          ) : null}
 
-      {feedback ? <div className={feedbackToneClass(feedbackTone)}>{feedback}</div> : null}
+          {feedback ? <div className={feedbackToneClass(feedbackTone)}>{feedback}</div> : null}
+        </div>
+
+        {supportCards.length > 0 ? (
+          <div className="power-vitals-reclaim-stage-support">{supportCards}</div>
+        ) : null}
+      </div>
     </div>
   );
 }
