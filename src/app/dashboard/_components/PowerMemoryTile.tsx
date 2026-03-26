@@ -6,7 +6,7 @@ import type { ProjectStorageSnapshot } from "@/lib/status";
 import { MAIN_PROJECTS, type ProjectDef } from "../_lib/project-catalog";
 import Box from "./Box";
 import GarbageTile from "./GarbageTile";
-import PowerVitalsLiveGrid from "./PowerVitalsLiveGrid";
+import PowerVitalsLiveGrid, { type PowerVitalsTopTab } from "./PowerVitalsLiveGrid";
 import ReclaimCategoryTile from "./ReclaimCategoryTile";
 
 type PortEntry = {
@@ -547,6 +547,91 @@ function resolveBackendLabel(project: Pick<ProjectDef, "subtitle" | "backendHref
   return project.subtitle?.trim() ?? "";
 }
 
+type FocusPanelItem = {
+  key: string;
+  label: string;
+  value: string;
+  meta: string;
+  note?: string | null;
+};
+
+type FocusPanelStat = {
+  label: string;
+  value: string;
+  meta: string;
+  tone?: "default" | "ok" | "warn";
+};
+
+function FocusWorkbench(props: {
+  tab: Exclude<PowerVitalsTopTab, "reclaim">;
+  title: string;
+  subtitle: string;
+  pill: string | null;
+  items: FocusPanelItem[];
+  emptyLabel: string;
+  footer: string;
+  stats: FocusPanelStat[];
+}) {
+  const { emptyLabel, footer, items, pill, stats, subtitle, tab, title } = props;
+
+  return (
+    <div
+      className="power-vitals-focus-panel"
+      role="tabpanel"
+      id="power-vitals-tab-panel"
+      aria-labelledby={`power-vitals-tab-${tab}`}
+    >
+      <div className="power-vitals-focus-panel-main">
+        <div className="power-vitals-focus-panel-head">
+          <div>
+            <div className="power-vitals-focus-panel-kicker">{title}</div>
+            <div className="power-vitals-focus-panel-title">{subtitle}</div>
+          </div>
+          {pill ? <div className="power-vitals-focus-panel-pill">{pill}</div> : null}
+        </div>
+
+        <div className="power-vitals-focus-list">
+          {items.length > 0 ? (
+            items.map((item) => (
+              <div key={item.key} className="power-vitals-focus-row">
+                <div className="power-vitals-focus-row-copy">
+                  <div className="power-vitals-focus-row-label">{item.label}</div>
+                  <div className="power-vitals-focus-row-meta">{item.meta}</div>
+                  {item.note ? <div className="power-vitals-focus-row-note">{item.note}</div> : null}
+                </div>
+                <div className="power-vitals-focus-row-value">{item.value}</div>
+              </div>
+            ))
+          ) : (
+            <div className="power-vitals-focus-empty">{emptyLabel}</div>
+          )}
+        </div>
+
+        <div className="power-vitals-focus-footer">{footer}</div>
+      </div>
+
+      <div className="power-vitals-focus-panel-side">
+        {stats.map((stat) => (
+          <div
+            key={stat.label}
+            className={`power-vitals-focus-stat${
+              stat.tone === "ok"
+                ? " power-vitals-focus-stat-ok"
+                : stat.tone === "warn"
+                  ? " power-vitals-focus-stat-warn"
+                  : ""
+            }`}
+          >
+            <div className="power-vitals-focus-stat-label">{stat.label}</div>
+            <div className="power-vitals-focus-stat-value">{stat.value}</div>
+            <div className="power-vitals-focus-stat-meta">{stat.meta}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function PowerMemoryTile(props: { derived: DerivedDashboard; canReclaim: boolean }) {
   const { canReclaim, derived: d } = props;
 
@@ -587,6 +672,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
   const [projectLiveVitals, setProjectLiveVitals] = React.useState<Record<string, ProjectLiveVitals>>({});
   const [liveConnected, setLiveConnected] = React.useState(false);
   const [liveLastError, setLiveLastError] = React.useState<string | null>(null);
+  const [activeTopTab, setActiveTopTab] = React.useState<PowerVitalsTopTab>("reclaim");
 
   React.useEffect(() => {
     const es = new EventSource("/api/dashboard/live?intervalMs=4000");
@@ -772,62 +858,260 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
       ? "live"
       : "snapshot"
     : liveLastError ?? "offline";
+  const sampledProcessCount = d.vitalsProcesses.filter((row) => !row.isOther).length;
+  const handleTopTabSelect = (tab: PowerVitalsTopTab) => {
+    React.startTransition(() => {
+      setActiveTopTab(tab);
+    });
+  };
+  const cpuFocusItems = d.vitalsProcesses
+    .filter((row) => !row.isOther && (typeof row.cpuCapacityPercent === "number" || typeof row.cpuSharePercent === "number"))
+    .slice()
+    .sort(
+      (a, b) =>
+        (b.cpuCapacityPercent ?? b.cpuSharePercent ?? -1) - (a.cpuCapacityPercent ?? a.cpuSharePercent ?? -1)
+    )
+    .slice(0, 4)
+    .map((row) => ({
+      key: `cpu-${row.pid ?? row.name}`,
+      label: row.friendlyName || row.name,
+      value: fmtPercent(row.cpuCapacityPercent ?? row.cpuSharePercent),
+      meta:
+        [
+          row.secondaryText,
+          row.unit ? `unit ${row.unit}` : null,
+          row.project ? `project ${row.project}` : null,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join(" · ") || "CPU sample ready.",
+      note:
+        [
+          row.detailTitle,
+          row.ports.length > 0 ? `Ports ${row.ports.slice(0, 3).join(", ")}` : null,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join(" · ") || null,
+    }));
+  const memoryFocusItems = d.vitalsProcesses
+    .filter((row) => !row.isOther && typeof row.memoryMb === "number")
+    .slice()
+    .sort((a, b) => (b.memoryMb ?? -1) - (a.memoryMb ?? -1))
+    .slice(0, 4)
+    .map((row) => ({
+      key: `memory-${row.pid ?? row.name}`,
+      label: row.friendlyName || row.name,
+      value: fmtSizeFromMb(row.memoryMb),
+      meta:
+        [
+          row.secondaryText,
+          row.unit ? `unit ${row.unit}` : null,
+          row.project ? `project ${row.project}` : null,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join(" · ") || "Memory sample ready.",
+      note:
+        [
+          typeof row.cpuCapacityPercent === "number" ? `${fmtPercent(row.cpuCapacityPercent)} CPU share` : null,
+          row.ports.length > 0 ? `Ports ${row.ports.slice(0, 3).join(", ")}` : null,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join(" · ") || null,
+    }));
+  const diskFocusItems = projectCards
+    .filter((project) => typeof project.diskBytes === "number" && project.diskBytes > 0)
+    .slice()
+    .sort((a, b) => (b.diskBytes ?? -1) - (a.diskBytes ?? -1))
+    .slice(0, 4)
+    .map((project) => ({
+      key: `disk-${project.key}`,
+      label: project.name,
+      value: fmtBytes(project.diskBytes),
+      meta: project.diskMeta,
+      note:
+        [
+          project.diskDeltaLabel,
+          project.largestDirHighlights[0]
+            ? `${project.largestDirHighlights[0].label} · ${project.largestDirHighlights[0].value}`
+            : null,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join(" · ") || null,
+    }));
+  const memoryFreeMb =
+    typeof hostVitals.memoryTotalMb === "number" && typeof hostVitals.memoryUsedMb === "number"
+      ? Math.max(0, hostVitals.memoryTotalMb - hostVitals.memoryUsedMb)
+      : d.memoryAvailableMb;
+  const diskTone =
+    hostFilesystem?.level === "critical" || hostFilesystem?.level === "warn"
+      ? "warn"
+      : hostFilesystem?.level === "ok"
+        ? "ok"
+        : "default";
+  const activeFocusPanel =
+    activeTopTab === "power" ? (
+      <FocusWorkbench
+        tab="power"
+        title="Power Workbench"
+        subtitle="CPU draw, burst pressure, and the hottest sampled services right now."
+        pill={`${fmtPercent(hostVitals.cpuUsedPercent)} host draw`}
+        items={cpuFocusItems}
+        emptyLabel="No CPU-heavy process samples are available yet."
+        footer={
+          showCpuHotspot
+            ? `Hotspot detected: ${topCpuProcess?.friendlyName ?? "unknown"} is the current pressure leader.`
+            : "No CPU hotspot is dominating the box right now."
+        }
+        stats={[
+          {
+            label: "Host draw",
+            value: fmtPercent(hostVitals.cpuUsedPercent),
+            meta: `${liveStreamLabel} feed · ${typeof hostVitals.cpuCores === "number" ? `${hostVitals.cpuCores} core(s)` : "core count pending"}`,
+            tone: (hostVitals.cpuUsedPercent ?? 0) >= 85 ? "warn" : liveConnected ? "ok" : "default",
+          },
+          {
+            label: "Top pressure",
+            value: topCpuProcess?.friendlyName ?? "None",
+            meta:
+              typeof topCpuCapacity === "number"
+                ? `${fmtPercent(topCpuCapacity)} process share`
+                : "No hot process sampled.",
+          },
+          {
+            label: "Sample window",
+            value: sampledProcessCount > 0 ? `${sampledProcessCount}` : "—",
+            meta: "Visible non-aggregate processes in this window.",
+          },
+        ]}
+      />
+    ) : activeTopTab === "memory" ? (
+      <FocusWorkbench
+        tab="memory"
+        title="Memory Workbench"
+        subtitle="RAM pressure, resident memory leaders, and service-level memory share."
+        pill={`${fmtSizeFromMb(hostVitals.memoryUsedMb)} / ${fmtSizeFromMb(hostVitals.memoryTotalMb)}`}
+        items={memoryFocusItems}
+        emptyLabel="No memory-heavy process samples are available yet."
+        footer="Memory stays live while Linux can map the service PIDs; otherwise the panel falls back to the last trusted snapshot."
+        stats={[
+          {
+            label: "Used now",
+            value: fmtPercent(hostVitals.memoryUsedPercent),
+            meta: `${fmtSizeFromMb(hostVitals.memoryUsedMb)} resident right now.`,
+            tone: (hostVitals.memoryUsedPercent ?? 0) >= 85 ? "warn" : liveConnected ? "ok" : "default",
+          },
+          {
+            label: "Free headroom",
+            value: fmtSizeFromMb(memoryFreeMb),
+            meta: `${fmtSizeFromMb(hostVitals.memoryTotalMb)} total on the box.`,
+          },
+          {
+            label: "Tracked services",
+            value: sampledProcessCount > 0 ? `${sampledProcessCount}` : "—",
+            meta: "Processes contributing to the sampled memory view.",
+          },
+        ]}
+      />
+    ) : activeTopTab === "disk" ? (
+      <FocusWorkbench
+        tab="disk"
+        title="Disk Workbench"
+        subtitle="Root volume pressure and the heaviest tracked project footprints on this VPS."
+        pill={`${fmtPercent(hostVitals.diskUsedPercent)} root used`}
+        items={diskFocusItems}
+        emptyLabel="Tracked project roots have not reported disk data yet."
+        footer={
+          storageTtlLabel
+            ? `Disk snapshots refresh about every ${storageTtlLabel}. Host root usage and tracked project trees are shown together here.`
+            : "Disk snapshots refresh on the patrol cadence and roll into the tracked project tree view."
+        }
+        stats={[
+          {
+            label: "Root volume",
+            value: fmtBytes(hostVitals.diskUsedBytes),
+            meta: `${fmtBytes(hostVitals.diskTotalBytes)} total capacity.`,
+            tone: diskTone,
+          },
+          {
+            label: "Free now",
+            value: fmtBytes(hostVitals.diskAvailableBytes),
+            meta: "Immediate headroom on the tracked filesystem.",
+          },
+          {
+            label: "Tracked apps",
+            value: fmtBytes(totalTrackedDisk),
+            meta: "Combined footprint across mapped project roots.",
+          },
+        ]}
+      />
+    ) : (
+      <div role="tabpanel" id="power-vitals-tab-panel" aria-labelledby="power-vitals-tab-reclaim">
+        <GarbageTile
+          mode="workbench"
+          estimate={garbageEstimate}
+          connected={liveConnected}
+          streamLabel={liveStreamLabel}
+          canReclaim={canReclaim}
+        >
+          <ReclaimCategoryTile
+            title="Garbage Dump"
+            subtitle="Dead-weight junk you can usually delete outright."
+            category="garbage"
+            actionLabel="Clean Safe Junk"
+            emptyLabel="No garbage-dump targets matched in the latest scan."
+            estimate={garbageEstimate}
+            connected={liveConnected}
+            streamLabel={liveStreamLabel}
+            canReclaim={canReclaim}
+          />
+          <ReclaimCategoryTile
+            title="Recycling Center"
+            subtitle="Caches and rebuildable artifacts that can regenerate later."
+            category="recycling"
+            actionLabel="Recycle Caches"
+            emptyLabel="No recycling targets matched in the latest scan."
+            estimate={garbageEstimate}
+            connected={liveConnected}
+            streamLabel={liveStreamLabel}
+            canReclaim={canReclaim}
+          />
+        </GarbageTile>
+      </div>
+    );
 
   return (
     <section className="power-vitals-wrap">
       <Box className="power-vitals-shell">
         <div className="power-vitals-head">
           <div>
-            <h2 className="power-vitals-title">Power / Memory / Disk</h2>
+            <h2 className="power-vitals-title">Power / Memory / Disk / Reclaim</h2>
             <p className="power-vitals-subtitle">
-              VPS health at-a-glance, with per-project status, process vitals, and tracked disk footprint.
+              Select a lane to inspect live host pressure, tracked disk footprint, or reclaim actions with one shared operator panel.
             </p>
           </div>
           <span className={overviewChipClass}>{overviewChipLabel}</span>
         </div>
 
         <div className="power-vitals-reclaim-layout">
-          <div className="power-vitals-kpi-grid">
-            <PowerVitalsLiveGrid hostVitals={hostVitals} connected={liveConnected} streamLabel={liveStreamLabel} />
+          <div className="power-vitals-kpi-grid" role="tablist" aria-label="Host vitals and reclaim focus">
+            <PowerVitalsLiveGrid
+              hostVitals={hostVitals}
+              connected={liveConnected}
+              streamLabel={liveStreamLabel}
+              activeTab={activeTopTab}
+              onSelectTab={handleTopTabSelect}
+            />
             <GarbageTile
               mode="tab"
               estimate={garbageEstimate}
               connected={liveConnected}
               streamLabel={liveStreamLabel}
               canReclaim={canReclaim}
+              active={activeTopTab === "reclaim"}
+              onSelect={() => handleTopTabSelect("reclaim")}
             />
           </div>
 
-          <GarbageTile
-            mode="workbench"
-            estimate={garbageEstimate}
-            connected={liveConnected}
-            streamLabel={liveStreamLabel}
-            canReclaim={canReclaim}
-          >
-            <ReclaimCategoryTile
-              title="Garbage Dump"
-              subtitle="Dead-weight junk you can usually delete outright."
-              category="garbage"
-              actionLabel="Clean Safe Junk"
-              emptyLabel="No garbage-dump targets matched in the latest scan."
-              estimate={garbageEstimate}
-              connected={liveConnected}
-              streamLabel={liveStreamLabel}
-              canReclaim={canReclaim}
-            />
-            <ReclaimCategoryTile
-              title="Recycling Center"
-              subtitle="Caches and rebuildable artifacts that can regenerate later."
-              category="recycling"
-              actionLabel="Recycle Caches"
-              emptyLabel="No recycling targets matched in the latest scan."
-              estimate={garbageEstimate}
-              connected={liveConnected}
-              streamLabel={liveStreamLabel}
-              canReclaim={canReclaim}
-            />
-          </GarbageTile>
+          {activeFocusPanel}
         </div>
 
         {showCpuHotspot ? (

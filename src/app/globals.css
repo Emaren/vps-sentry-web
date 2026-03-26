@@ -651,9 +651,9 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
 .power-vitals-kpi-grid {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(280px, 1.08fr);
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
   gap: 12px;
-  align-items: end;
+  align-items: stretch;
 }
 
 .power-vitals-core-grid {
@@ -661,6 +661,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   min-width: 0;
+  height: 100%;
 }
 
 .power-vitals-kpi-card {
@@ -678,6 +679,48 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
 .power-vitals-core-grid .power-vitals-kpi-card-live {
   min-height: 212px;
+}
+
+.power-vitals-tab-card {
+  appearance: none;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.power-vitals-tab-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--dash-link) 32%, var(--dash-card-border) 68%);
+}
+
+.power-vitals-tab-card:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--dash-link) 62%, var(--dash-card-border) 38%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dash-link) 26%, transparent 74%);
+}
+
+.power-vitals-tab-card-active {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--dash-link) 42%, var(--dash-card-border) 58%);
+  background:
+    radial-gradient(120% 180% at 100% 0%, color-mix(in srgb, var(--dash-link) 18%, transparent 82%), transparent 58%),
+    linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 96%, transparent 4%), color-mix(in srgb, var(--dash-card-bg) 86%, transparent 14%)),
+    var(--dash-card-bg);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 8%, transparent 92%),
+    0 14px 32px color-mix(in srgb, black 10%, transparent 90%);
+}
+
+.power-vitals-core-grid > .power-vitals-tab-card,
+.power-vitals-kpi-grid > .power-vitals-tab-card {
+  height: 100%;
 }
 
 .power-vitals-kpi-card-garbage {
@@ -715,6 +758,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 .power-vitals-reclaim-stage-tab-inline {
   width: 100%;
   justify-self: stretch;
+  min-height: 212px;
 }
 
 .power-vitals-reclaim-stage-body {
@@ -730,6 +774,163 @@ html[data-site-theme="sepia"] .dashboard-shell {
   grid-template-columns: minmax(0, 1.45fr) minmax(340px, 1fr);
   gap: 14px;
   min-width: 0;
+}
+
+.power-vitals-focus-panel {
+  margin-top: -1px;
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 84%, transparent 16%);
+  border-radius: 20px;
+  background:
+    radial-gradient(135% 160% at 100% 0%, color-mix(in srgb, var(--dash-link) 14%, transparent 86%), transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 92%, transparent 8%), color-mix(in srgb, var(--dash-card-bg) 82%, transparent 18%)),
+    var(--dash-card-bg);
+  padding: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.92fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.power-vitals-focus-panel-main {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.power-vitals-focus-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.power-vitals-focus-panel-kicker {
+  color: var(--dash-meta);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.power-vitals-focus-panel-title {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.power-vitals-focus-panel-pill {
+  border: 1px solid color-mix(in srgb, var(--dash-link) 44%, transparent 56%);
+  border-radius: 999px;
+  padding: 8px 11px;
+  background: color-mix(in srgb, var(--dash-card-bg) 76%, transparent 24%);
+  color: var(--dash-fg);
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.power-vitals-focus-list {
+  display: grid;
+  gap: 8px;
+}
+
+.power-vitals-focus-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 78%, transparent 22%);
+  background: color-mix(in srgb, var(--dash-card-bg) 72%, transparent 28%);
+}
+
+.power-vitals-focus-row-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.power-vitals-focus-row-label {
+  color: var(--dash-fg);
+  font-size: 13px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.power-vitals-focus-row-meta,
+.power-vitals-focus-row-note,
+.power-vitals-focus-footer {
+  color: var(--dash-meta);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.power-vitals-focus-row-note {
+  overflow-wrap: anywhere;
+}
+
+.power-vitals-focus-row-value {
+  color: var(--dash-fg);
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.power-vitals-focus-empty {
+  border-radius: 12px;
+  border: 1px dashed color-mix(in srgb, var(--dash-card-border) 72%, transparent 28%);
+  padding: 14px;
+  color: var(--dash-meta);
+  font-size: 12px;
+}
+
+.power-vitals-focus-panel-side {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.power-vitals-focus-stat {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 78%, transparent 22%);
+  background: color-mix(in srgb, var(--dash-card-bg) 74%, transparent 26%);
+}
+
+.power-vitals-focus-stat-ok {
+  border-color: color-mix(in srgb, var(--dash-sev-ok-border) 68%, transparent 32%);
+  background: color-mix(in srgb, var(--dash-sev-ok-bg) 52%, transparent 48%);
+}
+
+.power-vitals-focus-stat-warn {
+  border-color: color-mix(in srgb, var(--dash-sev-medium-border) 68%, transparent 32%);
+  background: color-mix(in srgb, var(--dash-sev-medium-bg) 42%, transparent 58%);
+}
+
+.power-vitals-focus-stat-label {
+  color: var(--dash-meta);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.power-vitals-focus-stat-value {
+  color: var(--dash-fg);
+  font-size: 1.35rem;
+  font-weight: 900;
+  line-height: 1.05;
+}
+
+.power-vitals-focus-stat-meta {
+  color: var(--dash-meta);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .power-vitals-reclaim-stage-main {
@@ -3369,14 +3570,16 @@ html[data-site-theme="sepia"] .dashboard-shell {
   }
 
   .power-vitals-kpi-grid,
-  .power-vitals-reclaim-stage-body {
+  .power-vitals-reclaim-stage-body,
+  .power-vitals-focus-panel {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 980px) {
   .power-vitals-core-grid,
-  .power-vitals-reclaim-stage-support {
+  .power-vitals-reclaim-stage-support,
+  .power-vitals-focus-panel-side {
     grid-template-columns: 1fr;
   }
 

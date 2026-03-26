@@ -2,6 +2,8 @@
 
 import React from "react";
 
+export type PowerVitalsTopTab = "power" | "memory" | "disk" | "reclaim";
+
 type HostVitals = {
   source: "live" | "snapshot";
   updatedTs: string | null;
@@ -62,12 +64,24 @@ export default function PowerVitalsLiveGrid(props: {
   hostVitals: HostVitals;
   connected: boolean;
   streamLabel: string;
+  activeTab: PowerVitalsTopTab;
+  onSelectTab: (tab: Exclude<PowerVitalsTopTab, "reclaim">) => void;
 }) {
-  const { connected, hostVitals, streamLabel } = props;
+  const { activeTab, connected, hostVitals, onSelectTab, streamLabel } = props;
 
   return (
     <div className="power-vitals-core-grid">
-      <div className="power-vitals-kpi-card power-vitals-kpi-card-live">
+      <button
+        type="button"
+        id="power-vitals-tab-power"
+        role="tab"
+        aria-selected={activeTab === "power"}
+        aria-controls="power-vitals-tab-panel"
+        className={`power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-tab-card${
+          activeTab === "power" ? " power-vitals-tab-card-active" : ""
+        }`}
+        onClick={() => onSelectTab("power")}
+      >
         <div className="power-vitals-kpi-headline">
           <div className="power-vitals-kpi-label">Power</div>
           <span className={liveBadgeClass(connected, hostVitals.source)}>{streamLabel}</span>
@@ -84,9 +98,19 @@ export default function PowerVitalsLiveGrid(props: {
             ) : null}
           </div>
         </div>
-      </div>
+      </button>
 
-      <div className="power-vitals-kpi-card power-vitals-kpi-card-live">
+      <button
+        type="button"
+        id="power-vitals-tab-memory"
+        role="tab"
+        aria-selected={activeTab === "memory"}
+        aria-controls="power-vitals-tab-panel"
+        className={`power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-tab-card${
+          activeTab === "memory" ? " power-vitals-tab-card-active" : ""
+        }`}
+        onClick={() => onSelectTab("memory")}
+      >
         <div className="power-vitals-kpi-headline">
           <div className="power-vitals-kpi-label">Memory</div>
         </div>
@@ -102,9 +126,19 @@ export default function PowerVitalsLiveGrid(props: {
             ) : null}
           </div>
         </div>
-      </div>
+      </button>
 
-      <div className="power-vitals-kpi-card power-vitals-kpi-card-live">
+      <button
+        type="button"
+        id="power-vitals-tab-disk"
+        role="tab"
+        aria-selected={activeTab === "disk"}
+        aria-controls="power-vitals-tab-panel"
+        className={`power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-tab-card${
+          activeTab === "disk" ? " power-vitals-tab-card-active" : ""
+        }`}
+        onClick={() => onSelectTab("disk")}
+      >
         <div className="power-vitals-kpi-headline">
           <div className="power-vitals-kpi-label">Disk</div>
         </div>
@@ -120,7 +154,7 @@ export default function PowerVitalsLiveGrid(props: {
             ) : null}
           </div>
         </div>
-      </div>
+      </button>
     </div>
   );
 }

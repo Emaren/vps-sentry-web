@@ -19,8 +19,10 @@ export default function GarbageTile(props: {
   canReclaim: boolean;
   children?: React.ReactNode;
   mode?: "full" | "tab" | "workbench";
+  active?: boolean;
+  onSelect?: () => void;
 }) {
-  const { canReclaim, children, connected, estimate, mode = "full", streamLabel } = props;
+  const { active = false, canReclaim, children, connected, estimate, mode = "full", onSelect, streamLabel } = props;
   const [busy, setBusy] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);
@@ -111,12 +113,12 @@ export default function GarbageTile(props: {
     }
   }
 
-  const summaryTab = (
-    <div
-      className={`power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-kpi-card-garbage power-vitals-reclaim-stage-tab${
-        mode === "tab" ? " power-vitals-reclaim-stage-tab-inline" : ""
-      }`}
-    >
+  const summaryTabClasses = `power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-kpi-card-garbage power-vitals-reclaim-stage-tab${
+    mode === "tab" ? " power-vitals-reclaim-stage-tab-inline power-vitals-tab-card" : ""
+  }${active ? " power-vitals-tab-card-active" : ""}`;
+
+  const summaryTabContent = (
+    <>
       <div className="power-vitals-kpi-headline">
         <div className="power-vitals-kpi-label">Reclaimable Space</div>
         <span className={liveBadgeClass(connected)}>{streamLabel}</span>
@@ -152,8 +154,25 @@ export default function GarbageTile(props: {
           <span className="garbage-summary-value">{fmtBytes(blocked)}</span>
         </div>
       </div>
-    </div>
+    </>
   );
+
+  const summaryTab =
+    mode === "tab" ? (
+      <button
+        type="button"
+        id="power-vitals-tab-reclaim"
+        role="tab"
+        aria-selected={active}
+        aria-controls="power-vitals-tab-panel"
+        className={summaryTabClasses}
+        onClick={onSelect}
+      >
+        {summaryTabContent}
+      </button>
+    ) : (
+      <div className={summaryTabClasses}>{summaryTabContent}</div>
+    );
 
   const workbenchBody = (
     <div className="power-vitals-reclaim-stage-body">
