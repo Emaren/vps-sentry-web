@@ -4,9 +4,9 @@ import PanelShell from "./PanelShell";
 export default function ActionsPanel(props: { actionsNeeded: string[] }) {
   return (
     <PanelShell title="Actions needed">
-      <ul style={{ margin: 0, paddingLeft: 18, opacity: 0.92 }}>
+      <ul className="vps-actions-list">
         {props.actionsNeeded.map((a, i) => (
-          <li key={i} style={{ marginBottom: 8 }}>
+          <li key={i} className="vps-actions-list-item">
             {a}
           </li>
         ))}

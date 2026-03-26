@@ -3,14 +3,11 @@ import React from "react";
 
 export default function PanelShell(props: { title: string; children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        marginTop: 10,
-        borderTop: "1px solid var(--dash-soft-border, rgba(255,255,255,0.08))",
-        paddingTop: 12,
-      }}
-    >
-      <div style={{ fontWeight: 900, marginBottom: 10 }}>{props.title}</div>
+    <div className="vps-panel-shell">
+      <div className="vps-panel-head">
+        <div className="vps-panel-kicker">Operator Console</div>
+        <div className="vps-panel-title">{props.title}</div>
+      </div>
       {props.children}
     </div>
   );

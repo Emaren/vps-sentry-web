@@ -551,6 +551,75 @@ async function postJson(path: string, body?: Record<string, unknown>) {
   };
 }
 
+function firstAlertDetailLine(detail: string | undefined, pattern: RegExp): string | null {
+  if (!detail) return null;
+  const line = detail
+    .split("\n")
+    .map((entry) => entry.trim())
+    .find((entry) => pattern.test(entry));
+  return line ?? null;
+}
+
+function buildPrimaryCue(input: {
+  alertsPreview?: StatusActionPopupProps["alertsPreview"];
+  alertsCount: number;
+  publicPortsCount: number;
+  allowlistedTotal: number | null;
+  hasQueueFollowUp: boolean;
+}): { tone: "bad" | "warn"; title: string; detail: string } | null {
+  const runtimeAlert = (input.alertsPreview ?? []).find((alert) => {
+    const signal = `${alert.code ?? ""} ${alert.title} ${alert.detail ?? ""}`.toLowerCase();
+    return signal.includes("suspicious_process_ioc") || signal.includes("suspicious process ioc");
+  });
+  if (runtimeAlert) {
+    const exeLine = firstAlertDetailLine(runtimeAlert.detail, /^exe=/i);
+    const procLine = firstAlertDetailLine(runtimeAlert.detail, /^- pid=/i);
+    return {
+      tone: "bad",
+      title: "Primary blocker: manual runtime IOC follow-up is still required",
+      detail: exeLine
+        ? `${exeLine} is still flagged. Safe auto-fix will not quarantine system-path binaries, so the host stays red until this is handled manually.`
+        : procLine
+          ? `${procLine} is still flagged. Safe auto-fix will not quarantine system-path binaries, so the host stays red until this is handled manually.`
+          : "A suspicious runtime IOC is still active. Safe auto-fix will not quarantine system-path binaries, so the host stays red until this is handled manually.",
+    };
+  }
+
+  if (input.publicPortsCount > 0) {
+    return {
+      tone: "bad",
+      title: "Primary blocker: unexpected public ports still need operator confirmation",
+      detail: "VPSSentry will not auto-close exposed ports without an explicit operator decision, so this host stays out of green until the surface is reviewed.",
+    };
+  }
+
+  if (input.alertsCount > 0) {
+    return {
+      tone: "warn",
+      title: `Primary blocker: ${input.alertsCount} active alert${input.alertsCount === 1 ? "" : "s"} still need review`,
+      detail: "The safe playbooks can reduce noise and reconcile obvious drift, but unresolved alerts still keep the host out of green until the next clean snapshot lands.",
+    };
+  }
+
+  if (input.hasQueueFollowUp) {
+    return {
+      tone: "warn",
+      title: "Primary blocker: remediation queue still has debt",
+      detail: "The host may be operationally stable, but the remediation pipeline still has queued or DLQ work that needs operator cleanup.",
+    };
+  }
+
+  if (input.allowlistedTotal && input.allowlistedTotal > 0) {
+    return {
+      tone: "warn",
+      title: "Primary blocker: allowlisted ports are visible, but other status signals still need a clean scan",
+      detail: "The public ports themselves are not the problem here. VPSSentry still needs a clean security snapshot before the host can return to green.",
+    };
+  }
+
+  return null;
+}
+
 export default function StatusActionPopup(props: StatusActionPopupProps) {
   const {
     needsAction,
@@ -595,6 +664,17 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
   const queueQueued = Math.max(0, Math.trunc(queueQueuedCount));
   const queueDlq = Math.max(0, Math.trunc(queueDlqCount));
   const hasQueueFollowUp = queueQueued > 0 || queueDlq > 0;
+  const primaryCue = React.useMemo(
+    () =>
+      buildPrimaryCue({
+        alertsPreview,
+        alertsCount,
+        publicPortsCount,
+        allowlistedTotal,
+        hasQueueFollowUp,
+      }),
+    [alertsPreview, alertsCount, publicPortsCount, allowlistedTotal, hasQueueFollowUp]
+  );
 
   // --------- Action list (instant, no typing) ----------
   const actionsNeeded = React.useMemo(() => {
@@ -1179,7 +1259,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
   const showActionControls = needsAction || hasQueueFollowUp;
 
   return (
-    <div style={{ position: "relative" }}>
+    <div className="vps-status-shell" style={{ position: "relative" }}>
       {/* Inline keyframes (keeps it self-contained) */}
       <style>{css()}</style>
 
@@ -1197,7 +1277,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       ) : null}
 
       {/* TOP LINE: light + Status + tap hint */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div className="vps-status-head">
         <StatusLight level={level} />
 
         <div style={{ fontWeight: 800 }}>
@@ -1228,7 +1308,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
 
       {/* BUTTON ROW: AI Explain / Fix Now (only when action needed) */}
       {showActionControls ? (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+        <div className="vps-status-actions">
           <button
             type="button"
             onClick={() => setPanel("explain")}
@@ -1248,16 +1328,16 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         </div>
       ) : null}
 
+      {primaryCue ? (
+        <div className="vps-primary-cue" data-tone={primaryCue.tone}>
+          <div className="vps-primary-cue-kicker">Why It Is Still Not Green</div>
+          <div className="vps-primary-cue-title">{primaryCue.title}</div>
+          <div className="vps-primary-cue-detail">{primaryCue.detail}</div>
+        </div>
+      ) : null}
+
       {/* META ROW (Signed in + caret) */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 10,
-          marginTop: needsAction ? 10 : 12,
-        }}
-      >
+      <div className="vps-status-meta">
         <div style={{ opacity: 0.7, fontSize: 12 }}>
           Signed in as <b>{signedInAs}</b>
         </div>
@@ -1275,7 +1355,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
 
       {/* META DETAILS (Host/Snapshot/Baseline) */}
       {metaOpen ? (
-        <div style={{ marginTop: 10 }}>
+        <div className="vps-status-meta-card">
           <div style={{ opacity: 0.85 }}>
             Host: <b>{host}</b> · Version: <b>{version}</b>
           </div>
@@ -1323,15 +1403,14 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
             />
           ) : null}
 
-          {/* OK button */}
-          <div style={{ display: "flex", justifyContent: "center", marginTop: 14 }}>
+          <div className="vps-panel-footer">
             <button
               type="button"
               onClick={() => setPanel(null)}
               style={{ ...okBtn(), opacity: fixRunning ? 0.65 : 1, cursor: fixRunning ? "not-allowed" : "pointer" }}
               disabled={fixRunning}
             >
-              OK
+              Collapse panel
             </button>
           </div>
         </div>

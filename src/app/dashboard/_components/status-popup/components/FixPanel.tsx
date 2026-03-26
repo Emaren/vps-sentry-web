@@ -15,7 +15,11 @@ export default function FixPanel(props: {
 
   return (
     <PanelShell title="Fix Now">
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+      <div className="vps-fix-intro">
+        Safe playbooks run first. Anything destructive or system-path sensitive stays manual on purpose.
+      </div>
+
+      <div className="vps-fix-toolbar">
         <button
           type="button"
           onClick={onRun}
@@ -34,36 +38,32 @@ export default function FixPanel(props: {
         </button>
       </div>
 
-      <div style={{ display: "grid", gap: 10 }}>
+      <div className="vps-fix-grid">
         {steps.map((s) => (
-          <div key={s.id} style={stepRow(s.status)}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ width: 22, textAlign: "center" }}>{stepIcon(s.status)}</span>
-              <div style={{ fontWeight: 800 }}>{s.label}</div>
+          <div key={s.id} className="vps-step-row" data-status={s.status} style={stepRow(s.status)}>
+            <div className="vps-step-head">
+              <span className="vps-step-icon">{stepIcon(s.status)}</span>
+              <div className="vps-step-label">{s.label}</div>
+              <span className="vps-step-state">
+                {s.status === "idle" ? "queued" : s.status === "running" ? "working" : s.status}
+              </span>
             </div>
-            {s.detail ? <div style={{ opacity: 0.75, fontSize: 12, marginTop: 6 }}>{s.detail}</div> : null}
+            {s.detail ? <div className="vps-step-detail">{s.detail}</div> : null}
           </div>
         ))}
       </div>
 
       {fixResult ? (
-        <div
-          style={{
-            marginTop: 12,
-            padding: "10px 12px",
-            borderRadius: 12,
-            border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
-            background: "var(--dash-card-bg, rgba(255,255,255,0.04))",
-            fontWeight: 900,
-          }}
-        >
-          {fixResult.ok ? "✅ " : "❌ "}
-          {fixResult.message}
+        <div className="vps-result-card" data-ok={fixResult.ok ? "true" : "false"}>
+          <div className="vps-result-title">
+            {fixResult.ok ? "Stabilization update" : "Manual follow-up still required"}
+          </div>
+          <div className="vps-result-message">{fixResult.message}</div>
           {fixResult.details?.length ? (
-            <div style={{ marginTop: 10, display: "grid", gap: 6, fontWeight: 600, fontSize: 12 }}>
+            <div className="vps-result-details">
               {fixResult.details.map((detail, index) => (
-                <div key={`${detail}-${index}`} style={{ opacity: 0.88 }}>
-                  • {detail}
+                <div key={`${detail}-${index}`} className="vps-result-detail">
+                  {detail}
                 </div>
               ))}
             </div>
