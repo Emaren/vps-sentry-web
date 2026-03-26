@@ -786,8 +786,20 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           <span className={overviewChipClass}>{overviewChipLabel}</span>
         </div>
 
-        <PowerVitalsLiveGrid hostVitals={hostVitals} connected={liveConnected} streamLabel={liveStreamLabel}>
+        <div className="power-vitals-reclaim-layout">
+          <div className="power-vitals-kpi-grid">
+            <PowerVitalsLiveGrid hostVitals={hostVitals} connected={liveConnected} streamLabel={liveStreamLabel} />
+            <GarbageTile
+              mode="tab"
+              estimate={garbageEstimate}
+              connected={liveConnected}
+              streamLabel={liveStreamLabel}
+              canReclaim={canReclaim}
+            />
+          </div>
+
           <GarbageTile
+            mode="workbench"
             estimate={garbageEstimate}
             connected={liveConnected}
             streamLabel={liveStreamLabel}
@@ -816,7 +828,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
               canReclaim={canReclaim}
             />
           </GarbageTile>
-        </PowerVitalsLiveGrid>
+        </div>
 
         {showCpuHotspot ? (
           <div className="pm-cpu-hotspot">

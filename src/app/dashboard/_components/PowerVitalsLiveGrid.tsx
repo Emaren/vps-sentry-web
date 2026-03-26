@@ -62,70 +62,65 @@ export default function PowerVitalsLiveGrid(props: {
   hostVitals: HostVitals;
   connected: boolean;
   streamLabel: string;
-  children?: React.ReactNode;
 }) {
-  const { children, connected, hostVitals, streamLabel } = props;
+  const { connected, hostVitals, streamLabel } = props;
 
   return (
-    <div className="power-vitals-kpi-grid">
-      <div className="power-vitals-core-grid">
-        <div className="power-vitals-kpi-card power-vitals-kpi-card-live">
-          <div className="power-vitals-kpi-headline">
-            <div className="power-vitals-kpi-label">Power</div>
-            <span className={liveBadgeClass(connected, hostVitals.source)}>{streamLabel}</span>
-          </div>
-          <div className="power-vitals-kpi-value">{fmtRatio(hostVitals.cpuUsedPercent, hostVitals.cpuCapacityPercent)}</div>
-          <div className="power-vitals-kpi-meta">
-            VPS CPU used right now{typeof hostVitals.cpuCores === "number" ? ` · ${hostVitals.cpuCores} core(s)` : ""}.
-          </div>
-          <div className="power-vitals-gauge" aria-hidden="true">
-            <div className="power-vitals-gauge-track">
-              <span className="power-vitals-gauge-fill" style={{ width: `${clampPercent(hostVitals.cpuUsedPercent)}%` }} />
-              {typeof hostVitals.cpuUsedPercent === "number" ? (
-                <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.cpuUsedPercent)}%` }} />
-              ) : null}
-            </div>
-          </div>
+    <div className="power-vitals-core-grid">
+      <div className="power-vitals-kpi-card power-vitals-kpi-card-live">
+        <div className="power-vitals-kpi-headline">
+          <div className="power-vitals-kpi-label">Power</div>
+          <span className={liveBadgeClass(connected, hostVitals.source)}>{streamLabel}</span>
         </div>
-
-        <div className="power-vitals-kpi-card power-vitals-kpi-card-live">
-          <div className="power-vitals-kpi-headline">
-            <div className="power-vitals-kpi-label">Memory</div>
-          </div>
-          <div className="power-vitals-kpi-value">{fmtRatio(hostVitals.memoryUsedPercent, hostVitals.memoryCapacityPercent)}</div>
-          <div className="power-vitals-kpi-meta">
-            {fmtSizeFromMb(hostVitals.memoryUsedMb)} used of {fmtSizeFromMb(hostVitals.memoryTotalMb)}.
-          </div>
-          <div className="power-vitals-gauge" aria-hidden="true">
-            <div className="power-vitals-gauge-track">
-              <span className="power-vitals-gauge-fill" style={{ width: `${clampPercent(hostVitals.memoryUsedPercent)}%` }} />
-              {typeof hostVitals.memoryUsedPercent === "number" ? (
-                <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.memoryUsedPercent)}%` }} />
-              ) : null}
-            </div>
-          </div>
+        <div className="power-vitals-kpi-value">{fmtRatio(hostVitals.cpuUsedPercent, hostVitals.cpuCapacityPercent)}</div>
+        <div className="power-vitals-kpi-meta">
+          VPS CPU used right now{typeof hostVitals.cpuCores === "number" ? ` · ${hostVitals.cpuCores} core(s)` : ""}.
         </div>
-
-        <div className="power-vitals-kpi-card power-vitals-kpi-card-live">
-          <div className="power-vitals-kpi-headline">
-            <div className="power-vitals-kpi-label">Disk</div>
-          </div>
-          <div className="power-vitals-kpi-value">{fmtRatio(hostVitals.diskUsedPercent, 100)}</div>
-          <div className="power-vitals-kpi-meta">
-            {fmtBytes(hostVitals.diskUsedBytes)} used of {fmtBytes(hostVitals.diskTotalBytes)} · {fmtBytes(hostVitals.diskAvailableBytes)} free.
-          </div>
-          <div className="power-vitals-gauge" aria-hidden="true">
-            <div className="power-vitals-gauge-track">
-              <span className="power-vitals-gauge-fill" style={{ width: `${clampPercent(hostVitals.diskUsedPercent)}%` }} />
-              {typeof hostVitals.diskUsedPercent === "number" ? (
-                <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.diskUsedPercent)}%` }} />
-              ) : null}
-            </div>
+        <div className="power-vitals-gauge" aria-hidden="true">
+          <div className="power-vitals-gauge-track">
+            <span className="power-vitals-gauge-fill" style={{ width: `${clampPercent(hostVitals.cpuUsedPercent)}%` }} />
+            {typeof hostVitals.cpuUsedPercent === "number" ? (
+              <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.cpuUsedPercent)}%` }} />
+            ) : null}
           </div>
         </div>
       </div>
 
-      {children}
+      <div className="power-vitals-kpi-card power-vitals-kpi-card-live">
+        <div className="power-vitals-kpi-headline">
+          <div className="power-vitals-kpi-label">Memory</div>
+        </div>
+        <div className="power-vitals-kpi-value">{fmtRatio(hostVitals.memoryUsedPercent, hostVitals.memoryCapacityPercent)}</div>
+        <div className="power-vitals-kpi-meta">
+          {fmtSizeFromMb(hostVitals.memoryUsedMb)} used of {fmtSizeFromMb(hostVitals.memoryTotalMb)}.
+        </div>
+        <div className="power-vitals-gauge" aria-hidden="true">
+          <div className="power-vitals-gauge-track">
+            <span className="power-vitals-gauge-fill" style={{ width: `${clampPercent(hostVitals.memoryUsedPercent)}%` }} />
+            {typeof hostVitals.memoryUsedPercent === "number" ? (
+              <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.memoryUsedPercent)}%` }} />
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="power-vitals-kpi-card power-vitals-kpi-card-live">
+        <div className="power-vitals-kpi-headline">
+          <div className="power-vitals-kpi-label">Disk</div>
+        </div>
+        <div className="power-vitals-kpi-value">{fmtRatio(hostVitals.diskUsedPercent, 100)}</div>
+        <div className="power-vitals-kpi-meta">
+          {fmtBytes(hostVitals.diskUsedBytes)} used of {fmtBytes(hostVitals.diskTotalBytes)} · {fmtBytes(hostVitals.diskAvailableBytes)} free.
+        </div>
+        <div className="power-vitals-gauge" aria-hidden="true">
+          <div className="power-vitals-gauge-track">
+            <span className="power-vitals-gauge-fill" style={{ width: `${clampPercent(hostVitals.diskUsedPercent)}%` }} />
+            {typeof hostVitals.diskUsedPercent === "number" ? (
+              <span className="power-vitals-gauge-marker" style={{ left: `${markerPercent(hostVitals.diskUsedPercent)}%` }} />
+            ) : null}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
