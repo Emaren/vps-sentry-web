@@ -60,6 +60,13 @@ function liveBadgeClass(connected: boolean, source: HostVitals["source"]): strin
   return "power-vitals-live-badge power-vitals-live-badge-disconnected";
 }
 
+function moodClass(value: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "power-vitals-tab-card-mood-stable";
+  if (value <= 5) return "power-vitals-tab-card-mood-warm";
+  if (value >= 86) return "power-vitals-tab-card-mood-hot";
+  return "power-vitals-tab-card-mood-stable";
+}
+
 export default function PowerVitalsLiveGrid(props: {
   hostVitals: HostVitals;
   connected: boolean;
@@ -77,7 +84,9 @@ export default function PowerVitalsLiveGrid(props: {
         role="tab"
         aria-selected={activeTab === "power"}
         aria-controls="power-vitals-tab-panel"
-        className={`power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-tab-card${
+        className={`power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-tab-card power-vitals-tab-card-mood ${moodClass(
+          hostVitals.cpuUsedPercent
+        )}${
           activeTab === "power" ? " power-vitals-tab-card-active" : ""
         }`}
         onClick={() => onSelectTab("power")}
@@ -106,7 +115,9 @@ export default function PowerVitalsLiveGrid(props: {
         role="tab"
         aria-selected={activeTab === "memory"}
         aria-controls="power-vitals-tab-panel"
-        className={`power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-tab-card${
+        className={`power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-tab-card power-vitals-tab-card-mood ${moodClass(
+          hostVitals.memoryUsedPercent
+        )}${
           activeTab === "memory" ? " power-vitals-tab-card-active" : ""
         }`}
         onClick={() => onSelectTab("memory")}
@@ -134,7 +145,9 @@ export default function PowerVitalsLiveGrid(props: {
         role="tab"
         aria-selected={activeTab === "disk"}
         aria-controls="power-vitals-tab-panel"
-        className={`power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-tab-card${
+        className={`power-vitals-kpi-card power-vitals-kpi-card-live power-vitals-tab-card power-vitals-tab-card-mood ${moodClass(
+          hostVitals.diskUsedPercent
+        )}${
           activeTab === "disk" ? " power-vitals-tab-card-active" : ""
         }`}
         onClick={() => onSelectTab("disk")}

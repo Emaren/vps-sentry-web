@@ -690,6 +690,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 }
 
 .power-vitals-tab-card {
+  --pv-accent: var(--dash-link);
   appearance: none;
   position: relative;
   overflow: hidden;
@@ -704,6 +705,12 @@ html[data-site-theme="sepia"] .dashboard-shell {
     border-color 140ms ease,
     background 140ms ease,
     box-shadow 140ms ease;
+  background:
+    radial-gradient(150% 180% at 100% 0%, color-mix(in srgb, var(--pv-accent) 8%, transparent 92%), transparent 58%),
+    radial-gradient(120% 160% at 0% 100%, color-mix(in srgb, var(--pv-accent) 4%, transparent 96%), transparent 72%),
+    linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 94%, transparent 6%), color-mix(in srgb, var(--dash-card-bg) 86%, transparent 14%)),
+    var(--dash-card-bg);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 6%, transparent 94%);
 }
 
 .power-vitals-tab-card::before {
@@ -745,7 +752,8 @@ html[data-site-theme="sepia"] .dashboard-shell {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--dash-link) 32%, var(--dash-card-border) 68%);
   background:
-    radial-gradient(120% 180% at 100% 0%, color-mix(in srgb, var(--dash-link) 10%, transparent 90%), transparent 58%),
+    radial-gradient(120% 180% at 100% 0%, color-mix(in srgb, var(--pv-accent) 12%, transparent 88%), transparent 58%),
+    radial-gradient(120% 160% at 0% 100%, color-mix(in srgb, var(--pv-accent) 7%, transparent 93%), transparent 72%),
     linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 94%, transparent 6%), color-mix(in srgb, var(--dash-card-bg) 86%, transparent 14%)),
     var(--dash-card-bg);
 }
@@ -758,14 +766,16 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
 .power-vitals-tab-card-active {
   z-index: 1;
-  border-color: color-mix(in srgb, var(--dash-link) 48%, var(--dash-card-border) 52%);
+  border-color: color-mix(in srgb, var(--pv-accent) 32%, var(--dash-card-border) 68%);
   background:
-    radial-gradient(140% 180% at 100% 0%, color-mix(in srgb, var(--dash-link) 16%, transparent 84%), transparent 56%),
+    radial-gradient(140% 180% at 100% 0%, color-mix(in srgb, var(--pv-accent) 16%, transparent 84%), transparent 56%),
+    radial-gradient(120% 160% at 0% 100%, color-mix(in srgb, var(--pv-accent) 10%, transparent 90%), transparent 72%),
     linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 97%, transparent 3%), color-mix(in srgb, var(--dash-card-bg) 90%, transparent 10%)),
     var(--dash-card-bg);
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, white 9%, transparent 91%),
-    0 8px 18px color-mix(in srgb, black 7%, transparent 93%);
+    0 8px 18px color-mix(in srgb, black 7%, transparent 93%),
+    0 0 0 1px color-mix(in srgb, var(--pv-accent) 10%, transparent 90%);
 }
 
 .power-vitals-tab-card-active::before {
@@ -821,13 +831,54 @@ html[data-site-theme="sepia"] .dashboard-shell {
   width: 100%;
   justify-self: stretch;
   min-height: 212px;
-  border-bottom: 1px solid color-mix(in srgb, var(--dash-card-border) 84%, transparent 16%);
+  border-bottom: none;
   border-radius: 16px;
   padding-bottom: 12px;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 95%, transparent 5%), color-mix(in srgb, var(--dash-card-bg) 87%, transparent 13%)),
     var(--dash-card-bg);
   box-shadow: inset 0 1px 0 color-mix(in srgb, white 7%, transparent 93%);
+}
+
+.power-vitals-tab-card-mood {
+  text-shadow: 0 0 16px color-mix(in srgb, var(--pv-accent) 0%, transparent 100%);
+}
+
+.power-vitals-tab-card-mood-warm {
+  --pv-accent: #facc15;
+}
+
+.power-vitals-tab-card-mood-stable {
+  --pv-accent: #34d399;
+}
+
+.power-vitals-tab-card-mood-hot {
+  --pv-accent: #f87171;
+}
+
+.power-vitals-tab-card-mood .power-vitals-kpi-value {
+  text-shadow: 0 0 18px color-mix(in srgb, var(--pv-accent) 18%, transparent 82%);
+}
+
+.power-vitals-tab-card-mood .power-vitals-gauge-fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--pv-accent) 72%, white 28%),
+    color-mix(in srgb, var(--pv-accent) 92%, black 8%)
+  );
+  box-shadow: 0 0 18px color-mix(in srgb, var(--pv-accent) 24%, transparent 76%);
+}
+
+.power-vitals-tab-card-mood .power-vitals-gauge-marker::before {
+  background: color-mix(in srgb, var(--pv-accent) 52%, white 48%);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--pv-accent) 18%, transparent 82%);
+}
+
+.power-vitals-tab-card-mood .power-vitals-gauge-marker::after {
+  background: color-mix(in srgb, var(--pv-accent) 66%, white 34%);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--pv-accent) 14%, transparent 86%),
+    0 6px 18px color-mix(in srgb, black 24%, transparent 76%);
 }
 
 .power-vitals-reclaim-stage-body {
