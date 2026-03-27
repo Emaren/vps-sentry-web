@@ -646,7 +646,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 
 .power-vitals-reclaim-layout {
   display: grid;
-  gap: 14px;
+  gap: 8px;
 }
 
 .power-vitals-kpi-grid {
@@ -654,7 +654,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
   grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
   gap: 12px;
   align-items: stretch;
-  padding: 10px;
+  padding: 10px 10px 4px;
   border: 1px solid color-mix(in srgb, var(--dash-card-border) 76%, transparent 24%);
   border-radius: 22px;
   background:
@@ -723,6 +723,24 @@ html[data-site-theme="sepia"] .dashboard-shell {
   transition: opacity 140ms ease;
 }
 
+.power-vitals-tab-card::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: -12px;
+  height: 18px;
+  border-radius: 999px;
+  background: radial-gradient(
+    70% 100% at 50% 0%,
+    color-mix(in srgb, var(--dash-link) 18%, transparent 82%),
+    transparent 74%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
 .power-vitals-tab-card:hover {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--dash-link) 32%, var(--dash-card-border) 68%);
@@ -739,6 +757,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 }
 
 .power-vitals-tab-card-active {
+  z-index: 1;
   border-color: color-mix(in srgb, var(--dash-link) 48%, var(--dash-card-border) 52%);
   background:
     radial-gradient(140% 180% at 100% 0%, color-mix(in srgb, var(--dash-link) 16%, transparent 84%), transparent 56%),
@@ -746,10 +765,14 @@ html[data-site-theme="sepia"] .dashboard-shell {
     var(--dash-card-bg);
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, white 9%, transparent 91%),
-    0 10px 24px color-mix(in srgb, black 8%, transparent 92%);
+    0 8px 18px color-mix(in srgb, black 7%, transparent 93%);
 }
 
 .power-vitals-tab-card-active::before {
+  opacity: 1;
+}
+
+.power-vitals-tab-card-active::after {
   opacity: 1;
 }
 
@@ -808,6 +831,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
 }
 
 .power-vitals-reclaim-stage-body {
+  position: relative;
   border: 1px solid color-mix(in srgb, var(--dash-card-border) 84%, transparent 16%);
   border-radius: 22px;
   background:
@@ -821,7 +845,25 @@ html[data-site-theme="sepia"] .dashboard-shell {
   min-width: 0;
 }
 
+.power-vitals-reclaim-stage-body::before,
+.power-vitals-focus-panel::before {
+  content: "";
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, white 14%, var(--dash-card-border) 86%),
+    transparent
+  );
+  opacity: 0.7;
+}
+
 .power-vitals-focus-panel {
+  position: relative;
   border: 1px solid color-mix(in srgb, var(--dash-card-border) 84%, transparent 16%);
   border-radius: 22px;
   background:
