@@ -3,6 +3,7 @@
 Web control plane for VPS Sentry (dashboard, API, operator workflows, and deploy tooling).
 
 - Host agent/runtime repo: <https://github.com/Emaren/vps-sentry>
+- Current verified production handoff: [`../CURRENT_STATE.md`](../CURRENT_STATE.md)
 
 ## Repo Map (Layman)
 
@@ -209,6 +210,7 @@ make db-pg-rollback
 
 ## Runbooks
 
+- `../CURRENT_STATE.md`
 - `docs/vps-recovery-runbook.md`
 - `docs/production-ops-runbook.md`
 - `docs/security-performance-runbook.md`

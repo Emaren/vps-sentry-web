@@ -46,6 +46,40 @@ Exit criteria:
 - DLQ backlog is cleared or intentionally deferred with operator notes
 - notification path confirmed
 
+## Runtime IOC / Container Loader Response
+
+Use when VPSSentry reports suspicious runtime behavior rather than ordinary config drift:
+
+- suspicious process IOC
+- hostile shell loop
+- protected-path loader behavior
+- rogue restartable container persistence
+
+Runbook:
+
+1. Open the dashboard and inspect Counterstrike before changing anything.
+2. Match the playbook to the threat shape:
+   - `Zap #1` for writable-path miner / persistence cleanup
+   - `Zap #2` for protected-path or container-loader cases where the runtime is using legit host tools in a hostile way
+3. Before execute, confirm the plan is targeting the actual loader or container, not a normal system binary in isolation.
+4. Run the selected playbook.
+5. Immediately refresh the host snapshot:
+   ```bash
+   sudo systemctl start vps-sentry.service
+   ```
+6. Confirm post-action state:
+   - `threat.suspicious_processes` is empty
+   - `counterstrike-last.json` shows the expected contained result
+   - the rogue container is not running again
+   - public ports are still expected only
+
+Exit criteria:
+
+- the hostile runtime signal is gone
+- no rogue container is restarting
+- published status reflects the new contained state
+- operator notes include exact timestamps and the playbook used
+
 ## Auth Abuse Response
 
 Use when auth anomaly metrics spike:
