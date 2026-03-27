@@ -690,20 +690,9 @@ html[data-site-theme="sepia"] .dashboard-shell {
 }
 
 .power-vitals-tab-card {
-  --pv-accent: 152 78% 57%;
-  --pv-border-alpha: 0.16;
-  --pv-panel-alpha: 0.12;
-  --pv-panel-deep-alpha: 0.06;
-  --pv-orb-alpha: 0.16;
-  --pv-orb-soft-alpha: 0.1;
-  --pv-glow-alpha: 0.22;
-  --pv-line-alpha: 0.3;
-  --pv-gauge-alpha: 0.34;
-  --pv-pulse-seconds: 18s;
-  --pv-drift-seconds: 24s;
   appearance: none;
   position: relative;
-  overflow: hidden;
+  overflow: clip;
   width: 100%;
   font: inherit;
   color: inherit;
@@ -715,14 +704,8 @@ html[data-site-theme="sepia"] .dashboard-shell {
     border-color 140ms ease,
     background 140ms ease,
     box-shadow 140ms ease;
-  background:
-    radial-gradient(150% 180% at 100% 0%, hsl(var(--pv-accent) / var(--pv-panel-alpha)), transparent 58%),
-    radial-gradient(120% 160% at 0% 100%, hsl(var(--pv-accent) / var(--pv-panel-deep-alpha)), transparent 72%),
-    linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 94%, transparent 6%), color-mix(in srgb, var(--dash-card-bg) 86%, transparent 14%)),
-    var(--dash-card-bg);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 6%, transparent 94%),
-    0 0 0 1px hsl(var(--pv-accent) / var(--pv-border-alpha));
+  background: color-mix(in srgb, var(--dash-card-bg) 94%, transparent 6%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 6%, transparent 94%);
 }
 
 .power-vitals-tab-card::before {
@@ -733,7 +716,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
   top: 0;
   height: 3px;
   border-radius: 999px;
-  background: linear-gradient(90deg, hsl(var(--pv-accent) / 0.9), hsl(var(--pv-accent) / 0.44));
+  background: var(--pv-accent, var(--dash-link));
   opacity: 0;
   transition: opacity 140ms ease;
 }
@@ -746,79 +729,31 @@ html[data-site-theme="sepia"] .dashboard-shell {
   bottom: -12px;
   height: 18px;
   border-radius: 999px;
-  background: radial-gradient(70% 100% at 50% 0%, hsl(var(--pv-accent) / 0.18), transparent 74%);
+  background: radial-gradient(70% 100% at 50% 0%, var(--pv-border-soft, transparent), transparent 74%);
   opacity: 0;
   pointer-events: none;
   transition: opacity 140ms ease;
 }
 
-.power-vitals-tab-card > :not(.power-vitals-mood-field) {
-  position: relative;
-  z-index: 1;
-}
-
-.power-vitals-mood-field {
-  position: absolute;
-  inset: auto;
-  pointer-events: none;
-  z-index: 0;
-  filter: blur(12px);
-  mix-blend-mode: screen;
-  opacity: 0.95;
-  transition:
-    opacity 220ms ease,
-    transform 320ms ease;
-}
-
-.power-vitals-mood-field-primary {
-  left: -16%;
-  bottom: -30%;
-  width: 72%;
-  height: 62%;
-  border-radius: 46% 54% 52% 48%;
-  background: radial-gradient(circle at 40% 40%, hsl(var(--pv-accent) / var(--pv-orb-alpha)), transparent 68%);
-  animation: power-vitals-lavalamp-drift var(--pv-drift-seconds) ease-in-out infinite alternate;
-}
-
-.power-vitals-mood-field-secondary {
-  right: -12%;
-  top: 16%;
-  width: 52%;
-  height: 48%;
-  border-radius: 58% 42% 48% 52%;
-  background: radial-gradient(circle at 45% 45%, hsl(var(--pv-accent) / var(--pv-orb-soft-alpha)), transparent 70%);
-  animation: power-vitals-lavalamp-pulse var(--pv-pulse-seconds) ease-in-out infinite;
-}
-
 .power-vitals-tab-card:hover {
   transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--dash-link) 32%, var(--dash-card-border) 68%);
-  background:
-    radial-gradient(120% 180% at 100% 0%, hsl(var(--pv-accent) / calc(var(--pv-panel-alpha) + 0.03)), transparent 58%),
-    radial-gradient(120% 160% at 0% 100%, hsl(var(--pv-accent) / calc(var(--pv-panel-deep-alpha) + 0.03)), transparent 72%),
-    linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 94%, transparent 6%), color-mix(in srgb, var(--dash-card-bg) 86%, transparent 14%)),
-    var(--dash-card-bg);
+  background: var(--pv-surface-hover, color-mix(in srgb, var(--dash-card-bg) 92%, transparent 8%));
 }
 
 .power-vitals-tab-card:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--dash-link) 62%, var(--dash-card-border) 38%);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dash-link) 26%, transparent 74%);
+  border-color: var(--pv-border, color-mix(in srgb, var(--dash-link) 62%, var(--dash-card-border) 38%));
+  box-shadow: 0 0 0 2px var(--pv-focus-ring, color-mix(in srgb, var(--dash-link) 26%, transparent 74%));
 }
 
 .power-vitals-tab-card-active {
   z-index: 1;
-  border-color: hsl(var(--pv-accent) / calc(var(--pv-line-alpha) + 0.14));
-  background:
-    radial-gradient(140% 180% at 100% 0%, hsl(var(--pv-accent) / calc(var(--pv-panel-alpha) + 0.05)), transparent 56%),
-    radial-gradient(120% 160% at 0% 100%, hsl(var(--pv-accent) / calc(var(--pv-panel-deep-alpha) + 0.05)), transparent 72%),
-    linear-gradient(180deg, color-mix(in srgb, var(--dash-card-bg) 97%, transparent 3%), color-mix(in srgb, var(--dash-card-bg) 90%, transparent 10%)),
-    var(--dash-card-bg);
+  border-color: var(--pv-border, color-mix(in srgb, var(--dash-link) 36%, var(--dash-card-border) 64%));
+  background: var(--pv-surface-active, color-mix(in srgb, var(--dash-card-bg) 96%, transparent 4%));
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, white 9%, transparent 91%),
     0 8px 18px color-mix(in srgb, black 7%, transparent 93%),
-    0 0 0 1px hsl(var(--pv-accent) / calc(var(--pv-line-alpha) + 0.08)),
-    0 0 28px hsl(var(--pv-accent) / var(--pv-glow-alpha));
+    0 0 0 1px var(--pv-border-soft, color-mix(in srgb, var(--dash-link) 12%, transparent 88%));
 }
 
 .power-vitals-tab-card-active::before {
@@ -879,93 +814,50 @@ html[data-site-theme="sepia"] .dashboard-shell {
   padding-bottom: 10px;
 }
 
-.power-vitals-tab-card-mood {
-  isolation: isolate;
+.power-vitals-vitals-card {
+  background: var(--pv-surface);
+  border-color: var(--pv-border);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 6%, transparent 94%),
+    0 0 0 1px var(--pv-border-soft);
 }
 
-.power-vitals-tab-card-mood-warm {
-  --pv-zone-label: "warm";
+.power-vitals-vitals-card .power-vitals-kpi-value {
+  text-shadow: 0 0 14px color-mix(in srgb, var(--pv-accent) 14%, transparent 86%);
 }
 
-.power-vitals-tab-card-mood-stable {
-  --pv-zone-label: "stable";
+.power-vitals-vitals-card .power-vitals-live-badge-live,
+.power-vitals-vitals-card .power-vitals-live-badge-snapshot {
+  border-color: var(--pv-border);
+  background: var(--pv-badge-bg);
 }
 
-.power-vitals-tab-card-mood-hot {
-  --pv-zone-label: "hot";
+.power-vitals-vitals-card .power-vitals-gauge-fill {
+  background: var(--pv-accent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--pv-accent) 18%, transparent 82%);
 }
 
-.power-vitals-tab-card-mood .power-vitals-kpi-value {
-  text-shadow: 0 0 18px hsl(var(--pv-accent) / var(--pv-glow-alpha));
-}
-
-.power-vitals-tab-card-mood .power-vitals-kpi-meta {
-  text-shadow: 0 0 14px hsl(var(--pv-accent) / calc(var(--pv-glow-alpha) * 0.45));
-}
-
-.power-vitals-tab-card-mood .power-vitals-live-badge-live,
-.power-vitals-tab-card-mood .power-vitals-live-badge-snapshot {
-  border-color: hsl(var(--pv-accent) / calc(var(--pv-line-alpha) + 0.12));
-  background: hsl(var(--pv-accent) / calc(var(--pv-panel-alpha) + 0.1));
-}
-
-.power-vitals-tab-card-mood .power-vitals-gauge-fill {
-  background: linear-gradient(
-    90deg,
-    hsl(var(--pv-accent) / calc(var(--pv-gauge-alpha) * 0.82)),
-    hsl(var(--pv-accent) / calc(var(--pv-gauge-alpha) + 0.22))
-  );
-  box-shadow: 0 0 18px hsl(var(--pv-accent) / var(--pv-glow-alpha));
-}
-
-.power-vitals-tab-card-mood .power-vitals-gauge-track {
+.power-vitals-vitals-card .power-vitals-gauge-track {
   background:
     repeating-linear-gradient(
       90deg,
-      hsl(var(--pv-accent) / calc(var(--pv-line-alpha) * 0.48)) 0 2px,
+      color-mix(in srgb, var(--pv-accent-soft) 28%, transparent 72%) 0 2px,
       transparent 2px calc(25% - 2px),
-      hsl(var(--pv-accent) / calc(var(--pv-line-alpha) * 0.48)) calc(25% - 2px) 25%
+      color-mix(in srgb, var(--pv-accent-soft) 28%, transparent 72%) calc(25% - 2px) 25%
     ),
-    color-mix(in srgb, var(--dash-card-border) 68%, hsl(var(--pv-accent) / 0.18) 32%);
+    var(--pv-track);
 }
 
-.power-vitals-tab-card-mood .power-vitals-gauge-marker::before {
-  background: hsl(var(--pv-accent) / calc(var(--pv-gauge-alpha) + 0.14));
-  box-shadow: 0 0 10px hsl(var(--pv-accent) / var(--pv-glow-alpha));
+.power-vitals-vitals-card .power-vitals-gauge-marker::before {
+  background: var(--pv-accent-soft);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--pv-accent) 18%, transparent 82%);
 }
 
-.power-vitals-tab-card-mood .power-vitals-gauge-marker::after {
-  background: hsl(var(--pv-accent) / calc(var(--pv-gauge-alpha) + 0.28));
+.power-vitals-vitals-card .power-vitals-gauge-marker::after {
+  background: var(--pv-accent);
   box-shadow:
-    0 0 0 4px hsl(var(--pv-accent) / calc(var(--pv-glow-alpha) * 0.48)),
+    0 0 0 4px color-mix(in srgb, var(--pv-accent) 14%, transparent 86%),
     0 6px 18px color-mix(in srgb, black 24%, transparent 76%);
-}
-
-@keyframes power-vitals-lavalamp-drift {
-  0% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(10%, -8%, 0) scale(1.14);
-  }
-  100% {
-    transform: translate3d(-4%, 6%, 0) scale(0.96);
-  }
-}
-
-@keyframes power-vitals-lavalamp-pulse {
-  0% {
-    transform: translate3d(0, 0, 0) scale(0.96);
-    opacity: 0.68;
-  }
-  50% {
-    transform: translate3d(-8%, 8%, 0) scale(1.18);
-    opacity: 1;
-  }
-  100% {
-    transform: translate3d(6%, -6%, 0) scale(0.98);
-    opacity: 0.72;
-  }
 }
 
 .power-vitals-reclaim-stage-body {
