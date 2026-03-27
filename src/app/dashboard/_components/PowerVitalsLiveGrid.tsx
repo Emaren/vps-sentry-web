@@ -67,6 +67,48 @@ function moodClass(value: number | null): string {
   return "power-vitals-tab-card-mood-stable";
 }
 
+function moodStyle(value: number | null): React.CSSProperties {
+  const pct = clampPercent(value);
+  let accentHue = 152;
+  let accentSat = 78;
+  let accentLight = 57;
+  let intensity = 0.3;
+
+  if (pct <= 5) {
+    const zone = pct / 5;
+    accentHue = 48;
+    accentSat = 92;
+    accentLight = 63 - zone * 3;
+    intensity = 0.28 + zone * 0.2;
+  } else if (pct >= 86) {
+    const zone = (pct - 86) / 14;
+    accentHue = 7;
+    accentSat = 90 + zone * 6;
+    accentLight = 60 - zone * 7;
+    intensity = 0.72 + zone * 0.28;
+  } else {
+    const zone = (pct - 6) / 79;
+    accentHue = 146 - zone * 6;
+    accentSat = 72 + zone * 14;
+    accentLight = 58 - zone * 6;
+    intensity = 0.24 + zone * 0.44;
+  }
+
+  return {
+    ["--pv-accent" as string]: `${accentHue.toFixed(1)} ${accentSat.toFixed(1)}% ${accentLight.toFixed(1)}%`,
+    ["--pv-border-alpha" as string]: (0.1 + intensity * 0.22).toFixed(3),
+    ["--pv-panel-alpha" as string]: (0.07 + intensity * 0.16).toFixed(3),
+    ["--pv-panel-deep-alpha" as string]: (0.03 + intensity * 0.12).toFixed(3),
+    ["--pv-orb-alpha" as string]: (0.08 + intensity * 0.22).toFixed(3),
+    ["--pv-orb-soft-alpha" as string]: (0.04 + intensity * 0.16).toFixed(3),
+    ["--pv-glow-alpha" as string]: (0.14 + intensity * 0.3).toFixed(3),
+    ["--pv-line-alpha" as string]: (0.18 + intensity * 0.34).toFixed(3),
+    ["--pv-gauge-alpha" as string]: (0.26 + intensity * 0.34).toFixed(3),
+    ["--pv-pulse-seconds" as string]: `${(20 - intensity * 7).toFixed(2)}s`,
+    ["--pv-drift-seconds" as string]: `${(28 - intensity * 9).toFixed(2)}s`,
+  };
+}
+
 export default function PowerVitalsLiveGrid(props: {
   hostVitals: HostVitals;
   connected: boolean;
@@ -89,8 +131,11 @@ export default function PowerVitalsLiveGrid(props: {
         )}${
           activeTab === "power" ? " power-vitals-tab-card-active" : ""
         }`}
+        style={moodStyle(hostVitals.cpuUsedPercent)}
         onClick={() => onSelectTab("power")}
       >
+        <span className="power-vitals-mood-field power-vitals-mood-field-primary" aria-hidden="true" />
+        <span className="power-vitals-mood-field power-vitals-mood-field-secondary" aria-hidden="true" />
         <div className="power-vitals-kpi-headline">
           <div className="power-vitals-kpi-label">Power</div>
           <span className={liveBadgeClass(connected, hostVitals.source)}>{streamLabel}</span>
@@ -120,8 +165,11 @@ export default function PowerVitalsLiveGrid(props: {
         )}${
           activeTab === "memory" ? " power-vitals-tab-card-active" : ""
         }`}
+        style={moodStyle(hostVitals.memoryUsedPercent)}
         onClick={() => onSelectTab("memory")}
       >
+        <span className="power-vitals-mood-field power-vitals-mood-field-primary" aria-hidden="true" />
+        <span className="power-vitals-mood-field power-vitals-mood-field-secondary" aria-hidden="true" />
         <div className="power-vitals-kpi-headline">
           <div className="power-vitals-kpi-label">Memory</div>
         </div>
@@ -150,8 +198,11 @@ export default function PowerVitalsLiveGrid(props: {
         )}${
           activeTab === "disk" ? " power-vitals-tab-card-active" : ""
         }`}
+        style={moodStyle(hostVitals.diskUsedPercent)}
         onClick={() => onSelectTab("disk")}
       >
+        <span className="power-vitals-mood-field power-vitals-mood-field-primary" aria-hidden="true" />
+        <span className="power-vitals-mood-field power-vitals-mood-field-secondary" aria-hidden="true" />
         <div className="power-vitals-kpi-headline">
           <div className="power-vitals-kpi-label">Disk</div>
         </div>
