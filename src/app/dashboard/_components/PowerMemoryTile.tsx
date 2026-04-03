@@ -2,7 +2,6 @@
 
 import React from "react";
 import type { DashboardGarbageEstimate, DerivedDashboard } from "../_lib/derive";
-import type { ProjectStorageSnapshot } from "@/lib/status";
 import { MAIN_PROJECTS, type ProjectDef } from "../_lib/project-catalog";
 import Box from "./Box";
 import GarbageTile from "./GarbageTile";
@@ -45,6 +44,12 @@ type ProjectStorageHostFilesystem = {
   level: "ok" | "warn" | "critical" | null;
 };
 
+type ProjectStorageMountedFilesystem = ProjectStorageHostFilesystem & {
+  id: string | null;
+  label: string | null;
+  exists: boolean | null;
+};
+
 type ProjectStorageProject = {
   measuredAt: string | null;
   previousMeasuredAt: string | null;
@@ -66,6 +71,7 @@ type ProjectStoragePayload = {
   ttlSeconds: number | null;
   bucketOrder: string[];
   hostFilesystem: ProjectStorageHostFilesystem | null;
+  mountedFilesystems: ProjectStorageMountedFilesystem[];
   projects: Record<string, ProjectStorageProject>;
 };
 
@@ -269,7 +275,7 @@ function toInt(v: unknown): number | null {
 }
 
 function isTcp(proto: string | undefined): boolean {
-  if (!proto) return true; // some sources omit it
+  if (!proto) return true;
   return proto.toLowerCase().startsWith("tcp");
 }
 
@@ -289,20 +295,13 @@ function scorePortArray(arr: PortEntry[]) {
     if (e?.public === false) pubF++;
   }
 
-  // heuristics: reward arrays that look like port lists + contain TCP + contain explicit public flags
   const score = looks * 10 + tcp * 3 + pubF * 2 + pubT * 2 + Math.min(arr.length, 60);
   return { score, looks, tcp, pubT, pubF };
 }
 
-/**
- * Try hard to find ports arrays anywhere inside `derived`.
- * - prefers paths named ports_local/ports_public
- * - otherwise picks the best-scoring “port list looking” arrays and splits by `.public`
- */
 function pickPortsFromDerived(d: DerivedDashboard): { local: PortEntry[]; pub: PortEntry[]; debug: string } {
   const root = d as unknown as Record<string, unknown>;
 
-  // 1) direct top-level keys (just in case derive flattens)
   const directLocal = safeArray<PortEntry>(root["ports_local"] ?? root["portsLocal"]);
   const directPub = safeArray<PortEntry>(root["ports_public"] ?? root["portsPublic"]);
   if (directLocal.length || directPub.length) {
@@ -313,7 +312,6 @@ function pickPortsFromDerived(d: DerivedDashboard): { local: PortEntry[]; pub: P
     };
   }
 
-  // 2) common “status-ish” containers
   const candidates: unknown[] = [
     root["canonicalStatus"],
     root["canonical_status"],
@@ -337,7 +335,6 @@ function pickPortsFromDerived(d: DerivedDashboard): { local: PortEntry[]; pub: P
     }
   }
 
-  // 3) bounded BFS over derived to find any arrays that look like ports
   const hits: Array<{ path: string; arr: PortEntry[]; score: number; pubT: number; pubF: number }> = [];
   const seen = new Set<unknown>();
   const q: Array<{ v: unknown; path: string; depth: number }> = [{ v: d, path: "derived", depth: 0 }];
@@ -356,7 +353,6 @@ function pickPortsFromDerived(d: DerivedDashboard): { local: PortEntry[]; pub: P
       seen.add(cur.v);
 
       if (Array.isArray(cur.v)) {
-        // only traverse a few elements to avoid explosion
         const arr = cur.v as unknown[];
         for (let i = 0; i < Math.min(arr.length, 6); i++) {
           q.push({ v: arr[i], path: `${cur.path}[${i}]`, depth: cur.depth + 1 });
@@ -370,8 +366,6 @@ function pickPortsFromDerived(d: DerivedDashboard): { local: PortEntry[]; pub: P
 
         if (Array.isArray(vv) && vv.length && typeof vv[0] === "object" && vv[0] !== null) {
           const arr = vv as PortEntry[];
-
-          // “looks like port list” = at least a couple entries with port+pid
           const { score, looks, pubT, pubF } = scorePortArray(arr);
           if (looks >= 2) hits.push({ path, arr, score, pubT, pubF });
         }
@@ -387,7 +381,6 @@ function pickPortsFromDerived(d: DerivedDashboard): { local: PortEntry[]; pub: P
 
   if (!hits.length) return { local: [], pub: [], debug: "bfs: none" };
 
-  // Prefer explicit name matches
   const namedLocal = hits
     .filter((h) => /ports[_-]?local|portsLocal/i.test(h.path))
     .sort((a, b) => b.score - a.score)[0];
@@ -403,12 +396,9 @@ function pickPortsFromDerived(d: DerivedDashboard): { local: PortEntry[]; pub: P
     };
   }
 
-  // Otherwise choose best overall and split by `.public`
   const best = hits.sort((a, b) => b.score - a.score)[0];
   const pub = best.arr.filter((x) => x.public === true);
   const local = best.arr.filter((x) => x.public === false);
-
-  // If no `.public` flags exist, treat it as local
   const fallbackLocal = local.length || pub.length ? local : best.arr;
 
   return {
@@ -421,9 +411,9 @@ function pickPortsFromDerived(d: DerivedDashboard): { local: PortEntry[]; pub: P
 function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | null {
   const rec = asRecord(value);
   const projectsRec = asRecord(rec?.projects);
-  if (!projectsRec) return null;
   const bucketOrder = safeArray<string>(rec?.bucket_order).filter((entry) => typeof entry === "string" && entry.trim().length > 0);
   const hostFilesystemRec = asRecord(rec?.host_filesystem);
+  const mountedFilesystemRecs = safeArray<Record<string, unknown>>(rec?.mounted_filesystems);
 
   const projects: Record<string, ProjectStorageProject> = {};
   for (const [key, rawProject] of Object.entries(projectsRec)) {
@@ -469,6 +459,24 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
     };
   }
 
+  const mountedFilesystems: ProjectStorageMountedFilesystem[] = mountedFilesystemRecs.map((entry) => ({
+    id: typeof entry.id === "string" ? entry.id : null,
+    label: typeof entry.label === "string" ? entry.label : null,
+    exists: typeof entry.exists === "boolean" ? entry.exists : null,
+    path: typeof entry.path === "string" ? entry.path : null,
+    measuredAt: typeof entry.measured_at === "string" ? entry.measured_at : null,
+    totalBytes: toInt(entry.total_bytes),
+    usedBytes: toInt(entry.used_bytes),
+    availableBytes: toInt(entry.available_bytes),
+    usedPercent: parseUsedPercent(entry.used_percent),
+    warnPercent: parseUsedPercent(entry.warn_percent),
+    failPercent: parseUsedPercent(entry.fail_percent),
+    level:
+      entry.level === "ok" || entry.level === "warn" || entry.level === "critical"
+        ? entry.level
+        : null,
+  }));
+
   return {
     schemaVersion: toInt(rec?.schema_version),
     measuredAt: typeof rec?.measured_at === "string" ? rec.measured_at : null,
@@ -490,6 +498,7 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
               : null,
         }
       : null,
+    mountedFilesystems,
     projects,
   };
 }
@@ -504,8 +513,8 @@ function pickProjectStorageFromDerived(d: DerivedDashboard): ProjectStoragePaylo
   ];
 
   for (const candidate of candidates) {
-    const parsed = parseProjectStoragePayload(candidate as ProjectStorageSnapshot | unknown);
-    if (parsed && Object.keys(parsed.projects).length) return parsed;
+    const parsed = parseProjectStoragePayload(candidate);
+    if (parsed && (Object.keys(parsed.projects).length || parsed.mountedFilesystems.length)) return parsed;
   }
   return null;
 }
@@ -635,13 +644,15 @@ function FocusWorkbench(props: {
 export default function PowerMemoryTile(props: { derived: DerivedDashboard; canReclaim: boolean }) {
   const { canReclaim, derived: d } = props;
 
-  // Old process ranking (under “Processes” view).
   const topRows = d.vitalsProcesses.filter((x) => !x.isOther).slice(0, 5);
   const otherRow = d.vitalsProcesses.find((x) => x.isOther);
   const rows = otherRow ? [...topRows, otherRow] : topRows;
 
   const { local: portsLocal, pub: portsPublic } = pickPortsFromDerived(d);
   const projectStorage = pickProjectStorageFromDerived(d);
+  const mountedFilesystems = projectStorage?.mountedFilesystems ?? [];
+  const primaryMountedFilesystem =
+    mountedFilesystems.find((fs) => fs.exists !== false) ?? mountedFilesystems[0] ?? null;
   const totalTrackedDisk = Object.values(projectStorage?.projects ?? {}).reduce(
     (sum, project) => sum + (project.diskBytes ?? 0),
     0
@@ -708,7 +719,6 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
     };
   }, []);
 
-  // PID -> vitals row (handle pid being number OR string)
   const pidToVitals = new Map<number, (typeof d.vitalsProcesses)[number]>();
   for (const vp of d.vitalsProcesses) {
     const pid = toInt((vp as unknown as { pid?: unknown })?.pid);
@@ -719,6 +729,8 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
     const storage = projectStorage?.projects[proj.key];
     const backendHrefResolved = resolveBackendHref(proj);
     const backendLabel = resolveBackendLabel(proj);
+    const isDormant = proj.state === "dormant";
+
     const services = proj.services.map((svc) => {
       const local = findPort(portsLocal, svc.port);
       const pub = findPort(portsPublic, svc.port);
@@ -738,11 +750,12 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
     });
 
     const required = services.filter((s) => s.required);
-    const allRequiredUp = required.every((s) => s.isListening);
+    const hasRequired = required.length > 0;
+    const allRequiredUp = hasRequired ? required.every((s) => s.isListening) : false;
     const requiredUpCount = required.filter((s) => s.isListening).length;
     const listeningCount = services.filter((s) => s.isListening).length;
     const publicCount = services.filter((s) => s.isPublic).length;
-    const missingRequired = required.filter((s) => !s.isListening).map((s) => `${s.label}:${s.port}`);
+    const missingRequired = isDormant ? [] : required.filter((s) => !s.isListening).map((s) => `${s.label}:${s.port}`);
 
     const snapshotCpuSharePercent = sumMaybe(services.map((s) => s.cpuSharePercent));
     const snapshotMemoryMb = sumMaybe(services.map((s) => s.memoryMb));
@@ -800,20 +813,33 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
         ? "Tracked roots missing"
         : null;
 
-    const portsLabel = services
-      .map((s) => {
-        const pubTag = s.isPublic ? "(pub)" : "";
-        const pidTag = typeof s.pid === "number" ? `#${s.pid}` : "";
-        return `${s.label}:${s.port}${pubTag}${pidTag ? ` ${pidTag}` : ""}`;
-      })
-      .join(" · ");
+    const portsLabel =
+      services.length > 0
+        ? services
+            .map((s) => {
+              const pubTag = s.isPublic ? "(pub)" : "";
+              const pidTag = typeof s.pid === "number" ? `#${s.pid}` : "";
+              return `${s.label}:${s.port}${pubTag}${pidTag ? ` ${pidTag}` : ""}`;
+            })
+            .join(" · ")
+        : "No live ports mapped yet.";
+
+    const statusText = isDormant ? "Dormant" : allRequiredUp ? "Up" : "Down";
+    const statusClass = isDormant
+      ? "pm-project-status"
+      : allRequiredUp
+        ? "pm-project-status pm-project-status-ok"
+        : "pm-project-status pm-project-status-bad";
 
     return {
       ...proj,
+      isDormant,
       backendHrefResolved,
       backendLabel,
       services,
-      up: allRequiredUp,
+      up: !isDormant && allRequiredUp,
+      statusText,
+      statusClass,
       requiredUpCount,
       requiredCount: required.length,
       listeningCount,
@@ -947,6 +973,13 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
       : hostFilesystem?.level === "ok"
         ? "ok"
         : "default";
+  const mountedTone =
+    primaryMountedFilesystem?.level === "critical" || primaryMountedFilesystem?.level === "warn"
+      ? "warn"
+      : primaryMountedFilesystem?.level === "ok"
+        ? "ok"
+        : "default";
+
   const activeFocusPanel =
     activeTopTab === "power" ? (
       <FocusWorkbench
@@ -1015,14 +1048,14 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
       <FocusWorkbench
         tab="disk"
         title="Disk Workbench"
-        subtitle="Root volume pressure and the heaviest tracked project footprints on this VPS."
+        subtitle="Root volume pressure, mounted volume telemetry, and the heaviest tracked project footprints on this VPS."
         pill={`${fmtPercent(hostVitals.diskUsedPercent)} root used`}
         items={diskFocusItems}
         emptyLabel="Tracked project roots have not reported disk data yet."
         footer={
           storageTtlLabel
-            ? `Disk snapshots refresh about every ${storageTtlLabel}. Host root usage and tracked project trees are shown together here.`
-            : "Disk snapshots refresh on the patrol cadence and roll into the tracked project tree view."
+            ? `Disk snapshots refresh about every ${storageTtlLabel}. Root pressure stays primary, and mounted-volume telemetry is shown separately so the top row stays clean.`
+            : "Disk snapshots refresh on the patrol cadence. Root pressure stays primary, and mounted-volume telemetry is shown separately."
         }
         stats={[
           {
@@ -1032,9 +1065,18 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
             tone: diskTone,
           },
           {
+            label: primaryMountedFilesystem?.label ?? "Mounted volume",
+            value: fmtBytes(primaryMountedFilesystem?.usedBytes ?? null),
+            meta:
+              primaryMountedFilesystem
+                ? `${fmtBytes(primaryMountedFilesystem.totalBytes)} total · ${primaryMountedFilesystem.path ?? "mounted path"}`
+                : "No mounted volume tracked yet.",
+            tone: mountedTone,
+          },
+          {
             label: "Free now",
             value: fmtBytes(hostVitals.diskAvailableBytes),
-            meta: "Immediate headroom on the tracked filesystem.",
+            meta: "Immediate headroom on the tracked root filesystem.",
           },
           {
             label: "Tracked apps",
@@ -1125,14 +1167,13 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           </div>
         ) : null}
 
-        {/* CSS-only toggles (no client JS) */}
         <input className="pm-toggle-input" type="radio" id="pm-mode-projects" name="pm-mode" defaultChecked />
         <input className="pm-toggle-input" type="radio" id="pm-mode-processes" name="pm-mode" />
         <input className="pm-toggle-input" type="radio" id="pm-layout-tiles" name="pm-layout" defaultChecked />
         <input className="pm-toggle-input" type="radio" id="pm-layout-list" name="pm-layout" />
 
         <div className="power-vitals-controls">
-          <div className="pm-toggle-group" role="tablist" aria-label="Power panel mode">
+          <div className="pm-toggle-group" role="group" aria-label="Power panel mode">
             <label className="pm-toggle-label" htmlFor="pm-mode-projects">
               Projects
             </label>
@@ -1141,7 +1182,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
             </label>
           </div>
 
-          <div className="pm-toggle-group" role="tablist" aria-label="Project view layout">
+          <div className="pm-toggle-group" role="group" aria-label="Project view layout">
             <label className="pm-toggle-label" htmlFor="pm-layout-tiles">
               Tiles
             </label>
@@ -1151,7 +1192,6 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           </div>
         </div>
 
-        {/* PROJECTS VIEW */}
         <div className="pm-view pm-view-projects" aria-label="Projects overview">
           <div className="power-vitals-list-head">
             {projectCards.length} main project{projectCards.length === 1 ? "" : "s"} (status + CPU share + RAM by bound port/PID + Disk on tracked project trees)
@@ -1180,23 +1220,29 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
                     ) : null}
                   </div>
 
-                  <div
-                    className={p.up ? "pm-project-status pm-project-status-ok" : "pm-project-status pm-project-status-bad"}
-                    title={p.portsLabel}
-                  >
+                  <div className={p.statusClass} title={p.portsLabel}>
                     <span className="pm-project-dot" />
-                    {p.up ? "Up" : "Down"}
+                    {p.statusText}
                   </div>
                 </div>
 
                 <div className="pm-project-health-row">
-                  <span className={p.requiredUpCount === p.requiredCount ? "pm-project-health-pill pm-project-health-pill-ok" : "pm-project-health-pill pm-project-health-pill-bad"}>
-                    required {p.requiredUpCount}/{p.requiredCount}
-                  </span>
-                  <span className="pm-project-health-pill">listening {p.listeningCount}/{p.services.length}</span>
-                  <span className={p.publicCount > 0 ? "pm-project-health-pill pm-project-health-pill-warn" : "pm-project-health-pill"}>
-                    public {p.publicCount}
-                  </span>
+                  {p.isDormant ? (
+                    <>
+                      <span className="pm-project-health-pill">pending deploy</span>
+                      <span className="pm-project-health-pill">no live ports mapped yet</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className={p.requiredUpCount === p.requiredCount ? "pm-project-health-pill pm-project-health-pill-ok" : "pm-project-health-pill pm-project-health-pill-bad"}>
+                        required {p.requiredUpCount}/{p.requiredCount}
+                      </span>
+                      <span className="pm-project-health-pill">listening {p.listeningCount}/{p.services.length}</span>
+                      <span className={p.publicCount > 0 ? "pm-project-health-pill pm-project-health-pill-warn" : "pm-project-health-pill"}>
+                        public {p.publicCount}
+                      </span>
+                    </>
+                  )}
                 </div>
 
                 <div className="pm-project-metrics">
@@ -1283,16 +1329,20 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
                 ) : null}
 
                 <div className="pm-project-services-text" aria-label="Per-service ports and process IDs">
-                  {p.services.map((svc) => (
-                    <div
-                      key={`${p.key}-${svc.label}-${svc.port}`}
-                      className={svc.isListening ? "pm-project-service-line" : "pm-project-service-line pm-project-service-line-down"}
-                    >
-                      {svc.label}:{svc.port}
-                      {typeof svc.pid === "number" ? ` #${svc.pid}` : ""}
-                      {svc.isPublic ? " (public)" : ""}
-                    </div>
-                  ))}
+                  {p.services.length > 0 ? (
+                    p.services.map((svc) => (
+                      <div
+                        key={`${p.key}-${svc.label}-${svc.port}`}
+                        className={svc.isListening ? "pm-project-service-line" : "pm-project-service-line pm-project-service-line-down"}
+                      >
+                        {svc.label}:{svc.port}
+                        {typeof svc.pid === "number" ? ` #${svc.pid}` : ""}
+                        {svc.isPublic ? " (public)" : ""}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="pm-project-service-line">No live ports mapped yet.</div>
+                  )}
                 </div>
               </div>
             ))}
@@ -1319,7 +1369,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
                     )
                   ) : null}
                   <div className="pm-project-list-sub">
-                    required {p.requiredUpCount}/{p.requiredCount} · public {p.publicCount}
+                    {p.isDormant
+                      ? "pending deploy · dormant by design"
+                      : `required ${p.requiredUpCount}/${p.requiredCount} · public ${p.publicCount}`}
                   </div>
                 </div>
 
@@ -1339,9 +1391,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
                 </div>
 
                 <div className="pm-project-list-status">
-                  <div className={p.up ? "pm-project-status pm-project-status-ok" : "pm-project-status pm-project-status-bad"}>
+                  <div className={p.statusClass}>
                     <span className="pm-project-dot" />
-                    {p.up ? "Up" : "Down"}
+                    {p.statusText}
                   </div>
                 </div>
               </div>
@@ -1356,7 +1408,6 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           </div>
         </div>
 
-        {/* PROCESSES VIEW */}
         <div className="pm-view pm-view-processes" aria-label="Processes overview">
           <div className="power-vitals-list-head">
             Process load ranking (CPU share across observed processes, target total 100%)

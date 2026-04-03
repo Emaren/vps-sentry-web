@@ -2,7 +2,6 @@
 export type Alert = {
   title: string;
   detail?: string;
-  // optional future metadata
   severity?: "info" | "warn" | "critical";
   code?: string;
   ts?: string;
@@ -27,7 +26,6 @@ export type Breach = {
   opened_ts?: string;
   fixed_ts?: string;
   state?: "open" | "fixed" | "ignored";
-  // evidence is intentionally loose; collector can evolve without breaking UI
   evidence?: Record<string, unknown>;
 };
 
@@ -130,6 +128,12 @@ export type ProjectStorageHostFilesystem = {
   level?: "ok" | "warn" | "critical";
 };
 
+export type ProjectStorageMountedFilesystem = ProjectStorageHostFilesystem & {
+  id?: string;
+  label?: string;
+  exists?: boolean;
+};
+
 export type ProjectStorageSnapshot = {
   schema_version?: number;
   measured_at?: string;
@@ -138,6 +142,7 @@ export type ProjectStorageSnapshot = {
   top_dirs_depth?: number;
   bucket_order?: string[];
   host_filesystem?: ProjectStorageHostFilesystem;
+  mounted_filesystems?: ProjectStorageMountedFilesystem[];
   projects?: Record<string, ProjectStorageProject>;
 };
 
@@ -264,7 +269,6 @@ export type Status = {
     ssh_invalid_user: number;
   };
 
-  // Optional future fields (render if present)
   threat?: {
     suspicious_processes?: unknown[];
     top_cpu?: unknown[];
@@ -278,49 +282,30 @@ export type Status = {
     }>;
   };
 
-  // Optional: "breach feed" (future)
   breaches_open?: number;
   breaches_fixed?: number;
   breaches?: Breach[];
 
-  // Optional: shipping / email status (future)
   shipping?: Shipping;
-
-  // Optional: VPS resource vitals
   vitals?: Vitals;
-
-  // Optional: per-project disk footprint telemetry
   project_storage?: ProjectStorageSnapshot;
-
-  // Optional: cached reclaimable-space telemetry
   garbage_estimate?: GarbageEstimateSnapshot;
 
-  // Allow forward-compatible extra fields without TypeScript fights
   [k: string]: unknown;
 };
 
-// /api/status returns an envelope; older version: { ok: true, last: {...}, diff: {...}, ts: "..." }
-// newer version: { ok: true, status: {...}, last: {...}, diff: {...}, warnings?: [...], paths?: {...}, ts: "..." }
 export type StatusEnvelope = {
   ok?: boolean;
   ts?: string;
-
-  // NEW: canonical payload (published status.json)
   status?: Partial<Status> & Record<string, unknown>;
-
-  // OLD: back-compat payloads
   last?: Partial<Status> & Record<string, unknown>;
   diff?: unknown;
-
-  // NEW: helpful debug
   warnings?: string[];
   paths?: {
     status?: string;
     last?: string;
     diff?: string;
   };
-
-  // anything else
   [k: string]: unknown;
 };
 
@@ -384,21 +369,9 @@ function pickString(v: unknown): string | null {
   return typeof v === "string" && v.length ? v : null;
 }
 
-/**
- * Normalize ANY of:
- * - raw Status (direct published object)
- * - old envelope: { last, diff, ts }
- * - new envelope: { status, last, diff, warnings, paths, ts }
- *
- * into a single consistent shape the UI can rely on.
- */
 export function normalizeStatusEnvelope(data: Status | StatusEnvelope) {
   const env = (data ?? {}) as StatusEnvelope;
 
-  // Priority order:
-  // 1) env.status (new canonical)
-  // 2) env.last (old back-compat)
-  // 3) raw Status object
   const source =
     (env.status ?? env.last ?? (data as Status)) as Partial<Status> &
       Record<string, unknown>;
@@ -447,7 +420,6 @@ export function normalizeStatusEnvelope(data: Status | StatusEnvelope) {
     shipping: (source.shipping as Status["shipping"]) ?? undefined,
     vitals: (source.vitals as Status["vitals"]) ?? undefined,
 
-    // preserve additional unknown fields for DebugPanel
     ...source,
   };
 

@@ -10,6 +10,7 @@ export type ProjectDef = {
   subtitle: string;
   href?: string;
   backendHref?: string;
+  state?: "live" | "dormant";
   services: ProjectService[];
 };
 
@@ -34,11 +35,13 @@ export const MAIN_PROJECTS: ProjectDef[] = [
     ],
   },
   {
-    key: "4o",
-    name: "4o API",
-    subtitle: "api.4o.tokentap.ca",
-    href: "https://api.4o.tokentap.ca",
-    services: [{ label: "api", port: 3380, required: true }],
+    key: "wolochain",
+    name: "WoloChain",
+    subtitle: "wolo chain rest/rpc",
+    services: [
+      { label: "rest", port: 1317, required: true },
+      { label: "rpc", port: 26657, required: true },
+    ],
   },
   {
     key: "wheatandstone",
@@ -143,6 +146,13 @@ export const MAIN_PROJECTS: ProjectDef[] = [
     ],
   },
   {
+    key: "wallygotchi",
+    name: "Wallygotchi",
+    subtitle: "pending deploy",
+    state: "dormant",
+    services: [],
+  },
+  {
     key: "wallyverse",
     name: "Wallyverse",
     subtitle: "api.wallyverse.tokentap.ca/health",
@@ -152,5 +162,12 @@ export const MAIN_PROJECTS: ProjectDef[] = [
       { label: "web", port: 3110, required: true },
       { label: "api", port: 3410, required: true },
     ],
+  },
+  {
+    key: "4o",
+    name: "4o API",
+    subtitle: "api.4o.tokentap.ca",
+    href: "https://api.4o.tokentap.ca",
+    services: [{ label: "api", port: 3380, required: true }],
   },
 ];
