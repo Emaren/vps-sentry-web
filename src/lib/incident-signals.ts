@@ -64,7 +64,19 @@ function parseAlerts(status: Record<string, unknown>, ts: string, snapshotId: st
     let code = "alert_generic";
     let severity: SignalSeverity = "medium";
 
-    if (textIncludes(text, /(authorized_keys|\/etc\/sudoers|sshd_config|\/etc\/systemd\/system|\/etc\/ufw)/i)) {
+    if (textIncludes(text, /(host_disk_critical|host disk pressure|disk pressure)/i)) {
+      code = "disk_pressure";
+      severity = "critical";
+    } else if (textIncludes(text, /(cpu_hotspot|cpu hotspot)/i)) {
+      code = "runtime_cpu_hotspot";
+      severity = "high";
+    } else if (textIncludes(text, /(suspicious_process_ioc|suspicious process ioc)/i)) {
+      code = "runtime_ioc";
+      severity = "critical";
+    } else if (textIncludes(text, /(outbound_scan_ioc|outbound scan ioc)/i)) {
+      code = "outbound_scan_ioc";
+      severity = "critical";
+    } else if (textIncludes(text, /(authorized_keys|\/etc\/sudoers|sshd_config|\/etc\/systemd\/system|\/etc\/ufw)/i)) {
       code = "config_tamper";
       severity = "critical";
     } else if (textIncludes(text, /(firewall changed|nft|ufw)/i)) {

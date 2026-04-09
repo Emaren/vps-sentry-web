@@ -33,7 +33,7 @@ describe("status-popup logic", () => {
     expect(text).toContain("Why it landed in this state:");
     expect(text).toContain("[HIGH] Alerts reported by the agent");
     expect(text).toContain("Fix Now starts with the safest automation available");
-    expect(text).toContain("matching Counterstrike playbook");
+    expect(text).toContain("launch Counterstrike");
   });
 
   it("explains cpu hotspot alerts with operator-safe language", () => {
@@ -123,6 +123,48 @@ describe("status-popup logic", () => {
       "report",
     ]);
     expect(steps.find((s) => s.id === "contain-runtime-ioc")?.label).toContain("Run Counterstrike");
+  });
+
+  it("prioritizes disk reclaim and baseline drift before generic alert remediation", () => {
+    const steps = buildFixSteps({
+      alertsCount: 4,
+      publicPortsCount: 0,
+      stale: false,
+      allowlistedTotal: 3,
+      alertsPreview: [
+        {
+          title: "Watched files changed",
+          code: "watched_files_changed",
+          severity: "warn",
+          detail: "Changed: /etc/nginx/sites-enabled",
+        },
+        {
+          title: "Firewall changed",
+          code: "firewall_changed",
+          severity: "warn",
+          detail: "Changed firewall keys: nft_ruleset_hash",
+        },
+        {
+          title: "Packages changed",
+          code: "packages_changed",
+          severity: "warn",
+          detail: "~ linux-image-virtual 6.8.0-106.106 -> 6.8.0-107.107",
+        },
+        {
+          title: "Host disk pressure",
+          code: "host_disk_critical",
+          severity: "critical",
+          detail: "/ is 96.2% used with 1.4GB free.",
+        },
+      ],
+    });
+
+    expect(steps.map((s) => s.id)).toEqual([
+      "ports-allowlisted",
+      "disk-pressure",
+      "baseline-drift",
+      "report",
+    ]);
   });
 
   it("includes queue follow-up guidance in actions list when backlog exists", () => {

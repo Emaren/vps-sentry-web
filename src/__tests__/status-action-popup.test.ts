@@ -1,9 +1,38 @@
 import { describe, expect, it } from "vitest";
 import {
   isBaselineDriftAlert,
+  isDiskPressureAlert,
   normalizeAlertCode,
   pickCounterstrikePlaybookId,
 } from "@/app/dashboard/_components/status-popup/StatusActionPopup";
+
+function makeSnapshot() {
+  return {
+    alerts: [],
+    unexpectedPublicPortsCount: 0,
+    publicPortsTotalCount: 0,
+    expectedPublicPorts: [],
+    sshFailedPassword: 0,
+    sshInvalidUser: 0,
+    threatIndicatorCount: 1,
+    suspiciousProcesses: [],
+    diskPressure: {
+      alertCount: 0,
+      detail: null,
+      safeReclaimableBytes: 0,
+      reclaimableBytesTotal: 0,
+      rebuildableBytes: 0,
+      guidedReclaimableBytes: 0,
+      blockedReclaimableBytes: 0,
+      runningCleanup: false,
+      lastCleanupFinishedAt: null,
+      usedPercent: null,
+      failPercent: null,
+      availableBytes: null,
+      totalBytes: null,
+    },
+  };
+}
 
 describe("StatusActionPopup baseline drift helpers", () => {
   it("treats public_ports_changed as baseline drift", () => {
@@ -39,45 +68,48 @@ describe("StatusActionPopup baseline drift helpers", () => {
     expect(isBaselineDriftAlert(alert)).toBe(true);
   });
 
+  it("classifies host disk pressure alerts separately", () => {
+    const alert = {
+      title: "Host disk pressure",
+      detail: "/ is 96.2% used with 1.4GB free.",
+      code: "host_disk_critical",
+    };
+
+    expect(isDiskPressureAlert(alert)).toBe(true);
+    expect(isBaselineDriftAlert(alert)).toBe(false);
+  });
+
   it("picks Zap #2 when protected-path runtime signals are present", () => {
-    const playbookId = pickCounterstrikePlaybookId({
-      snapshot: {
-        alerts: [],
-        unexpectedPublicPortsCount: 0,
-        sshFailedPassword: 0,
-        sshInvalidUser: 0,
-        threatIndicatorCount: 1,
-        suspiciousProcesses: [
-          {
-            pid: 2211,
-            proc: "sh",
-            exe: "/bin/sh",
-            reasons: ["container has docker socket bind mount"],
-          },
-        ],
+    const snapshot = makeSnapshot();
+    snapshot.suspiciousProcesses = [
+      {
+        pid: 2211,
+        proc: "sh",
+        exe: "/bin/sh",
+        reasons: ["container has docker socket bind mount"],
       },
+    ];
+
+    const playbookId = pickCounterstrikePlaybookId({
+      snapshot,
     });
 
     expect(playbookId).toBe("zap-02-busybox-loader-cutoff");
   });
 
   it("keeps Zap #1 for ordinary writable-path runtime candidates", () => {
-    const playbookId = pickCounterstrikePlaybookId({
-      snapshot: {
-        alerts: [],
-        unexpectedPublicPortsCount: 0,
-        sshFailedPassword: 0,
-        sshInvalidUser: 0,
-        threatIndicatorCount: 1,
-        suspiciousProcesses: [
-          {
-            pid: 2211,
-            proc: "kdevtmpfsi",
-            exe: "/tmp/kdevtmpfsi",
-            reasons: ["user-writable path"],
-          },
-        ],
+    const snapshot = makeSnapshot();
+    snapshot.suspiciousProcesses = [
+      {
+        pid: 2211,
+        proc: "kdevtmpfsi",
+        exe: "/tmp/kdevtmpfsi",
+        reasons: ["user-writable path"],
       },
+    ];
+
+    const playbookId = pickCounterstrikePlaybookId({
+      snapshot,
     });
 
     expect(playbookId).toBe("zap-01-miner-persistence-purge");

@@ -22,6 +22,30 @@ describe("incident signal extraction", () => {
     expect(signals.some((s) => s.code === "config_tamper" && s.severity === "critical")).toBe(true);
   });
 
+  it("maps disk pressure and runtime hotspot alerts to dedicated codes", () => {
+    const signals = extractSignalsFromStatus({
+      snapshotId: "s-disk",
+      ts: "2026-02-07T06:02:00.000Z",
+      status: {
+        alerts: [
+          {
+            title: "Host disk pressure",
+            code: "host_disk_critical",
+            detail: "/ is 96.2% used with 1.4GB free.",
+          },
+          {
+            title: "CPU hotspot detected",
+            code: "cpu_hotspot",
+            detail: "Host CPU at 100.0% with process RXh55pyy (pid=1015172).",
+          },
+        ],
+      },
+    });
+
+    expect(signals.some((s) => s.code === "disk_pressure" && s.severity === "critical")).toBe(true);
+    expect(signals.some((s) => s.code === "runtime_cpu_hotspot" && s.severity === "high")).toBe(true);
+  });
+
   it("adds auth and unexpected ports signals", () => {
     const signals = extractSignalsFromStatus({
       snapshotId: "s2",

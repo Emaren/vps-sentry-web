@@ -5,6 +5,7 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import type { FixResult, Panel, StatusActionPopupProps } from "./types";
 import { buildActionsNeeded, buildExplainText, buildFixSteps, sleep } from "./logic";
+import { fmtBytes } from "../reclaim-utils";
 import { css, btn, caretBtn, okBtn, xBtn } from "./styles";
 import { useTypewriter } from "./hooks/useTypewriter";
 import {
@@ -53,13 +54,32 @@ type FixThreatProcess = {
   reasons: string[];
 };
 
+type FixDiskPressureSnapshot = {
+  alertCount: number;
+  detail: string | null;
+  safeReclaimableBytes: number;
+  reclaimableBytesTotal: number;
+  rebuildableBytes: number;
+  guidedReclaimableBytes: number;
+  blockedReclaimableBytes: number;
+  runningCleanup: boolean;
+  lastCleanupFinishedAt: string | null;
+  usedPercent: number | null;
+  failPercent: number | null;
+  availableBytes: number | null;
+  totalBytes: number | null;
+};
+
 type FixStatusSnapshot = {
   alerts: FixStatusAlert[];
   unexpectedPublicPortsCount: number;
+  publicPortsTotalCount: number;
+  expectedPublicPorts: string[];
   sshFailedPassword: number;
   sshInvalidUser: number;
   threatIndicatorCount: number;
   suspiciousProcesses: FixThreatProcess[];
+  diskPressure: FixDiskPressureSnapshot;
 };
 
 type CounterstrikeRunningSnapshot = {
@@ -209,6 +229,10 @@ function asInt(v: unknown): number {
   return 0;
 }
 
+function formatPercent(value: number | null): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)}%` : "unknown";
+}
+
 export function normalizeAlertCode(alert: FixStatusAlert): string {
   const code = alert.code?.trim().toLowerCase() ?? "";
   if (code === "public_ports_changed") return "ports_changed";
@@ -253,7 +277,17 @@ function isRuntimeThreatAlert(alert: FixStatusAlert): boolean {
     signal.includes("outbound_scan_ioc") ||
     signal.includes("outbound scan ioc") ||
     signal.includes("cpu_hotspot") ||
-    signal.includes("cpu hotspot")
+      signal.includes("cpu hotspot")
+  );
+}
+
+export function isDiskPressureAlert(alert: FixStatusAlert): boolean {
+  const signal = normalizeAlertSignal(alert);
+  return (
+    signal.includes("host_disk_critical") ||
+    signal.includes("host disk critical") ||
+    signal.includes("host disk pressure") ||
+    signal.includes("disk pressure")
   );
 }
 
@@ -312,11 +346,64 @@ function formatThreatProcess(process: FixThreatProcess): string {
   return process.pid > 0 ? `${base} #${process.pid}` : base;
 }
 
+function projectedSafeDiskUsedPercent(snapshot: FixStatusSnapshot): number | null {
+  const { availableBytes, safeReclaimableBytes, totalBytes } = snapshot.diskPressure;
+  if (
+    typeof availableBytes !== "number" ||
+    !Number.isFinite(availableBytes) ||
+    typeof safeReclaimableBytes !== "number" ||
+    !Number.isFinite(safeReclaimableBytes) ||
+    typeof totalBytes !== "number" ||
+    !Number.isFinite(totalBytes) ||
+    totalBytes <= 0
+  ) {
+    return null;
+  }
+
+  const projectedAvailable = Math.min(totalBytes, availableBytes + safeReclaimableBytes);
+  const projectedUsed = Math.max(0, totalBytes - projectedAvailable);
+  return (projectedUsed / totalBytes) * 100;
+}
+
+function buildDiskPressureBlocker(snapshot: FixStatusSnapshot): string | null {
+  if (snapshot.diskPressure.alertCount <= 0) return null;
+
+  const parts: string[] = [];
+  if (snapshot.diskPressure.detail) {
+    parts.push(snapshot.diskPressure.detail);
+  } else if (snapshot.diskPressure.usedPercent !== null) {
+    parts.push(`root disk still at ${formatPercent(snapshot.diskPressure.usedPercent)} used`);
+  } else {
+    parts.push("root disk pressure is still critical");
+  }
+
+  const safeBytes = snapshot.diskPressure.safeReclaimableBytes;
+  if (safeBytes > 0) {
+    const projectedUsed = projectedSafeDiskUsedPercent(snapshot);
+    if (
+      projectedUsed !== null &&
+      snapshot.diskPressure.failPercent !== null &&
+      projectedUsed >= snapshot.diskPressure.failPercent
+    ) {
+      parts.push(
+        `safe reclaim only covers ${fmtBytes(safeBytes)} right now, which still leaves the host above the ${snapshot.diskPressure.failPercent}% fail line`
+      );
+    } else {
+      parts.push(`safe reclaim catalog currently offers ${fmtBytes(safeBytes)}`);
+    }
+  } else {
+    parts.push("no safe reclaim candidates are currently cataloged");
+  }
+
+  return parts.join("; ");
+}
+
 function buildSnapshotBlockers(snapshot: FixStatusSnapshot): string[] {
   const blockers: string[] = [];
   const runtimeAlerts = snapshot.alerts.filter(isRuntimeThreatAlert).length;
   const driftAlerts = snapshot.alerts.filter(isBaselineDriftAlert).length;
-  const otherAlerts = Math.max(0, snapshot.alerts.length - runtimeAlerts - driftAlerts);
+  const diskAlerts = snapshot.alerts.filter(isDiskPressureAlert).length;
+  const otherAlerts = Math.max(0, snapshot.alerts.length - runtimeAlerts - driftAlerts - diskAlerts);
   const suspiciousCount = snapshot.suspiciousProcesses.length;
   const systemPathRuntime = snapshot.suspiciousProcesses.find((process) => isSystemPathExecutable(process.exe));
 
@@ -336,6 +423,10 @@ function buildSnapshotBlockers(snapshot: FixStatusSnapshot): string[] {
     blockers.push(
       `${snapshot.unexpectedPublicPortsCount} unexpected public port${snapshot.unexpectedPublicPortsCount === 1 ? "" : "s"} still exposed`
     );
+  }
+  const diskBlocker = buildDiskPressureBlocker(snapshot);
+  if (diskBlocker) {
+    blockers.push(diskBlocker);
   }
   if (driftAlerts > 0) {
     blockers.push(
@@ -366,6 +457,11 @@ function buildFixResultDetails(input: {
       `Unexpected public ports: ${beforeSnapshot.unexpectedPublicPortsCount} -> ${afterSnapshot.unexpectedPublicPortsCount}.`
     );
     details.push(`Threat signals: ${beforeSnapshot.threatIndicatorCount} -> ${afterSnapshot.threatIndicatorCount}.`);
+    if (beforeSnapshot.diskPressure.alertCount > 0 || afterSnapshot.diskPressure.alertCount > 0) {
+      details.push(
+        `Root disk used: ${formatPercent(beforeSnapshot.diskPressure.usedPercent)} -> ${formatPercent(afterSnapshot.diskPressure.usedPercent)}. Safe reclaim catalog: ${fmtBytes(beforeSnapshot.diskPressure.safeReclaimableBytes)} -> ${fmtBytes(afterSnapshot.diskPressure.safeReclaimableBytes)}.`
+      );
+    }
   } else if (afterSnapshot) {
     details.push(`Latest snapshot still reports ${afterSnapshot.alerts.length} active alert(s).`);
   } else {
@@ -416,6 +512,9 @@ async function readFixStatusSnapshot(): Promise<FixStatusSnapshot | null> {
 
     const auth = asRecord(status.auth);
     const threat = asRecord(status.threat);
+    const garbageEstimate = asRecord(status.garbage_estimate);
+    const projectStorage = asRecord(status.project_storage);
+    const hostFilesystem = asRecord(projectStorage?.host_filesystem);
     const indicators = asArray(threat?.indicators);
     const suspiciousProcesses = asArray(threat?.suspicious_processes)
       .map((item) => asRecord(item))
@@ -427,18 +526,54 @@ async function readFixStatusSnapshot(): Promise<FixStatusSnapshot | null> {
         reasons: asArray(item.reasons).map((reason) => asStringOrEmpty(reason)).filter(Boolean),
       }))
       .filter((item) => item.pid > 0 || item.exe.length > 0 || item.proc.length > 0);
+    const diskAlert = alerts.find((alert) => isDiskPressureAlert(alert)) ?? null;
 
     return {
       alerts,
       unexpectedPublicPortsCount: asInt(status.unexpected_public_ports_count),
+      publicPortsTotalCount: asInt(status.public_ports_count),
+      expectedPublicPorts: asArray(status.expected_public_ports)
+        .map((value) => asString(value))
+        .filter((value): value is string => Boolean(value)),
       sshFailedPassword: asInt(auth?.ssh_failed_password),
       sshInvalidUser: asInt(auth?.ssh_invalid_user),
       threatIndicatorCount: Math.max(indicators.length, suspiciousProcesses.length),
       suspiciousProcesses,
+      diskPressure: {
+        alertCount: alerts.filter((alert) => isDiskPressureAlert(alert)).length,
+        detail: diskAlert?.detail ?? null,
+        safeReclaimableBytes: asInt(garbageEstimate?.safe_reclaimable_bytes),
+        reclaimableBytesTotal: asInt(garbageEstimate?.reclaimable_bytes_total),
+        rebuildableBytes: asInt(garbageEstimate?.rebuildable_bytes),
+        guidedReclaimableBytes: asInt(garbageEstimate?.guided_reclaimable_bytes),
+        blockedReclaimableBytes: asInt(garbageEstimate?.blocked_reclaimable_bytes),
+        runningCleanup: asBoolean(garbageEstimate?.running_cleanup) === true,
+        lastCleanupFinishedAt: asString(asRecord(garbageEstimate?.last_cleanup_result)?.finished_at),
+        usedPercent: asNumber(hostFilesystem?.used_percent),
+        failPercent: asNumber(hostFilesystem?.fail_percent),
+        availableBytes: asNumber(hostFilesystem?.available_bytes),
+        totalBytes: asNumber(hostFilesystem?.total_bytes),
+      },
     };
   } catch {
     return null;
   }
+}
+
+function snapshotToAlertsPreview(snapshot: FixStatusSnapshot | null): StatusActionPopupProps["alertsPreview"] | undefined {
+  if (!snapshot) return undefined;
+  return snapshot.alerts.map((alert) => ({
+    code: alert.code ?? undefined,
+    title: alert.title,
+    detail: alert.detail,
+  }));
+}
+
+function snapshotAllowlistedTotal(snapshot: FixStatusSnapshot | null): number | null {
+  if (!snapshot) return null;
+  return snapshot.publicPortsTotalCount > 0 && snapshot.unexpectedPublicPortsCount === 0
+    ? snapshot.publicPortsTotalCount
+    : null;
 }
 
 function normalizeCounterstrikeStatusSnapshot(payload: JsonRecord | null): CounterstrikeStatusSnapshot | null {
@@ -672,6 +807,44 @@ async function waitForSnapshotAdvance(previousSnapshotTs: string): Promise<{ adv
   return { advanced: false, current: lastSeen };
 }
 
+async function waitForGarbageCleanupCompletion(previousFinishedAt: string | null): Promise<{
+  snapshot: FixStatusSnapshot | null;
+  timedOut: boolean;
+}> {
+  const deadlineMs = Date.now() + 30_000;
+  let lastSnapshot: FixStatusSnapshot | null = null;
+  let sawRunning = false;
+  let polls = 0;
+
+  while (Date.now() < deadlineMs) {
+    polls += 1;
+    const snapshot = await readFixStatusSnapshot();
+    if (snapshot) lastSnapshot = snapshot;
+
+    if (snapshot?.diskPressure.runningCleanup) {
+      sawRunning = true;
+    }
+
+    const finishedAt = snapshot?.diskPressure.lastCleanupFinishedAt ?? null;
+    const finishedChanged =
+      finishedAt !== null && (previousFinishedAt === null || finishedAt !== previousFinishedAt);
+
+    if (snapshot && !snapshot.diskPressure.runningCleanup && (finishedChanged || (polls >= 3 && !sawRunning))) {
+      return {
+        snapshot,
+        timedOut: false,
+      };
+    }
+
+    await sleep(1_200);
+  }
+
+  return {
+    snapshot: lastSnapshot,
+    timedOut: true,
+  };
+}
+
 async function postJson(path: string, body?: Record<string, unknown>) {
   const res = await fetch(path, {
     method: "POST",
@@ -711,7 +884,12 @@ function buildPrimaryCue(input: {
 }): { tone: "bad" | "warn"; title: string; detail: string } | null {
   const runtimeAlert = (input.alertsPreview ?? []).find((alert) => {
     const signal = `${alert.code ?? ""} ${alert.title} ${alert.detail ?? ""}`.toLowerCase();
-    return signal.includes("suspicious_process_ioc") || signal.includes("suspicious process ioc");
+    return (
+      signal.includes("suspicious_process_ioc") ||
+      signal.includes("suspicious process ioc") ||
+      signal.includes("cpu_hotspot") ||
+      signal.includes("cpu hotspot")
+    );
   });
   if (runtimeAlert) {
     const exeLine = firstAlertDetailLine(runtimeAlert.detail, /^exe=/i);
@@ -724,6 +902,23 @@ function buildPrimaryCue(input: {
         : procLine
           ? `${procLine} is still flagged. Fix Now will try Counterstrike first, but the host stays red until the next clean snapshot clears this runtime IOC.`
           : "A suspicious runtime IOC is still active. Fix Now will try Counterstrike first, but the host stays red until the next clean snapshot clears it.",
+    };
+  }
+
+  const diskAlert = (input.alertsPreview ?? []).find((alert) =>
+    isDiskPressureAlert({
+      code: alert.code ?? null,
+      title: alert.title,
+      detail: alert.detail ?? "",
+    })
+  );
+  if (diskAlert) {
+    return {
+      tone: "bad",
+      title: "Primary blocker: root disk is still above the fail line",
+      detail: diskAlert.detail
+        ? `${diskAlert.detail} Fix Now can run safe reclaim and refresh the report, but the host stays red until fresh headroom lands in the next clean snapshot.`
+        : "Root filesystem pressure is still critical. Fix Now can run safe reclaim, but the host stays red until a fresh snapshot confirms the new headroom.",
     };
   }
 
@@ -797,90 +992,143 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     else setMetaOpen(true);
   }, [panel]);
 
+  const [liveSnapshot, setLiveSnapshot] = React.useState<FixStatusSnapshot | null>(null);
+
+  React.useEffect(() => {
+    if (panel !== "fix") {
+      setLiveSnapshot(null);
+      return;
+    }
+
+    let cancelled = false;
+    void readFixStatusSnapshot().then((snapshot) => {
+      if (!cancelled) setLiveSnapshot(snapshot);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [panel, snapshotTsIso]);
+
   // If total ports exist but actionable count is 0, we interpret this as "allowlisted"
   const allowlistedTotal = React.useMemo(() => {
     return typeof publicPortsTotalCount === "number" && publicPortsTotalCount > 0 && publicPortsCount === 0
       ? publicPortsTotalCount
       : null;
   }, [publicPortsTotalCount, publicPortsCount]);
+  const liveAlertsPreview = React.useMemo(
+    () => snapshotToAlertsPreview(liveSnapshot),
+    [liveSnapshot]
+  );
+  const effectiveAlertsPreview =
+    panel === "fix" && liveAlertsPreview && liveAlertsPreview.length > 0 ? liveAlertsPreview : alertsPreview;
+  const effectiveAlertsCount =
+    panel === "fix" && liveSnapshot ? liveSnapshot.alerts.length : alertsCount;
+  const effectivePublicPortsCount =
+    panel === "fix" && liveSnapshot ? liveSnapshot.unexpectedPublicPortsCount : publicPortsCount;
+  const effectiveAllowlistedTotal =
+    panel === "fix" && liveSnapshot ? snapshotAllowlistedTotal(liveSnapshot) : allowlistedTotal;
+  const effectiveExpectedPublicPorts =
+    panel === "fix" && liveSnapshot && liveSnapshot.expectedPublicPorts.length > 0
+      ? liveSnapshot.expectedPublicPorts
+      : expectedPublicPorts;
   const queueQueued = Math.max(0, Math.trunc(queueQueuedCount));
   const queueDlq = Math.max(0, Math.trunc(queueDlqCount));
   const hasQueueFollowUp = queueQueued > 0 || queueDlq > 0;
   const primaryCue = React.useMemo(
     () =>
       buildPrimaryCue({
-        alertsPreview,
-        alertsCount,
-        publicPortsCount,
-        allowlistedTotal,
+        alertsPreview: effectiveAlertsPreview,
+        alertsCount: effectiveAlertsCount,
+        publicPortsCount: effectivePublicPortsCount,
+        allowlistedTotal: effectiveAllowlistedTotal,
         hasQueueFollowUp,
       }),
-    [alertsPreview, alertsCount, publicPortsCount, allowlistedTotal, hasQueueFollowUp]
+    [effectiveAlertsPreview, effectiveAlertsCount, effectivePublicPortsCount, effectiveAllowlistedTotal, hasQueueFollowUp]
   );
 
   // --------- Action list (instant, no typing) ----------
   const actionsNeeded = React.useMemo(() => {
     return buildActionsNeeded({
-      alertsCount,
-      publicPortsCount,
+      alertsCount: effectiveAlertsCount,
+      publicPortsCount: effectivePublicPortsCount,
       stale,
-      allowlistedTotal,
-      expectedPublicPorts,
-      alertsPreview,
+      allowlistedTotal: effectiveAllowlistedTotal,
+      expectedPublicPorts: effectiveExpectedPublicPorts,
+      alertsPreview: effectiveAlertsPreview,
       queueQueuedCount: queueQueued,
       queueDlqCount: queueDlq,
     });
-  }, [alertsCount, publicPortsCount, stale, allowlistedTotal, expectedPublicPorts, alertsPreview, queueQueued, queueDlq]);
+  }, [
+    effectiveAlertsCount,
+    effectivePublicPortsCount,
+    stale,
+    effectiveAllowlistedTotal,
+    effectiveExpectedPublicPorts,
+    effectiveAlertsPreview,
+    queueQueued,
+    queueDlq,
+  ]);
 
   // --------- AI Explain (typed) ----------
   const explainText = React.useMemo(() => {
     return buildExplainText({
       summary,
-      alertsCount,
-      publicPortsCount,
+      alertsCount: effectiveAlertsCount,
+      publicPortsCount: effectivePublicPortsCount,
       stale,
       actionsNeeded,
-      allowlistedTotal,
-      expectedPublicPorts,
-      alertsPreview,
+      allowlistedTotal: effectiveAllowlistedTotal,
+      expectedPublicPorts: effectiveExpectedPublicPorts,
+      alertsPreview: effectiveAlertsPreview,
     });
-  }, [summary, alertsCount, publicPortsCount, stale, actionsNeeded, allowlistedTotal, expectedPublicPorts, alertsPreview]);
+  }, [
+    summary,
+    effectiveAlertsCount,
+    effectivePublicPortsCount,
+    stale,
+    actionsNeeded,
+    effectiveAllowlistedTotal,
+    effectiveExpectedPublicPorts,
+    effectiveAlertsPreview,
+  ]);
+
+  const currentFixStepInput = React.useMemo(
+    () => ({
+      alertsCount: effectiveAlertsCount,
+      publicPortsCount: effectivePublicPortsCount,
+      stale,
+      allowlistedTotal: effectiveAllowlistedTotal,
+      alertsPreview: effectiveAlertsPreview,
+      queueQueuedCount: queueQueued,
+      queueDlqCount: queueDlq,
+    }),
+    [
+      effectiveAlertsCount,
+      effectivePublicPortsCount,
+      stale,
+      effectiveAllowlistedTotal,
+      effectiveAlertsPreview,
+      queueQueued,
+      queueDlq,
+    ]
+  );
 
   const typedExplain = useTypewriter(explainText, panel === "explain");
 
   // --------- Fix Now (step list + progress) ----------
-  const [steps, setSteps] = React.useState(() =>
-    buildFixSteps({
-      alertsCount,
-      publicPortsCount,
-      stale,
-      allowlistedTotal,
-      alertsPreview,
-      queueQueuedCount: queueQueued,
-      queueDlqCount: queueDlq,
-    })
-  );
+  const [steps, setSteps] = React.useState(() => buildFixSteps(currentFixStepInput));
   const [fixResult, setFixResult] = React.useState<FixResult | null>(null);
   const [fixRunning, setFixRunning] = React.useState(false);
   const reportTriggeredRef = React.useRef(false);
 
   React.useEffect(() => {
     if (panel !== "fix") return;
-    setSteps(
-      buildFixSteps({
-        alertsCount,
-        publicPortsCount,
-        stale,
-        allowlistedTotal,
-        alertsPreview,
-        queueQueuedCount: queueQueued,
-        queueDlqCount: queueDlq,
-      })
-    );
+    setSteps(buildFixSteps(currentFixStepInput));
     setFixResult(null);
     setFixRunning(false);
     reportTriggeredRef.current = false;
-  }, [panel, alertsCount, publicPortsCount, stale, allowlistedTotal, alertsPreview, queueQueued, queueDlq]);
+  }, [panel, currentFixStepInput]);
 
   async function runReportNowStep(): Promise<StepOutcome> {
     const run = await postJson("/api/ops/report-now");
@@ -939,11 +1187,62 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       };
     }
 
+    if (stepId === "disk-pressure") {
+      const beforeSnapshot = await readFixStatusSnapshot();
+      const safeBytes = beforeSnapshot?.diskPressure.safeReclaimableBytes ?? 0;
+      const reclaimRun = await postJson("/api/ops/garbage/reclaim", {
+        profile: "safe",
+      });
+      if (!reclaimRun.ok) {
+        return {
+          ok: false,
+          detail: `Safe disk reclaim could not start: ${reclaimRun.error}`,
+        };
+      }
+
+      const finished = await waitForGarbageCleanupCompletion(
+        beforeSnapshot?.diskPressure.lastCleanupFinishedAt ?? null
+      );
+      const latestSnapshot = finished.snapshot ?? (await readFixStatusSnapshot());
+      const afterSafeBytes = latestSnapshot?.diskPressure.safeReclaimableBytes ?? 0;
+      const diskUsedPercent = latestSnapshot?.diskPressure.usedPercent ?? null;
+      const diskFailPercent = latestSnapshot?.diskPressure.failPercent ?? null;
+      const projectedUsedPercent =
+        latestSnapshot ? projectedSafeDiskUsedPercent(latestSnapshot) : null;
+      const detailParts = [
+        reclaimRun.payload.detail && typeof reclaimRun.payload.detail === "string"
+          ? reclaimRun.payload.detail
+          : safeBytes > 0
+            ? `Started safe reclaim for ${fmtBytes(safeBytes)} of cataloged headroom.`
+            : "Started safe disk reclaim.",
+      ];
+      if (finished.timedOut) {
+        detailParts.push("Cleanup is still finishing; the next snapshot may take another moment to reflect new headroom.");
+      }
+      if (diskUsedPercent !== null) {
+        detailParts.push(`Latest root usage is ${formatPercent(diskUsedPercent)}.`);
+      }
+      if (
+        projectedUsedPercent !== null &&
+        diskFailPercent !== null &&
+        projectedUsedPercent >= diskFailPercent
+      ) {
+        detailParts.push(
+          `Even after the current safe catalog (${fmtBytes(afterSafeBytes)}), root would still sit above the ${diskFailPercent}% fail line.`
+        );
+      }
+
+      return {
+        ok: true,
+        detail: detailParts.join(" "),
+      };
+    }
+
     if (stepId === "contain-runtime-ioc") {
       const statusSnap = await readFixStatusSnapshot();
       const playbookId = pickCounterstrikePlaybookId({
         snapshot: statusSnap,
-        alertsPreview,
+        alertsPreview: effectiveAlertsPreview,
       });
       const playbook = getCounterstrikePlaybook(playbookId) ?? DEFAULT_COUNTERSTRIKE_PLAYBOOK;
       const launch = await postJson("/api/ops/counterstrike/run", {
@@ -1033,6 +1332,44 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       };
     }
 
+    if (stepId === "baseline-drift") {
+      const statusSnap = await readFixStatusSnapshot();
+      const driftAlerts = statusSnap?.alerts.filter((alert) => isBaselineDriftAlert(alert)).length ?? 0;
+      if (driftAlerts === 0) {
+        return {
+          ok: true,
+          detail: "The latest snapshot is already clear of baseline drift alerts.",
+        };
+      }
+
+      const baselineRun = await postJson("/api/ops/baseline-accept");
+      if (!baselineRun.ok) {
+        return {
+          ok: false,
+          detail: `Baseline reconcile failed: ${baselineRun.error}`,
+        };
+      }
+
+      const accepted = baselineRun.payload.accepted === true;
+      const statusAdvanced = baselineRun.payload.statusAdvanced === true;
+      const statusTs = asString(baselineRun.payload.statusTs);
+      const scan = asRecord(baselineRun.payload.scan);
+      const scanStarted = asBoolean(scan?.started) === true;
+      const scanError = asString(scan?.error);
+      const details: string[] = [];
+      details.push(
+        `Accepted ${driftAlerts} baseline drift alert${driftAlerts === 1 ? "" : "s"} into the host baseline.`
+      );
+      details.push(accepted ? "Baseline was accepted." : "Baseline acceptance did not confirm success.");
+      if (scanStarted) details.push("Immediate VPS scan was started.");
+      if (!scanStarted && scanError) details.push(`Immediate scan start was not confirmed (${scanError}).`);
+      if (statusAdvanced) details.push("Snapshot timestamp advanced.");
+      else details.push("Snapshot timestamp has not advanced yet.");
+      if (statusTs) details.push(`Latest status timestamp: ${statusTs}.`);
+
+      return { ok: accepted, detail: details.join(" ") };
+    }
+
     if (stepId === "alerts") {
       const statusSnap = await readFixStatusSnapshot();
       if (statusSnap && statusSnap.alerts.length === 0) {
@@ -1040,6 +1377,19 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
           ok: true,
           detail: "The latest snapshot is already clear of active alerts, so no extra alert remediation ran.",
         };
+      }
+
+      if (statusSnap) {
+        const residualAlerts = statusSnap.alerts.filter(
+          (alert) =>
+            !isBaselineDriftAlert(alert) && !isDiskPressureAlert(alert) && !isRuntimeThreatAlert(alert)
+        );
+        if (residualAlerts.length === 0) {
+          return {
+            ok: true,
+            detail: "No extra alert playbooks were needed after handling disk pressure, runtime IOC signals, and baseline drift.",
+          };
+        }
       }
 
       if (statusSnap && isBaselineDriftOnlySnapshot(statusSnap)) {
@@ -1307,20 +1657,27 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     setFixRunning(true);
     reportTriggeredRef.current = false;
     const beforeSnapshot = await readFixStatusSnapshot();
+    if (beforeSnapshot) {
+      setLiveSnapshot(beforeSnapshot);
+    }
+    const beforeSnapshotTs = (await readCurrentSnapshotTs()) ?? snapshotTsIso;
 
     // reset to idle first
     setSteps((prev) => prev.map((s) => ({ ...s, status: "idle", detail: undefined })));
 
     // Snapshot steps length must be read fresh (React state updates async)
-    const localSteps = buildFixSteps({
-      alertsCount,
-      publicPortsCount,
-      stale,
-      allowlistedTotal,
-      alertsPreview,
-      queueQueuedCount: queueQueued,
-      queueDlqCount: queueDlq,
-    });
+    const localStepInput = beforeSnapshot
+      ? {
+          alertsCount: beforeSnapshot.alerts.length,
+          publicPortsCount: beforeSnapshot.unexpectedPublicPortsCount,
+          stale,
+          allowlistedTotal: snapshotAllowlistedTotal(beforeSnapshot),
+          alertsPreview: snapshotToAlertsPreview(beforeSnapshot),
+          queueQueuedCount: queueQueued,
+          queueDlqCount: queueDlq,
+        }
+      : currentFixStepInput;
+    const localSteps = buildFixSteps(localStepInput);
     setSteps(localSteps);
 
     let failed = 0;
@@ -1362,7 +1719,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         await sleep(140);
       }
 
-      const refreshState = await waitForSnapshotAdvance(snapshotTsIso);
+      const refreshState = await waitForSnapshotAdvance(beforeSnapshotTs);
       snapshotAdvanced = refreshState.advanced;
       postRefreshSnapshotTs = refreshState.current;
 
@@ -1372,6 +1729,9 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
         router.refresh();
       }
       afterSnapshot = await readFixStatusSnapshot();
+      if (afterSnapshot) {
+        setLiveSnapshot(afterSnapshot);
+      }
     } finally {
       setFixRunning(false);
     }
@@ -1543,17 +1903,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
               onRun={runFixNow}
               onReset={() => {
                 if (fixRunning) return;
-                setSteps(
-                  buildFixSteps({
-                    alertsCount,
-                    publicPortsCount,
-                    stale,
-                    allowlistedTotal,
-                    alertsPreview,
-                    queueQueuedCount: queueQueued,
-                    queueDlqCount: queueDlq,
-                  })
-                );
+                setSteps(buildFixSteps(currentFixStepInput));
                 setFixResult(null);
                 reportTriggeredRef.current = false;
               }}

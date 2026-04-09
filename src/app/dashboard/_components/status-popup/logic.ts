@@ -21,6 +21,31 @@ function normalizeAlertSignal(alert: Pick<ExplainAlertPreview, "title" | "detail
   return `${alert.code ?? ""} ${alert.title ?? ""} ${alert.detail ?? ""}`.toLowerCase();
 }
 
+function isBaselineDriftSignal(alert: Pick<ExplainAlertPreview, "title" | "detail" | "code">): boolean {
+  const signal = normalizeAlertSignal(alert);
+  return (
+    signal.includes("watched_files_changed") ||
+    signal.includes("watched files changed") ||
+    signal.includes("packages_changed") ||
+    signal.includes("packages changed") ||
+    signal.includes("user_list_changed") ||
+    signal.includes("user list changed") ||
+    signal.includes("cron_changed") ||
+    signal.includes("cron changed") ||
+    signal.includes("firewall_changed") ||
+    signal.includes("firewall changed") ||
+    signal.includes("ports_changed") ||
+    signal.includes("ports changed") ||
+    signal.includes("public_ports_changed") ||
+    signal.includes("public ports changed")
+  );
+}
+
+function hasBaselineDriftSignal(alertsPreview?: ExplainAlertPreview[]): boolean {
+  if (!alertsPreview || alertsPreview.length === 0) return false;
+  return alertsPreview.some((alert) => isBaselineDriftSignal(alert));
+}
+
 function hasRuntimeContainmentSignal(alertsPreview?: ExplainAlertPreview[]): boolean {
   if (!alertsPreview || alertsPreview.length === 0) return false;
   return alertsPreview.some((alert) => {
@@ -34,6 +59,31 @@ function hasRuntimeContainmentSignal(alertsPreview?: ExplainAlertPreview[]): boo
       signal.includes("cpu hotspot")
     );
   });
+}
+
+function isDiskPressureSignal(alert: Pick<ExplainAlertPreview, "title" | "detail" | "code">): boolean {
+  const signal = normalizeAlertSignal(alert);
+  return (
+    signal.includes("host_disk_critical") ||
+    signal.includes("host disk critical") ||
+    signal.includes("host disk pressure") ||
+    signal.includes("disk pressure")
+  );
+}
+
+function hasDiskPressureSignal(alertsPreview?: ExplainAlertPreview[]): boolean {
+  if (!alertsPreview || alertsPreview.length === 0) return false;
+  return alertsPreview.some((alert) => isDiskPressureSignal(alert));
+}
+
+function hasResidualManualAlertSignal(alertsPreview?: ExplainAlertPreview[]): boolean {
+  if (!alertsPreview || alertsPreview.length === 0) return false;
+  return alertsPreview.some(
+    (alert) =>
+      !isBaselineDriftSignal(alert) &&
+      !isDiskPressureSignal(alert) &&
+      !hasRuntimeContainmentSignal([alert])
+  );
 }
 
 function compactAlertDetail(detail?: string): string {
@@ -64,6 +114,9 @@ function explainAlertMeaning(alert: ExplainAlertPreview): string {
   if (signal.includes("cpu_hotspot") || signal.includes("cpu hotspot")) {
     return "A single process is saturating CPU. Availability can stay up, but response times and stability can degrade until the hotspot is addressed.";
   }
+  if (signal.includes("host_disk_critical") || signal.includes("host disk pressure")) {
+    return "The root filesystem is above its fail threshold. The host stays out of green until enough space is reclaimed and a fresh snapshot confirms the new headroom.";
+  }
   if (signal.includes("suspicious_process_ioc") || signal.includes("suspicious process ioc")) {
     return "A process matched runtime IOC heuristics (command/path/network behavior). Treat this as potentially hostile until confirmed safe.";
   }
@@ -93,6 +146,8 @@ export function buildActionsNeeded(input: {
   const queueQueued = Math.max(0, Math.trunc(input.queueQueuedCount ?? 0));
   const queueDlq = Math.max(0, Math.trunc(input.queueDlqCount ?? 0));
   const runtimeContainmentNeeded = hasRuntimeContainmentSignal(input.alertsPreview);
+  const diskPressureNeeded = hasDiskPressureSignal(input.alertsPreview);
+  const baselineDriftNeeded = hasBaselineDriftSignal(input.alertsPreview);
 
   if (input.alertsCount > 0) {
     out.push(`Review ${input.alertsCount} alert${input.alertsCount === 1 ? "" : "s"} below.`);
@@ -112,6 +167,18 @@ export function buildActionsNeeded(input: {
 
   if (input.stale) {
     out.push("Status is stale (last scan is 15m+ old). Check the agent/timer/service and logs.");
+  }
+
+  if (diskPressureNeeded) {
+    out.push(
+      "Disk pressure: run safe reclaim now, then wait for a fresh snapshot. The host stays red until root usage drops back under the fail line."
+    );
+  }
+
+  if (baselineDriftNeeded) {
+    out.push(
+      "Baseline drift: if the file, firewall, or package changes were intentional, accept the new baseline so they stop counting as active alerts."
+    );
   }
 
   if (queueQueued > 0 || queueDlq > 0) {
@@ -241,7 +308,7 @@ export function buildExplainText(input: {
 
   lines.push("");
   lines.push(
-    "Fix Now starts with the safest automation available. If this looks like a runtime threat, it will launch the matching Counterstrike playbook and wait for a fresh snapshot. It can still leave blockers behind when the latest scan still shows drift, exposure, or a threat that is not safe to automate away."
+    "Fix Now starts with the safest automation available. It can launch Counterstrike for runtime IOC signals, run safe disk reclaim for root pressure, reconcile planned baseline drift, and then wait for a fresh snapshot. The host intentionally stays out of green if the latest scan still shows unresolved drift, exposure, runtime threat, or root disk pressure above the fail line."
   );
 
   return lines.join("\n");
@@ -260,6 +327,13 @@ export function buildFixSteps(input: {
   const queueQueued = Math.max(0, Math.trunc(input.queueQueuedCount ?? 0));
   const queueDlq = Math.max(0, Math.trunc(input.queueDlqCount ?? 0));
   const runtimeContainmentNeeded = hasRuntimeContainmentSignal(input.alertsPreview);
+  const diskPressureNeeded = hasDiskPressureSignal(input.alertsPreview);
+  const baselineDriftNeeded = hasBaselineDriftSignal(input.alertsPreview);
+  const previewCount = input.alertsPreview?.length ?? 0;
+  const previewIncomplete =
+    input.alertsCount > 0 && (previewCount === 0 || input.alertsCount > previewCount);
+  const genericAlertFollowupNeeded =
+    input.alertsCount > 0 && (previewIncomplete || hasResidualManualAlertSignal(input.alertsPreview));
 
   if (input.stale) {
     steps.push({
@@ -283,6 +357,14 @@ export function buildFixSteps(input: {
     });
   }
 
+  if (diskPressureNeeded) {
+    steps.push({
+      id: "disk-pressure",
+      label: "Run safe disk reclaim for root pressure, then refresh host headroom",
+      status: "idle",
+    });
+  }
+
   if (runtimeContainmentNeeded) {
     steps.push({
       id: "contain-runtime-ioc",
@@ -291,7 +373,15 @@ export function buildFixSteps(input: {
     });
   }
 
-  if (input.alertsCount > 0) {
+  if (baselineDriftNeeded) {
+    steps.push({
+      id: "baseline-drift",
+      label: "Accept planned drift into the baseline so expected changes stop counting as alerts",
+      status: "idle",
+    });
+  }
+
+  if (genericAlertFollowupNeeded) {
     steps.push({
       id: "alerts",
       label: "Run safe remediation actions for alerts that are still active",

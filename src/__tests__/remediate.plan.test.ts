@@ -67,6 +67,26 @@ describe("remediation actions", () => {
     expect(quarantine).toBeTruthy();
     expect(quarantine?.commands.some((c) => c.includes("sudo ufw deny 3333/tcp"))).toBe(true);
   });
+
+  it("returns safe disk reclaim playbook for disk pressure", () => {
+    const signals: IncidentSignal[] = [
+      {
+        code: "disk_pressure",
+        severity: "critical",
+        title: "Host disk pressure",
+        detail: "/ is 96.2% used with 1.4GB free.",
+        ts: "2026-02-07T01:45:00.000Z",
+        snapshotId: "snap-disk",
+        source: "alert",
+      },
+    ];
+
+    const actions = buildRemediationActions(signals);
+    const reclaim = actions.find((action) => action.id === "reclaim-safe-disk-headroom");
+    expect(reclaim).toBeTruthy();
+    expect(reclaim?.autoTier).toBe("safe_auto");
+    expect(reclaim?.commands.some((command) => command.includes("vps-sentry-garbage-reclaim"))).toBe(true);
+  });
 });
 
 describe("remediation plan builder", () => {

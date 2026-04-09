@@ -128,6 +128,34 @@ function unexpectedPortActions(signals: IncidentSignal[], context: RemediationCo
   ];
 }
 
+function diskPressureActions(signals: IncidentSignal[]): RemediationAction[] {
+  if (!hasCode(signals, "disk_pressure")) return [];
+
+  return [
+    withConfirm({
+      id: "reclaim-safe-disk-headroom",
+      priority: "P0",
+      risk: "low",
+      autoTier: "safe_auto",
+      title: "Reclaim Safe Disk Headroom",
+      why: "Root filesystem pressure is above the fail threshold and safe reclaim targets are available.",
+      sourceCodes: ["disk_pressure"],
+      commands: [
+        "df -h /",
+        "sudo -n /usr/local/bin/vps-sentry-garbage-reclaim --json --profile safe",
+        "df -h /",
+        "sudo vps-sentry --format text",
+      ],
+      canaryChecks: [
+        "df -h /",
+      ],
+      rollbackNotes: [
+        "Safe reclaim only removes rebuildable or explicitly safe targets; if pressure remains high, follow the reclaim workbench for guided cleanup.",
+      ],
+    }),
+  ];
+}
+
 function sshNoiseActions(signals: IncidentSignal[]): RemediationAction[] {
   if (!hasCode(signals, "ssh_failed_password") && !hasCode(signals, "ssh_invalid_user")) return [];
 
@@ -192,6 +220,7 @@ export function buildRemediationActions(
   const actions = [
     ...firewallAndAccessActions(signals),
     ...unexpectedPortActions(signals, context),
+    ...diskPressureActions(signals),
     ...sshNoiseActions(signals),
     ...driftActions(signals),
   ];
