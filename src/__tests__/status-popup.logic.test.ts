@@ -26,15 +26,14 @@ describe("status-popup logic", () => {
       expectedPublicPorts: ["udp:68", "tcp:22", "tcp:80", "tcp:443"],
     });
 
-    expect(text).toContain("plain-English readout");
     expect(text).toContain("Status: ACTION NEEDED");
     expect(text).toContain("Alerts: 2");
     expect(text).toContain("Unexpected public ports: 0");
     expect(text).toContain("allowlisted");
-    expect(text).toContain("Why this was marked:");
+    expect(text).toContain("Why it landed in this state:");
     expect(text).toContain("[HIGH] Alerts reported by the agent");
-    expect(text).toContain("Fix Now runs safe automations");
-    expect(text).toContain("system binaries stay manual");
+    expect(text).toContain("Fix Now starts with the safest automation available");
+    expect(text).toContain("matching Counterstrike playbook");
   });
 
   it("explains cpu hotspot alerts with operator-safe language", () => {
@@ -123,7 +122,7 @@ describe("status-popup logic", () => {
       "alerts",
       "report",
     ]);
-    expect(steps.find((s) => s.id === "contain-runtime-ioc")?.label).toContain("system-path binaries stay manual");
+    expect(steps.find((s) => s.id === "contain-runtime-ioc")?.label).toContain("Run Counterstrike");
   });
 
   it("includes queue follow-up guidance in actions list when backlog exists", () => {

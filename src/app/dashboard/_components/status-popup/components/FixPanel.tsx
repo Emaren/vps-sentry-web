@@ -16,7 +16,7 @@ export default function FixPanel(props: {
   return (
     <PanelShell title="Fix Now">
       <div className="vps-fix-intro">
-        Safe playbooks run first. Anything destructive or system-path sensitive stays manual on purpose.
+        Fix Now starts with the safest playbook it can justify. Anything destructive, exposure-related, or still too ambiguous stays manual on purpose.
       </div>
 
       <div className="vps-fix-toolbar">
@@ -26,7 +26,7 @@ export default function FixPanel(props: {
           style={{ ...btnStrong(), cursor: running ? "not-allowed" : "pointer" }}
           disabled={running}
         >
-          {running ? "Running..." : "Run auto-fix"}
+          {running ? "Running..." : "Run Fix Now"}
         </button>
         <button
           type="button"
@@ -56,7 +56,7 @@ export default function FixPanel(props: {
       {fixResult ? (
         <div className="vps-result-card" data-ok={fixResult.ok ? "true" : "false"}>
           <div className="vps-result-title">
-            {fixResult.ok ? "Stabilization update" : "Manual follow-up still required"}
+            {fixResult.ok ? "Fix Now update" : "What still needs your call"}
           </div>
           <div className="vps-result-message">{fixResult.message}</div>
           {fixResult.details?.length ? (

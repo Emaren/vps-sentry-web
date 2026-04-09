@@ -7,6 +7,10 @@ import type { FixResult, Panel, StatusActionPopupProps } from "./types";
 import { buildActionsNeeded, buildExplainText, buildFixSteps, sleep } from "./logic";
 import { css, btn, caretBtn, okBtn, xBtn } from "./styles";
 import { useTypewriter } from "./hooks/useTypewriter";
+import {
+  DEFAULT_COUNTERSTRIKE_PLAYBOOK,
+  getCounterstrikePlaybook,
+} from "@/lib/ops/counterstrike-playbooks";
 
 import StatusLight from "./components/StatusLight";
 import ActionsPanel from "./components/ActionsPanel";
@@ -57,6 +61,33 @@ type FixStatusSnapshot = {
   threatIndicatorCount: number;
   suspiciousProcesses: FixThreatProcess[];
 };
+
+type CounterstrikeRunningSnapshot = {
+  runId: string | null;
+  playbook: string | null;
+  playbookLabel: string | null;
+  currentLabel: string | null;
+  updatedAt: string | null;
+};
+
+type CounterstrikeLastSnapshot = {
+  runId: string | null;
+  playbook: string | null;
+  playbookLabel: string | null;
+  status: string | null;
+  summary: string | null;
+  errors: string[];
+  updatedAt: string | null;
+};
+
+type CounterstrikeStatusSnapshot = {
+  running: CounterstrikeRunningSnapshot | null;
+  last: CounterstrikeLastSnapshot | null;
+};
+
+const COUNTERSTRIKE_ZAP_TWO_ID = "zap-02-busybox-loader-cutoff";
+const COUNTERSTRIKE_POLL_MS = 1_200;
+const COUNTERSTRIKE_TIMEOUT_MS = 90_000;
 
 function asRecord(v: unknown): JsonRecord | null {
   return v && typeof v === "object" ? (v as JsonRecord) : null;
@@ -242,6 +273,40 @@ function isSystemPathExecutable(exe: string): boolean {
   );
 }
 
+function isContainerLoaderSignal(text: string): boolean {
+  const lower = text.trim().toLowerCase();
+  if (!lower) return false;
+  return (
+    lower.includes("busybox") ||
+    lower.includes("/bin/sh") ||
+    lower.includes("/bin/bash") ||
+    lower.includes("container") ||
+    lower.includes("docker") ||
+    lower.includes("loader") ||
+    lower.includes("payload")
+  );
+}
+
+export function pickCounterstrikePlaybookId(input: {
+  snapshot: FixStatusSnapshot | null;
+  alertsPreview?: StatusActionPopupProps["alertsPreview"];
+}): string {
+  const suspiciousProcesses = input.snapshot?.suspiciousProcesses ?? [];
+  const protectedPathThreat = suspiciousProcesses.some((process) => isSystemPathExecutable(process.exe));
+  const containerLoaderThreat = suspiciousProcesses.some((process) =>
+    isContainerLoaderSignal(`${process.exe} ${process.proc} ${process.reasons.join(" ")}`)
+  );
+  const alertSignals = (input.alertsPreview ?? []).some((alert) =>
+    isContainerLoaderSignal(`${alert.code ?? ""} ${alert.title} ${alert.detail ?? ""}`)
+  );
+
+  if (protectedPathThreat || containerLoaderThreat || alertSignals) {
+    return COUNTERSTRIKE_ZAP_TWO_ID;
+  }
+
+  return DEFAULT_COUNTERSTRIKE_PLAYBOOK.id;
+}
+
 function formatThreatProcess(process: FixThreatProcess): string {
   const base = process.exe || process.proc || "process";
   return process.pid > 0 ? `${base} #${process.pid}` : base;
@@ -260,7 +325,7 @@ function buildSnapshotBlockers(snapshot: FixStatusSnapshot): string[] {
     const sample = systemPathRuntime ?? snapshot.suspiciousProcesses[0] ?? null;
     const sampleText = sample
       ? systemPathRuntime
-        ? `; auto-containment blocked for system binary ${formatThreatProcess(sample)}`
+        ? `; protected-path runtime still visible around ${formatThreatProcess(sample)}`
         : `; sample ${formatThreatProcess(sample)}`
       : "";
     blockers.push(
@@ -296,7 +361,7 @@ function buildFixResultDetails(input: {
   if (beforeSnapshot && afterSnapshot) {
     const alertsBefore = beforeSnapshot.alerts.length;
     const alertsAfter = afterSnapshot.alerts.length;
-    details.push(`Alerts: ${alertsBefore} -> ${alertsAfter} (${Math.max(0, alertsBefore - alertsAfter)} closed).`);
+    details.push(`Alerts: ${alertsBefore} -> ${alertsAfter} (${Math.max(0, alertsBefore - alertsAfter)} cleared).`);
     details.push(
       `Unexpected public ports: ${beforeSnapshot.unexpectedPublicPortsCount} -> ${afterSnapshot.unexpectedPublicPortsCount}.`
     );
@@ -304,21 +369,21 @@ function buildFixResultDetails(input: {
   } else if (afterSnapshot) {
     details.push(`Latest snapshot still reports ${afterSnapshot.alerts.length} active alert(s).`);
   } else {
-    details.push("Could not re-read the latest status snapshot after auto-fix.");
+    details.push("The latest status snapshot could not be re-read after Fix Now finished.");
   }
 
   if (!snapshotAdvanced) {
     details.push(
       postRefreshSnapshotTs
-        ? `Snapshot timestamp did not advance yet (latest visible: ${postRefreshSnapshotTs}).`
-        : "Snapshot timestamp did not advance yet."
+        ? `A newer snapshot has not landed yet (latest visible: ${postRefreshSnapshotTs}).`
+        : "A newer snapshot has not landed yet."
     );
   }
 
   if (afterSnapshot) {
     const blockers = buildSnapshotBlockers(afterSnapshot);
     if (blockers.length > 0) {
-      details.push(`Still red because ${blockers.join("; ")}.`);
+      details.push(`Still not green because ${blockers.join("; ")}.`);
     } else if (afterSnapshot.alerts.length === 0 && afterSnapshot.unexpectedPublicPortsCount === 0) {
       details.push("No blockers remain in the latest snapshot.");
     }
@@ -374,6 +439,83 @@ async function readFixStatusSnapshot(): Promise<FixStatusSnapshot | null> {
   } catch {
     return null;
   }
+}
+
+function normalizeCounterstrikeStatusSnapshot(payload: JsonRecord | null): CounterstrikeStatusSnapshot | null {
+  if (!payload) return null;
+
+  const runningRaw = asRecord(payload.running);
+  const lastRaw = asRecord(payload.last);
+
+  return {
+    running: runningRaw
+      ? {
+          runId: asString(runningRaw.runId ?? runningRaw.run_id),
+          playbook: asString(runningRaw.playbook),
+          playbookLabel: asString(runningRaw.playbookLabel ?? runningRaw.playbook_label),
+          currentLabel: asString(runningRaw.currentLabel ?? runningRaw.current_label),
+          updatedAt: asString(runningRaw.updatedAt ?? runningRaw.updated_at),
+        }
+      : null,
+    last: lastRaw
+      ? {
+          runId: asString(lastRaw.runId ?? lastRaw.run_id),
+          playbook: asString(lastRaw.playbook),
+          playbookLabel: asString(lastRaw.playbookLabel ?? lastRaw.playbook_label),
+          status: asString(lastRaw.status),
+          summary: asString(lastRaw.summary),
+          errors: asArray(lastRaw.errors)
+            .map((entry) => asString(entry))
+            .filter((entry): entry is string => Boolean(entry)),
+          updatedAt: asString(lastRaw.updatedAt ?? lastRaw.updated_at),
+        }
+      : null,
+  };
+}
+
+async function readCounterstrikeStatusSnapshot(): Promise<CounterstrikeStatusSnapshot | null> {
+  try {
+    const res = await fetch("/api/ops/counterstrike/status", {
+      method: "GET",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const payload = asRecord(await res.json().catch(() => null));
+    if (!payload || payload.ok !== true) return null;
+    return normalizeCounterstrikeStatusSnapshot(payload);
+  } catch {
+    return null;
+  }
+}
+
+async function waitForCounterstrikeCompletion(runId: string | null): Promise<{
+  snapshot: CounterstrikeStatusSnapshot | null;
+  timedOut: boolean;
+}> {
+  const deadline = Date.now() + COUNTERSTRIKE_TIMEOUT_MS;
+  let lastSnapshot: CounterstrikeStatusSnapshot | null = null;
+
+  while (Date.now() < deadline) {
+    const snapshot = await readCounterstrikeStatusSnapshot();
+    if (snapshot) lastSnapshot = snapshot;
+
+    if (snapshot && !snapshot.running) {
+      if (!runId || snapshot.last?.runId === runId || snapshot.last) {
+        return {
+          snapshot,
+          timedOut: false,
+        };
+      }
+    }
+
+    await sleep(COUNTERSTRIKE_POLL_MS);
+  }
+
+  return {
+    snapshot: lastSnapshot,
+    timedOut: true,
+  };
 }
 
 function countTrackedState(summary: TrackedRunsSummary, state: string): number {
@@ -576,12 +718,12 @@ function buildPrimaryCue(input: {
     const procLine = firstAlertDetailLine(runtimeAlert.detail, /^- pid=/i);
     return {
       tone: "bad",
-      title: "Primary blocker: manual runtime IOC follow-up is still required",
+      title: "Primary blocker: a runtime threat signal is still live",
       detail: exeLine
-        ? `${exeLine} is still flagged. Safe auto-fix will not quarantine system-path binaries, so the host stays red until this is handled manually.`
+        ? `${exeLine} is still flagged. Fix Now will try Counterstrike first, but the host stays red until the next clean snapshot clears this runtime IOC.`
         : procLine
-          ? `${procLine} is still flagged. Safe auto-fix will not quarantine system-path binaries, so the host stays red until this is handled manually.`
-          : "A suspicious runtime IOC is still active. Safe auto-fix will not quarantine system-path binaries, so the host stays red until this is handled manually.",
+          ? `${procLine} is still flagged. Fix Now will try Counterstrike first, but the host stays red until the next clean snapshot clears this runtime IOC.`
+          : "A suspicious runtime IOC is still active. Fix Now will try Counterstrike first, but the host stays red until the next clean snapshot clears it.",
     };
   }
 
@@ -798,93 +940,108 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
     }
 
     if (stepId === "contain-runtime-ioc") {
-      const run = await postJson("/api/ops/contain-runtime-ioc");
-      if (!run.ok) {
+      const statusSnap = await readFixStatusSnapshot();
+      const playbookId = pickCounterstrikePlaybookId({
+        snapshot: statusSnap,
+        alertsPreview,
+      });
+      const playbook = getCounterstrikePlaybook(playbookId) ?? DEFAULT_COUNTERSTRIKE_PLAYBOOK;
+      const launch = await postJson("/api/ops/counterstrike/run", {
+        playbook: playbook.id,
+        mode: "execute",
+      });
+
+      let runId: string | null = null;
+      let runLabel = playbook.label;
+
+      if (!launch.ok) {
+        const existingSnapshot =
+          normalizeCounterstrikeStatusSnapshot(asRecord(launch.payload.snapshot)) ??
+          normalizeCounterstrikeStatusSnapshot(launch.payload);
+        if (launch.status !== 409 || !existingSnapshot?.running) {
+          return {
+            ok: false,
+            detail: `${playbook.label} could not start: ${launch.error}`,
+          };
+        }
+
+        runId = existingSnapshot.running.runId;
+        runLabel =
+          existingSnapshot.running.playbookLabel ??
+          getCounterstrikePlaybook(existingSnapshot.running.playbook ?? undefined)?.label ??
+          runLabel;
+      } else {
+        const startedSnapshot =
+          normalizeCounterstrikeStatusSnapshot(asRecord(launch.payload.snapshot)) ??
+          normalizeCounterstrikeStatusSnapshot(launch.payload);
+        runId = startedSnapshot?.running?.runId ?? startedSnapshot?.last?.runId ?? null;
+        runLabel =
+          startedSnapshot?.running?.playbookLabel ??
+          startedSnapshot?.last?.playbookLabel ??
+          runLabel;
+      }
+
+      const finished = await waitForCounterstrikeCompletion(runId);
+      const runningSnapshot = finished.snapshot?.running;
+      const lastRun = finished.snapshot?.last;
+
+      if (finished.timedOut && runningSnapshot) {
         return {
           ok: false,
-          detail: run.error,
+          detail: `${runLabel} is still running${runningSnapshot.currentLabel ? ` (${runningSnapshot.currentLabel})` : ""}. Give it another moment, then refresh the Battlefeed.`,
         };
       }
 
-      const matched = Math.max(0, asInt(run.payload.matched));
-      const considered = Math.max(0, asInt(run.payload.considered));
-      const containable = Math.max(0, asInt(run.payload.containable));
-      const contained = Math.max(0, asInt(run.payload.contained));
-      const failed = Math.max(0, asInt(run.payload.failed));
-      const skipped = Math.max(0, asInt(run.payload.skipped));
-      const blocked = Math.max(0, asInt(run.payload.blocked));
-      const blockedCandidates = asArray(run.payload.blockedCandidates)
-        .map((item) => asRecord(item))
-        .filter((item): item is JsonRecord => item !== null)
-        .map((item) => {
-          const exe = asString(item.exe);
-          const detail = asString(item.detail);
-          const pid = asInt(item.pid);
-          const proc = asString(item.proc);
-          const label = exe ?? proc ?? "runtime IOC";
-          const withPid = pid > 0 ? `${label} #${pid}` : label;
-          return detail ? `${withPid}: ${detail}` : withPid;
-        })
-        .slice(0, 2);
+      if (!lastRun) {
+        return {
+          ok: false,
+          detail: `${runLabel} finished, but the final Counterstrike record is not readable yet.`,
+        };
+      }
 
-      if (considered === 0 && blocked === 0) {
+      const lastRunLabel =
+        lastRun.playbookLabel ??
+        getCounterstrikePlaybook(lastRun.playbook ?? undefined)?.label ??
+        runLabel;
+      const errorSuffix = lastRun.errors.length > 0 ? ` Errors: ${lastRun.errors.slice(0, 2).join(" | ")}` : "";
+      const summary = lastRun.summary ?? "Counterstrike finished.";
+
+      if (lastRun.status === "contained") {
         return {
           ok: true,
-          detail: "No containable runtime IOC process candidates were present in the latest snapshot.",
+          detail: `${lastRunLabel}: ${summary}${errorSuffix}`,
         };
       }
 
-      if (considered === 0 && blocked > 0) {
-        const summaryParts = [
-          `Auto-containment was intentionally blocked for ${blocked}/${Math.max(blocked, matched)} suspicious runtime IOC candidate(s).`,
-        ];
-        if (blockedCandidates.length > 0) {
-          summaryParts.push(blockedCandidates.join(" | "));
-        }
-        summaryParts.push("Manual security follow-up is required before this host can turn green.");
+      if (lastRun.status === "partial") {
         return {
           ok: false,
-          detail: summaryParts.join(" "),
+          detail: `${lastRunLabel}: ${summary} Manual follow-up is still required.${errorSuffix}`,
         };
       }
 
-      const parts: string[] = [];
-      parts.push(
-        `Runtime IOC containment processed ${considered} candidate(s): contained=${contained}, failed=${failed}, skipped=${skipped}.`
-      );
-      if (containable > 0) {
-        parts.push(`Containable by policy: ${containable}.`);
-      }
-      if (blocked > 0) {
-        parts.push(`Manual-only candidates still active: ${blocked}.`);
-        if (blockedCandidates.length > 0) {
-          parts.push(blockedCandidates.join(" | "));
-        }
-      }
-      const host = asString(run.payload.host);
-      if (host) {
-        parts.push(`Host: ${host}.`);
-      }
-      const snapshotTs = asString(run.payload.snapshotTs);
-      if (snapshotTs) {
-        parts.push(`Snapshot: ${snapshotTs}.`);
-      }
-
-      if (failed > 0 || blocked > 0) {
+      if (lastRun.status === "blocked") {
         return {
           ok: false,
-          detail: parts.join(" "),
+          detail: `${lastRunLabel}: ${summary} The latest snapshot did not offer a safe automatic containment target.${errorSuffix}`,
         };
       }
 
       return {
-        ok: true,
-        detail: parts.join(" "),
+        ok: false,
+        detail: `${lastRunLabel}: ${summary}${errorSuffix}`,
       };
     }
 
     if (stepId === "alerts") {
       const statusSnap = await readFixStatusSnapshot();
+      if (statusSnap && statusSnap.alerts.length === 0) {
+        return {
+          ok: true,
+          detail: "The latest snapshot is already clear of active alerts, so no extra alert remediation ran.",
+        };
+      }
+
       if (statusSnap && isBaselineDriftOnlySnapshot(statusSnap)) {
         const baselineRun = await postJson("/api/ops/baseline-accept");
         if (!baselineRun.ok) {
@@ -1233,15 +1390,15 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
           ok: true,
           message:
             blockers.length > 0
-              ? `Auto-fix completed, but the host is still not green after snapshot ${postRefreshSnapshotTs ?? "refresh"}.`
-              : `Auto-fix completed. Dashboard refreshed with snapshot ${postRefreshSnapshotTs ?? "update"}.`,
+              ? `Fix Now ran cleanly, but snapshot ${postRefreshSnapshotTs ?? "refresh"} still shows blockers keeping the host out of green.`
+              : `Fix Now finished cleanly. Snapshot ${postRefreshSnapshotTs ?? "update"} should put this host back in green.`,
           details: resultDetails,
         });
       } else {
         setFixResult({
           ok: true,
           message:
-            "Auto-fix completed, but snapshot timestamp has not advanced yet. Status will update once the next snapshot is written.",
+            "Fix Now finished, but the next snapshot has not landed yet. The card will turn once fresh status is written.",
           details: resultDetails,
         });
       }
@@ -1250,7 +1407,7 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
 
     setFixResult({
       ok: false,
-      message: `Auto-fix finished with ${failed} step(s) needing manual follow-up.`,
+      message: `Fix Now made progress, but ${failed} step(s) still need manual follow-up.`,
       details: resultDetails,
     });
   }

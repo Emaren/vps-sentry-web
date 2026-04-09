@@ -122,7 +122,7 @@ export function buildActionsNeeded(input: {
 
   if (runtimeContainmentNeeded) {
     out.push(
-      "Runtime IOC follow-up: contain suspicious process candidates before normal remediation. The host will stay red until that threat signal clears."
+      "Runtime threat follow-up: run Counterstrike first, then confirm the next snapshot comes back clean. The host stays red until that threat signal clears."
     );
   }
 
@@ -165,12 +165,10 @@ export function buildExplainText(input: {
     });
   }
 
-  lines.push("Here is the plain-English readout of this snapshot:");
-  lines.push("");
   lines.push(
     `Status: ${input.summary.headline}. ${
       input.summary.needsAction
-        ? "You should review a few things now, but this is still manageable."
+        ? "A few things need attention, but this still looks recoverable."
         : "No urgent action is required."
     }`
   );
@@ -178,16 +176,16 @@ export function buildExplainText(input: {
 
   if (input.alertsCount > 0) {
     lines.push(
-      `• Alerts: ${input.alertsCount}. The agent noticed changes that could be risky and should be verified.`
+      `• Alerts: ${input.alertsCount}. VPSSentry saw changes that deserve a human check.`
     );
   } else {
-    lines.push("• Alerts: 0 (nothing risky flagged by the agent in this snapshot).");
+    lines.push("• Alerts: 0. Nothing risky was flagged in this snapshot.");
   }
 
   // Ports: actionable first, then optional raw context
   if (input.publicPortsCount > 0) {
     lines.push(
-      `• Unexpected public ports: ${input.publicPortsCount}. Something is listening on the internet that is not on your allowlist.`
+      `• Unexpected public ports: ${input.publicPortsCount}. Something is reachable from the internet that is not on your allowlist.`
     );
   } else {
     lines.push("• Unexpected public ports: 0.");
@@ -197,7 +195,7 @@ export function buildExplainText(input: {
           ? ` Allowlisted ports: ${input.expectedPublicPorts.join(", ")}.`
           : "";
       lines.push(
-        `  (FYI: ${input.allowlistedTotal} public port(s) are open, but they match your allowlist.)${allowTxt}`
+        `  (${input.allowlistedTotal} public port(s) are open, and they match your allowlist.)${allowTxt}`
       );
     }
   }
@@ -210,7 +208,7 @@ export function buildExplainText(input: {
 
   if (input.alertsPreview && input.alertsPreview.length > 0) {
     lines.push("");
-    lines.push("Current alert details:");
+    lines.push("Top alert details:");
     for (const alert of input.alertsPreview.slice(0, 3)) {
       const severity = alert.severity ? alert.severity.toUpperCase() : "WARN";
       lines.push(`• [${severity}] ${alert.title}`);
@@ -222,7 +220,7 @@ export function buildExplainText(input: {
 
   if (reasonLines.length) {
     lines.push("");
-    lines.push("Why this was marked:");
+    lines.push("Why it landed in this state:");
     for (const reason of reasonLines.slice(0, 4)) {
       lines.push(`• ${reason}`);
     }
@@ -230,7 +228,7 @@ export function buildExplainText(input: {
 
   if (itemLines.length) {
     lines.push("");
-    lines.push("Top things to understand first:");
+    lines.push("What matters most first:");
     for (const item of itemLines.slice(0, 3)) {
       lines.push(`• [${item.severity}] ${item.title}`);
       if (item.summary) lines.push(`  ${item.summary}`);
@@ -238,12 +236,12 @@ export function buildExplainText(input: {
   }
 
   lines.push("");
-  lines.push("Recommended next moves (safest order):");
+  lines.push("Recommended next moves:");
   lines.push(...input.actionsNeeded.map((a) => `• ${a}`));
 
   lines.push("");
   lines.push(
-    "Fix Now runs safe automations (build safe remediation plan, queue/execute allowed actions, then drain queue + refresh report). It can still finish with blockers when the latest snapshot still shows unresolved runtime IOC or drift. Runtime IOC auto-fix only quarantines user-writable executables, so system binaries stay manual by design. Risky changes, like closing ports, stay manual too."
+    "Fix Now starts with the safest automation available. If this looks like a runtime threat, it will launch the matching Counterstrike playbook and wait for a fresh snapshot. It can still leave blockers behind when the latest scan still shows drift, exposure, or a threat that is not safe to automate away."
   );
 
   return lines.join("\n");
@@ -274,13 +272,13 @@ export function buildFixSteps(input: {
   if (input.publicPortsCount > 0) {
     steps.push({
       id: "ports",
-      label: "Prepare safe containment plan for unexpected public ports",
+      label: "Flag unexpected public ports for operator review",
       status: "idle",
     });
   } else if (input.allowlistedTotal !== null) {
     steps.push({
       id: "ports-allowlisted",
-      label: "Ports are allowlisted (FYI) — review allowlist if you want this quieter/noisier",
+      label: "Public ports are allowlisted; no port action needed right now",
       status: "idle",
     });
   }
@@ -288,7 +286,7 @@ export function buildFixSteps(input: {
   if (runtimeContainmentNeeded) {
     steps.push({
       id: "contain-runtime-ioc",
-      label: "Contain suspicious runtime IOC process(es) when safe; system-path binaries stay manual and keep the host red",
+      label: "Run Counterstrike on runtime threat signals, then wait for a fresh scan",
       status: "idle",
     });
   }
@@ -296,7 +294,7 @@ export function buildFixSteps(input: {
   if (input.alertsCount > 0) {
     steps.push({
       id: "alerts",
-      label: "Run queued safe remediations for active alerts",
+      label: "Run safe remediation actions for alerts that are still active",
       status: "idle",
     });
   }
@@ -312,7 +310,7 @@ export function buildFixSteps(input: {
   // Always include a “report” step so the user sees “something happening”
   steps.push({
     id: "report",
-    label: "Generate a fresh report (and notify you, if configured)",
+    label: "Pull a fresh snapshot and refresh the report",
     status: "idle",
   });
 

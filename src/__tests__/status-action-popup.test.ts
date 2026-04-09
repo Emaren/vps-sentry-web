@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isBaselineDriftAlert, normalizeAlertCode } from "@/app/dashboard/_components/status-popup/StatusActionPopup";
+import {
+  isBaselineDriftAlert,
+  normalizeAlertCode,
+  pickCounterstrikePlaybookId,
+} from "@/app/dashboard/_components/status-popup/StatusActionPopup";
 
 describe("StatusActionPopup baseline drift helpers", () => {
   it("treats public_ports_changed as baseline drift", () => {
@@ -33,5 +37,49 @@ describe("StatusActionPopup baseline drift helpers", () => {
 
     expect(normalizeAlertCode(alert)).toBe("cron_changed");
     expect(isBaselineDriftAlert(alert)).toBe(true);
+  });
+
+  it("picks Zap #2 when protected-path runtime signals are present", () => {
+    const playbookId = pickCounterstrikePlaybookId({
+      snapshot: {
+        alerts: [],
+        unexpectedPublicPortsCount: 0,
+        sshFailedPassword: 0,
+        sshInvalidUser: 0,
+        threatIndicatorCount: 1,
+        suspiciousProcesses: [
+          {
+            pid: 2211,
+            proc: "sh",
+            exe: "/bin/sh",
+            reasons: ["container has docker socket bind mount"],
+          },
+        ],
+      },
+    });
+
+    expect(playbookId).toBe("zap-02-busybox-loader-cutoff");
+  });
+
+  it("keeps Zap #1 for ordinary writable-path runtime candidates", () => {
+    const playbookId = pickCounterstrikePlaybookId({
+      snapshot: {
+        alerts: [],
+        unexpectedPublicPortsCount: 0,
+        sshFailedPassword: 0,
+        sshInvalidUser: 0,
+        threatIndicatorCount: 1,
+        suspiciousProcesses: [
+          {
+            pid: 2211,
+            proc: "kdevtmpfsi",
+            exe: "/tmp/kdevtmpfsi",
+            reasons: ["user-writable path"],
+          },
+        ],
+      },
+    });
+
+    expect(playbookId).toBe("zap-01-miner-persistence-purge");
   });
 });
