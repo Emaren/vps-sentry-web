@@ -54,4 +54,24 @@ describe("applyAlertPolicy", () => {
     expect(out.actionable.map((a) => a.title)).toEqual(["Watched files changed"]);
     expect(out.suppressed.map((a) => a.title)).toEqual(["Packages changed"]);
   });
+
+  it("suppresses host disk warnings once they are below the fail line", () => {
+    const out = applyAlertPolicy([
+      {
+        title: "Host disk pressure",
+        code: "host_disk_warn",
+        severity: "warn",
+        detail: "/ is 90.9% used with 3.4GB free.",
+      },
+      {
+        title: "Host disk pressure",
+        code: "host_disk_critical",
+        severity: "critical",
+        detail: "/ is 97.0% used with 1.2GB free.",
+      },
+    ]);
+
+    expect(out.actionable.map((a) => a.code)).toEqual(["host_disk_critical"]);
+    expect(out.suppressed.map((a) => a.code)).toEqual(["host_disk_warn"]);
+  });
 });

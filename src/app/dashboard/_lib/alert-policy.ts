@@ -111,6 +111,15 @@ function scoreAlert(alert: AlertItem): number {
   return score;
 }
 
+function isAdvisoryDiskWarn(alert: AlertItem): boolean {
+  const code = typeof alert.code === "string" ? alert.code.trim().toLowerCase() : "";
+  if (code === "host_disk_warn") return true;
+  if (code === "host_disk_critical") return false;
+
+  const text = asText(alert);
+  return alert.severity === "warn" && /host disk pressure|disk pressure/.test(text);
+}
+
 export function applyAlertPolicy(alerts: AlertItem[]): AlertPolicyResult {
   const regex = compileSuppressionRegexFromEnv();
   const suppressPackages = boolEnv("VPS_SUPPRESS_PACKAGES_CHANGED");
@@ -130,6 +139,10 @@ export function applyAlertPolicy(alerts: AlertItem[]): AlertPolicyResult {
 
     if (!suppressReason && suppressPackages && /packages changed/i.test(title)) {
       suppressReason = "suppressed_by_packages_toggle";
+    }
+
+    if (!suppressReason && isAdvisoryDiskWarn(raw)) {
+      suppressReason = "suppressed_as_advisory_disk_warn";
     }
 
     if (!suppressReason) {
