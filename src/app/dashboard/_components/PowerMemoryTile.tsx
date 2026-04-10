@@ -48,6 +48,9 @@ type ProjectStorageMountedFilesystem = ProjectStorageHostFilesystem & {
   id: string | null;
   label: string | null;
   exists: boolean | null;
+  previousTotalBytes: number | null;
+  capacityChangedBytes: number | null;
+  capacityChangeDirection: "expanded" | "shrunk" | null;
 };
 
 type ProjectStorageProject = {
@@ -103,6 +106,7 @@ type ProjectLiveVitals = {
 type LivePulsePayload = {
   ts?: string;
   hostVitals?: Partial<HostVitals>;
+  projectStorage?: unknown;
   projectVitals?: Record<string, Partial<ProjectLiveVitals>>;
   garbageEstimate?: DashboardGarbageEstimate | null;
 };
@@ -216,6 +220,14 @@ function mergeGarbageEstimate(
   previous: DashboardGarbageEstimate | null,
   next: DashboardGarbageEstimate | null | undefined
 ): DashboardGarbageEstimate | null {
+  if (next === undefined) return previous;
+  return next ?? null;
+}
+
+function mergeProjectStorage(
+  previous: ProjectStoragePayload | null,
+  next: ProjectStoragePayload | null | undefined
+): ProjectStoragePayload | null {
   if (next === undefined) return previous;
   return next ?? null;
 }
@@ -471,6 +483,12 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
     usedPercent: parseUsedPercent(entry.used_percent),
     warnPercent: parseUsedPercent(entry.warn_percent),
     failPercent: parseUsedPercent(entry.fail_percent),
+    previousTotalBytes: toInt(entry.previous_total_bytes),
+    capacityChangedBytes: toInt(entry.capacity_changed_bytes),
+    capacityChangeDirection:
+      entry.capacity_change_direction === "expanded" || entry.capacity_change_direction === "shrunk"
+        ? entry.capacity_change_direction
+        : null,
     level:
       entry.level === "ok" || entry.level === "warn" || entry.level === "critical"
         ? entry.level
@@ -643,13 +661,14 @@ function FocusWorkbench(props: {
 
 export default function PowerMemoryTile(props: { derived: DerivedDashboard; canReclaim: boolean }) {
   const { canReclaim, derived: d } = props;
+  const snapshotProjectStorage = pickProjectStorageFromDerived(d);
 
   const topRows = d.vitalsProcesses.filter((x) => !x.isOther).slice(0, 5);
   const otherRow = d.vitalsProcesses.find((x) => x.isOther);
   const rows = otherRow ? [...topRows, otherRow] : topRows;
 
   const { local: portsLocal, pub: portsPublic } = pickPortsFromDerived(d);
-  const projectStorage = pickProjectStorageFromDerived(d);
+  const [projectStorage, setProjectStorage] = React.useState<ProjectStoragePayload | null>(snapshotProjectStorage);
   const mountedFilesystems = projectStorage?.mountedFilesystems ?? [];
   const primaryMountedFilesystem =
     mountedFilesystems.find((fs) => fs.exists !== false) ?? mountedFilesystems[0] ?? null;
@@ -665,7 +684,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
   const hostFilesystem = projectStorage?.hostFilesystem ?? null;
   const initialHostVitals: HostVitals = {
     source: "snapshot",
-    updatedTs: projectStorage?.measuredAt ?? d.snapshotTs,
+    updatedTs: snapshotProjectStorage?.measuredAt ?? d.snapshotTs,
     cpuUsedPercent: d.cpuUsedPercent,
     cpuCapacityPercent: d.cpuCapacityPercent,
     cpuCores: d.cpuCores,
@@ -673,10 +692,10 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
     memoryCapacityPercent: d.memoryCapacityPercent,
     memoryUsedMb: d.memoryUsedMb,
     memoryTotalMb: d.memoryTotalMb,
-    diskUsedPercent: hostFilesystem?.usedPercent ?? null,
-    diskUsedBytes: hostFilesystem?.usedBytes ?? null,
-    diskTotalBytes: hostFilesystem?.totalBytes ?? null,
-    diskAvailableBytes: hostFilesystem?.availableBytes ?? null,
+    diskUsedPercent: snapshotProjectStorage?.hostFilesystem?.usedPercent ?? null,
+    diskUsedBytes: snapshotProjectStorage?.hostFilesystem?.usedBytes ?? null,
+    diskTotalBytes: snapshotProjectStorage?.hostFilesystem?.totalBytes ?? null,
+    diskAvailableBytes: snapshotProjectStorage?.hostFilesystem?.availableBytes ?? null,
   };
   const [hostVitals, setHostVitals] = React.useState<HostVitals>(initialHostVitals);
   const [garbageEstimate, setGarbageEstimate] = React.useState<DashboardGarbageEstimate | null>(d.garbageEstimate);
@@ -700,8 +719,11 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
       try {
         const payload = JSON.parse(event.data) as LivePulsePayload;
         if (!payload || typeof payload !== "object") return;
+        const nextProjectStorage =
+          payload.projectStorage === undefined ? undefined : parseProjectStoragePayload(payload.projectStorage);
         React.startTransition(() => {
           setHostVitals((current) => mergeHostVitals(current, payload.hostVitals));
+          setProjectStorage((current) => mergeProjectStorage(current, nextProjectStorage));
           setGarbageEstimate((current) => mergeGarbageEstimate(current, payload.garbageEstimate));
           setProjectLiveVitals((current) => mergeProjectVitals(current, payload.projectVitals));
         });
@@ -979,6 +1001,29 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
       : primaryMountedFilesystem?.level === "ok"
         ? "ok"
         : "default";
+  const mountedUsageMeta = primaryMountedFilesystem
+    ? [
+        typeof primaryMountedFilesystem.usedBytes === "number"
+          ? `${fmtBytes(primaryMountedFilesystem.usedBytes)} used`
+          : null,
+        typeof primaryMountedFilesystem.usedPercent === "number"
+          ? `${fmtPercent(primaryMountedFilesystem.usedPercent)} full`
+          : null,
+        primaryMountedFilesystem.path ?? null,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join(" · ")
+    : null;
+  const mountedResizeMeta =
+    primaryMountedFilesystem &&
+    typeof primaryMountedFilesystem.totalBytes === "number" &&
+    typeof primaryMountedFilesystem.previousTotalBytes === "number" &&
+    typeof primaryMountedFilesystem.capacityChangedBytes === "number" &&
+    primaryMountedFilesystem.capacityChangedBytes !== 0
+      ? `${
+          primaryMountedFilesystem.capacityChangeDirection === "shrunk" ? "Resized down" : "Expanded"
+        } from ${fmtBytes(primaryMountedFilesystem.previousTotalBytes)} by ${fmtSignedBytes(primaryMountedFilesystem.capacityChangedBytes)}`
+      : null;
 
   const activeFocusPanel =
     activeTopTab === "power" ? (
@@ -1066,10 +1111,12 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           },
           {
             label: primaryMountedFilesystem?.label ?? "Mounted volume",
-            value: fmtBytes(primaryMountedFilesystem?.usedBytes ?? null),
+            value: fmtBytes(primaryMountedFilesystem?.totalBytes ?? null),
             meta:
               primaryMountedFilesystem
-                ? `${fmtBytes(primaryMountedFilesystem.totalBytes)} total · ${primaryMountedFilesystem.path ?? "mounted path"}`
+                ? [mountedResizeMeta, mountedUsageMeta]
+                    .filter((value): value is string => Boolean(value))
+                    .join(" · ")
                 : "No mounted volume tracked yet.",
             tone: mountedTone,
           },

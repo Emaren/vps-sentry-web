@@ -50,6 +50,7 @@ type LivePulsePayload = {
     diskTotalBytes: number | null;
     diskAvailableBytes: number | null;
   };
+  projectStorage: unknown;
   projectVitals: Record<string, ProjectLiveVitals>;
   garbageEstimate: DashboardGarbageEstimate | null;
 };
@@ -392,6 +393,7 @@ async function buildLivePulse(input: {
       diskTotalBytes: env.last.project_storage?.host_filesystem?.total_bytes ?? null,
       diskAvailableBytes: env.last.project_storage?.host_filesystem?.available_bytes ?? null,
     },
+    projectStorage: env.last.project_storage ?? null,
     projectVitals: {},
     garbageEstimate: derived.garbageEstimate,
   };

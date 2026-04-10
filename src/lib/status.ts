@@ -132,6 +132,9 @@ export type ProjectStorageMountedFilesystem = ProjectStorageHostFilesystem & {
   id?: string;
   label?: string;
   exists?: boolean;
+  previous_total_bytes?: number;
+  capacity_changed_bytes?: number;
+  capacity_change_direction?: "expanded" | "shrunk";
 };
 
 export type ProjectStorageSnapshot = {
