@@ -58,6 +58,22 @@ App readiness probes:
 - process-only readiness: `curl -fsS "http://127.0.0.1:${VPS_WEB_PORT}/api/readyz"`
 - DB-inclusive readiness: `curl -fsS "http://127.0.0.1:${VPS_WEB_PORT}/api/readyz?check=db"`
 
+### Mounted volume telemetry
+
+Disk Workbench reads mounted-volume capacity from `project_storage.mounted_filesystems` in `/var/lib/vps-sentry/public/status.json`, then keeps that block fresh through `/api/dashboard/live`.
+
+What this means operationally:
+
+- If a provider-side disk resize lands cleanly on the VPS, VPSSentry should reflect the new capacity on the next host patrol merge without a manual code edit.
+- If you want the UI to catch the change immediately instead of waiting for the patrol timer, run:
+
+```bash
+sudo systemctl start vps-sentry.service
+```
+
+- The mounted-volume stat now leads with total capacity, not used space, and will show a resize delta when the previous snapshot saw a different disk size.
+- After a web deploy that changes the dashboard bundle, any already-open browser tab may need one reload before it starts consuming the upgraded live feed logic.
+
 ## 3) Alerting
 
 Manual alert test:
