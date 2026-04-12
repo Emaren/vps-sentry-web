@@ -109,6 +109,8 @@ type LivePulsePayload = {
   projectStorage?: unknown;
   projectVitals?: Record<string, Partial<ProjectLiveVitals>>;
   garbageEstimate?: DashboardGarbageEstimate | null;
+  portsLocal?: PortEntry[];
+  portsPublic?: PortEntry[];
 };
 
 function fmtPercent(v: number | null): string {
@@ -667,7 +669,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
   const otherRow = d.vitalsProcesses.find((x) => x.isOther);
   const rows = otherRow ? [...topRows, otherRow] : topRows;
 
-  const { local: portsLocal, pub: portsPublic } = pickPortsFromDerived(d);
+  const initialPorts = React.useMemo(() => pickPortsFromDerived(d), [d]);
+  const [livePorts, setLivePorts] = React.useState<{ local: PortEntry[]; pub: PortEntry[] }>(initialPorts);
+  const { local: portsLocal, pub: portsPublic } = livePorts;
   const [projectStorage, setProjectStorage] = React.useState<ProjectStoragePayload | null>(snapshotProjectStorage);
   const mountedFilesystems = projectStorage?.mountedFilesystems ?? [];
   const primaryMountedFilesystem =
@@ -701,6 +705,10 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
   const [garbageEstimate, setGarbageEstimate] = React.useState<DashboardGarbageEstimate | null>(d.garbageEstimate);
   const [projectLiveVitals, setProjectLiveVitals] = React.useState<Record<string, ProjectLiveVitals>>({});
   const [liveConnected, setLiveConnected] = React.useState(false);
+
+  React.useEffect(() => {
+    setLivePorts(initialPorts);
+  }, [initialPorts]);
   const [liveLastError, setLiveLastError] = React.useState<string | null>(null);
   const [activeTopTab, setActiveTopTab] = React.useState<PowerVitalsTopTab>("reclaim");
 
@@ -721,11 +729,19 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
         if (!payload || typeof payload !== "object") return;
         const nextProjectStorage =
           payload.projectStorage === undefined ? undefined : parseProjectStoragePayload(payload.projectStorage);
+        const nextLocal = Array.isArray(payload.portsLocal) ? payload.portsLocal : undefined;
+        const nextPublic = Array.isArray(payload.portsPublic) ? payload.portsPublic : undefined;
         React.startTransition(() => {
           setHostVitals((current) => mergeHostVitals(current, payload.hostVitals));
           setProjectStorage((current) => mergeProjectStorage(current, nextProjectStorage));
           setGarbageEstimate((current) => mergeGarbageEstimate(current, payload.garbageEstimate));
           setProjectLiveVitals((current) => mergeProjectVitals(current, payload.projectVitals));
+          if (nextLocal || nextPublic) {
+            setLivePorts({
+              local: nextLocal ?? [],
+              pub: nextPublic ?? [],
+            });
+          }
         });
       } catch {
         // ignore malformed events

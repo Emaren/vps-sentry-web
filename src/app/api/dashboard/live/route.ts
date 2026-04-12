@@ -35,6 +35,8 @@ type LivePulsePayload = {
   queueQueued: number;
   queueDlq: number;
   shippingFailed24h: number;
+  portsLocal: unknown[];
+  portsPublic: unknown[];
   hostVitals: {
     source: "live" | "snapshot";
     updatedTs: string;
@@ -378,6 +380,8 @@ async function buildLivePulse(input: {
     queueQueued: ops.queue?.counts.queued ?? ops.remediation?.counts.queued ?? 0,
     queueDlq: ops.queue?.counts.dlq ?? ops.remediation?.counts.dlq ?? 0,
     shippingFailed24h: ops.shipping?.counts.failed24h ?? 0,
+    portsLocal: env.last.ports_local ?? [],
+    portsPublic: env.last.ports_public ?? [],
     hostVitals: {
       source: "snapshot",
       updatedTs: new Date().toISOString(),
