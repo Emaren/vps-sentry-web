@@ -80,6 +80,21 @@ export type ProjectStorageLargestDir = {
   disk_bytes?: number;
 };
 
+export type ProjectStorageLocation = {
+  class?: "root_disk" | "mounted_volume" | "symlinked_to_volume" | "other_mount" | "missing" | string;
+  label?: string;
+  path?: string;
+  real_path?: string;
+  is_symlink?: boolean;
+  is_root_resident?: boolean;
+  is_volume_backed?: boolean;
+  mount_point?: string;
+  device_source?: string;
+  filesystem_type?: string;
+  volume_id?: string;
+  volume_label?: string;
+};
+
 export type ProjectStorageBucket = {
   label?: string;
   disk_bytes?: number;
@@ -90,10 +105,13 @@ export type ProjectStorageBucket = {
 
 export type ProjectStorageRoot = {
   label?: string;
+  path?: string;
+  real_path?: string;
   exists?: boolean;
   disk_bytes?: number;
   apparent_bytes?: number;
   file_count?: number;
+  storage_location?: ProjectStorageLocation;
   buckets?: Record<string, ProjectStorageBucket>;
   largest_dirs?: ProjectStorageLargestDir[];
 };
@@ -111,6 +129,13 @@ export type ProjectStorageProject = {
   delta_disk_bytes?: number;
   delta_apparent_bytes?: number;
   delta_file_count?: number;
+  storage_class?: string;
+  storage_label?: string;
+  root_resident_bytes?: number;
+  mounted_volume_bytes?: number;
+  symlinked_to_volume_bytes?: number;
+  volume_backed_bytes?: number;
+  other_mount_bytes?: number;
   roots?: ProjectStorageRoot[];
   buckets?: Record<string, ProjectStorageBucket>;
   largest_dirs?: ProjectStorageLargestDir[];
@@ -125,6 +150,12 @@ export type ProjectStorageHostFilesystem = {
   used_percent?: number;
   warn_percent?: number;
   fail_percent?: number;
+  device_source?: string;
+  device_size_bytes?: number;
+  filesystem_type?: string;
+  mount_point?: string;
+  filesystem_gap_bytes?: number;
+  filesystem_resize_pending?: boolean;
   level?: "ok" | "warn" | "critical";
 };
 
@@ -137,6 +168,38 @@ export type ProjectStorageMountedFilesystem = ProjectStorageHostFilesystem & {
   capacity_change_direction?: "expanded" | "shrunk";
 };
 
+export type ProjectStorageRootConsumer = {
+  id?: string;
+  project_id?: string;
+  project_label?: string;
+  path?: string;
+  real_path?: string;
+  label?: string;
+  bytes?: number;
+  bucket?: string;
+  category?: string;
+  category_label?: string;
+  reclaimability?: string;
+  storage_class?: string;
+  storage_label?: string;
+};
+
+export type ProjectStorageDiscoveryCandidate = {
+  id?: string;
+  label?: string;
+  path?: string;
+  real_path?: string;
+  scope?: "vps" | "local" | string;
+  state?: "untracked" | "ignored" | "tracked" | string;
+  storage_location?: ProjectStorageLocation;
+  marker_paths?: string[];
+  suggested_tracking?: {
+    vps_roots?: string[];
+    local_roots?: string[];
+    note?: string;
+  };
+};
+
 export type ProjectStorageSnapshot = {
   schema_version?: number;
   measured_at?: string;
@@ -146,6 +209,28 @@ export type ProjectStorageSnapshot = {
   bucket_order?: string[];
   host_filesystem?: ProjectStorageHostFilesystem;
   mounted_filesystems?: ProjectStorageMountedFilesystem[];
+  root_residency?: {
+    root_resident_bytes?: number;
+    mounted_volume_bytes?: number;
+    symlinked_to_volume_bytes?: number;
+    volume_backed_bytes?: number;
+    other_mount_bytes?: number;
+    unknown_storage_bytes?: number;
+    top_root_projects?: ProjectStorageRootConsumer[];
+    top_consumers?: ProjectStorageRootConsumer[];
+    category_totals?: Array<{
+      key?: string;
+      label?: string;
+      bytes?: number;
+      count?: number;
+    }>;
+  };
+  discovery?: {
+    scope?: string;
+    mode?: string;
+    root_paths?: string[];
+    candidates?: ProjectStorageDiscoveryCandidate[];
+  };
   projects?: Record<string, ProjectStorageProject>;
 };
 
@@ -213,6 +298,8 @@ export type GarbageCleanupResult = {
   finished_at?: string;
   freed_bytes_estimated?: number;
   freed_bytes_actual?: number;
+  root_available_before_bytes?: number;
+  root_available_after_bytes?: number;
   deleted_count?: number;
   buckets?: GarbageCleanupBucket[];
   errors?: string[];

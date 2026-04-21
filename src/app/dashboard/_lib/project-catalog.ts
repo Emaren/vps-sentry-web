@@ -12,6 +12,12 @@ export type ProjectDef = {
   backendHref?: string;
   state?: "live" | "dormant";
   services: ProjectService[];
+  storage?: {
+    localRoots?: string[];
+    vpsRoots?: string[];
+    contextRoots?: string[];
+    residencyHint?: "root_disk" | "mounted_volume" | "symlinked_to_volume" | "mixed";
+  };
 };
 
 export const MAIN_PROJECTS: ProjectDef[] = [
@@ -33,6 +39,32 @@ export const MAIN_PROJECTS: ProjectDef[] = [
       { label: "web", port: 3030, required: true },
       { label: "api", port: 3330, required: true },
     ],
+    storage: {
+      localRoots: ["~/projects/AoE2HDBets"],
+      vpsRoots: ["/var/www/AoE2HDBets"],
+      contextRoots: ["~/projects/AoE2HDBets/aoe2-watcher"],
+      residencyHint: "root_disk",
+    },
+  },
+  {
+    key: "aoe2dewarwagers",
+    name: "AoE2DEWarWagers",
+    subtitle: "api-prodn.aoe2dewarwagers.com",
+    href: "https://aoe2dewarwagers.com",
+    backendHref: "https://api-prodn.aoe2dewarwagers.com",
+    services: [
+      { label: "web", port: 4000, required: true },
+      { label: "api", port: 4400, required: true },
+    ],
+    storage: {
+      localRoots: ["~/projects/AoE2DEWarWagers"],
+      vpsRoots: ["/var/www/AoE2DEWarWagers"],
+      contextRoots: [
+        "~/projects/AoE2DEWarWagers",
+        "~/projects/AoE2DEWarWagers/aoe2de-watcher",
+      ],
+      residencyHint: "symlinked_to_volume",
+    },
   },
   {
     key: "wolochain",

@@ -145,6 +145,8 @@ export type DashboardGarbageCleanupResult = {
   finishedAt: string | null;
   freedBytesEstimated: number | null;
   freedBytesActual: number | null;
+  rootAvailableBeforeBytes: number | null;
+  rootAvailableAfterBytes: number | null;
   deletedCount: number | null;
   buckets: DashboardGarbageCleanupBucket[];
   errors: string[];
@@ -265,6 +267,8 @@ function parseGarbageCleanupResult(v: unknown): DashboardGarbageCleanupResult | 
     finishedAt: pickString(rec.finished_at),
     freedBytesEstimated: pickNumber(rec.freed_bytes_estimated),
     freedBytesActual: pickNumber(rec.freed_bytes_actual),
+    rootAvailableBeforeBytes: pickNumber(rec.root_available_before_bytes),
+    rootAvailableAfterBytes: pickNumber(rec.root_available_after_bytes),
     deletedCount: pickNumber(rec.deleted_count),
     buckets,
     errors,

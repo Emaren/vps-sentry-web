@@ -9,14 +9,28 @@ type Target = "local" | "server";
 
 const localDefaultOutdir = "~/projects/VPSSentry/context";
 const serverDefaultOutdir = "/var/www/VPSSentry/context";
-const localDefaultSourceParent = "~/projects";
-const localDefaultOutdirParent = "~/projects/VPSSentry";
 
-type DirectoryPickerHandle = { name: string };
-type DirectoryApiPickResult =
-  | { kind: "picked"; name: string }
-  | { kind: "cancelled" }
-  | { kind: "unavailable" };
+const localSourceExamples = [
+  {
+    label: "DE watcher",
+    path: "~/projects/AoE2DEWarWagers/aoe2de-watcher",
+  },
+  {
+    label: "DE project",
+    path: "~/projects/AoE2DEWarWagers",
+  },
+  {
+    label: "HD watcher",
+    path: "~/projects/AoE2HDBets/aoe2-watcher",
+  },
+];
+
+const localOutdirExamples = [
+  {
+    label: "VPSSentry context",
+    path: localDefaultOutdir,
+  },
+];
 
 function shellQuote(value: string): string {
   if (!value) return "''";
@@ -40,6 +54,17 @@ function buildLocalCommand(src: string, outdir: string, mode: Mode): string {
   return `${exe} --src ${srcArg} --outdir ${outArg} ${modeFlag}`;
 }
 
+const smallHelperButtonStyle: React.CSSProperties = {
+  border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
+  background: "var(--dash-card-bg, rgba(255,255,255,0.03))",
+  color: "inherit",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 800,
+  padding: "4px 8px",
+  cursor: "pointer",
+};
+
 function normalizeRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object") return {};
   return value as Record<string, unknown>;
@@ -49,54 +74,20 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function applyPickedFolderName(currentPath: string, folderName: string, fallbackParent: string): string {
-  const nextName = folderName.trim().replace(/\//g, "");
-  if (!nextName) return currentPath;
-
-  const raw = currentPath.trim().replace(/\/+$/g, "");
-  if (!raw) return `${fallbackParent}/${nextName}`;
-  if (raw === "~") return `~/${nextName}`;
-
-  const slash = raw.lastIndexOf("/");
-  if (slash < 0) return `${fallbackParent}/${nextName}`;
-  if (slash === 0) return `/${nextName}`;
-  return `${raw.slice(0, slash)}/${nextName}`;
-}
-
-function folderNameFromFileList(files: FileList | null): string | null {
-  if (!files || files.length === 0) return null;
-  const first = files.item(0) as (File & { webkitRelativePath?: string }) | null;
-  const rel = typeof first?.webkitRelativePath === "string" ? first.webkitRelativePath : "";
-  if (!rel) return null;
-  const top = rel.split("/")[0]?.trim();
-  return top ? top : null;
-}
-
 export default function ArchiveFolderCard(props: { userRole: AppRole }) {
   const canRunServer = hasRequiredRole(props.userRole, "ops");
 
   const [target, setTarget] = React.useState<Target>("local");
   const [src, setSrc] = React.useState("");
   const [outdir, setOutdir] = React.useState(localDefaultOutdir);
-  const [manualSource, setManualSource] = React.useState(false);
-  const [manualOutdir, setManualOutdir] = React.useState(false);
-  const [pickerNote, setPickerNote] = React.useState<string>("");
+  const [clipboardNote, setClipboardNote] = React.useState<string>("");
   const [mode, setMode] = React.useState<Mode>("both");
   const [busy, setBusy] = React.useState(false);
   const [serverResult, setServerResult] = React.useState("");
-  const sourcePickerInputRef = React.useRef<HTMLInputElement | null>(null);
-  const outdirPickerInputRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
     setOutdir(target === "local" ? localDefaultOutdir : serverDefaultOutdir);
-    if (target === "server") {
-      setManualSource(true);
-      setManualOutdir(true);
-      setPickerNote("");
-      return;
-    }
-    setManualSource(false);
-    setManualOutdir(false);
+    setClipboardNote("");
   }, [target]);
 
   const command = React.useMemo(() => buildLocalCommand(src, outdir, mode), [src, outdir, mode]);
@@ -110,102 +101,24 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
     }
   }, [command]);
 
-  const pickDirectoryNameWithApi = React.useCallback(async (): Promise<DirectoryApiPickResult> => {
-    if (typeof window === "undefined") return { kind: "unavailable" };
-    if (!window.isSecureContext || typeof navigator === "undefined") {
-      return { kind: "unavailable" };
+  const pasteClipboard = React.useCallback(async (field: "src" | "outdir") => {
+    if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
+      setClipboardNote("Clipboard read is unavailable here. Type or paste the path into the text field.");
+      return;
     }
-
-    const withPicker = navigator as Navigator & {
-      showDirectoryPicker?: () => Promise<DirectoryPickerHandle>;
-    };
-
-    if (typeof withPicker.showDirectoryPicker !== "function") {
-      return { kind: "unavailable" };
-    }
-
     try {
-      const picked = await withPicker.showDirectoryPicker();
-      const pickedName = typeof picked?.name === "string" ? picked.name.trim() : "";
-      if (!pickedName) return { kind: "cancelled" };
-      return { kind: "picked", name: pickedName };
-    } catch (error: unknown) {
-      const message = errorMessage(error);
-      // User-cancel is expected behavior; avoid noisy UI.
-      if (/abort|cancel/i.test(message)) return { kind: "cancelled" };
-      throw error;
+      const text = (await navigator.clipboard.readText()).trim();
+      if (!text) {
+        setClipboardNote("Clipboard is empty.");
+        return;
+      }
+      if (field === "src") setSrc(text);
+      else setOutdir(text);
+      setClipboardNote("Pasted clipboard text. Local paths are validated only when the terminal command runs.");
+    } catch {
+      setClipboardNote("Clipboard read was blocked by the browser. Type or paste the path into the text field.");
     }
   }, []);
-
-  const handleSourcePickerFallback = React.useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const folderName = folderNameFromFileList(event.target.files);
-      if (folderName) {
-        setSrc((prev) => applyPickedFolderName(prev, folderName, localDefaultSourceParent));
-        setPickerNote("");
-      } else {
-        setPickerNote("Folder picker did not return a folder. You can type a path manually.");
-      }
-      event.target.value = "";
-    },
-    []
-  );
-
-  const handleOutdirPickerFallback = React.useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const folderName = folderNameFromFileList(event.target.files);
-      if (folderName) {
-        setOutdir((prev) => applyPickedFolderName(prev, folderName, localDefaultOutdirParent));
-        setPickerNote("");
-      } else {
-        setPickerNote("Folder picker did not return a folder. You can type a path manually.");
-      }
-      event.target.value = "";
-    },
-    []
-  );
-
-  const pickLocalSource = React.useCallback(async () => {
-    if (target !== "local" || manualSource) return;
-    setPickerNote("");
-    try {
-      const picked = await pickDirectoryNameWithApi();
-      if (picked.kind === "picked") {
-        setSrc((prev) => applyPickedFolderName(prev, picked.name, localDefaultSourceParent));
-        return;
-      }
-      if (picked.kind === "cancelled") return;
-
-      if (sourcePickerInputRef.current) {
-        sourcePickerInputRef.current.click();
-      } else {
-        setPickerNote("Folder picker unavailable in this browser context. Switch to manual path entry.");
-      }
-    } catch (error: unknown) {
-      setPickerNote(`Folder picker error: ${errorMessage(error)}`);
-    }
-  }, [manualSource, pickDirectoryNameWithApi, target]);
-
-  const pickLocalOutdir = React.useCallback(async () => {
-    if (target !== "local" || manualOutdir) return;
-    setPickerNote("");
-    try {
-      const picked = await pickDirectoryNameWithApi();
-      if (picked.kind === "picked") {
-        setOutdir((prev) => applyPickedFolderName(prev, picked.name, localDefaultOutdirParent));
-        return;
-      }
-      if (picked.kind === "cancelled") return;
-
-      if (outdirPickerInputRef.current) {
-        outdirPickerInputRef.current.click();
-      } else {
-        setPickerNote("Folder picker unavailable in this browser context. Switch to manual path entry.");
-      }
-    } catch (error: unknown) {
-      setPickerNote(`Folder picker error: ${errorMessage(error)}`);
-    }
-  }, [manualOutdir, pickDirectoryNameWithApi, target]);
 
   const runOnServer = React.useCallback(async () => {
     if (!canRunServer || busy || !src.trim()) return;
@@ -231,34 +144,12 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
     }
   }, [busy, canRunServer, mode, outdir, src]);
 
-  const directoryInputAttrs = {
-    webkitdirectory: "",
-    directory: "",
-  } as React.InputHTMLAttributes<HTMLInputElement>;
-
   return (
     <div style={{ ...boxStyle, marginTop: 10, marginBottom: 12 }}>
-      <input
-        {...directoryInputAttrs}
-        ref={sourcePickerInputRef}
-        type="file"
-        tabIndex={-1}
-        aria-hidden="true"
-        style={{ display: "none" }}
-        onChange={handleSourcePickerFallback}
-      />
-      <input
-        {...directoryInputAttrs}
-        ref={outdirPickerInputRef}
-        type="file"
-        tabIndex={-1}
-        aria-hidden="true"
-        style={{ display: "none" }}
-        onChange={handleOutdirPickerFallback}
-      />
       <div style={{ fontWeight: 900, marginBottom: 6 }}>Archive Folder (ZIP / TGZ / Both)</div>
       <div style={subtleText}>
-        Local MBP generates a copy/paste command. Server mode runs the same archive script on VPS.
+        Local MBP is a command builder only. It never uploads folder contents to this site.
+        Server mode runs the same archive script on VPS paths.
       </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
@@ -288,10 +179,6 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
           <input
             value={src}
             onChange={(event) => setSrc(event.target.value)}
-            onClick={() => {
-              if (target === "local" && !manualSource) void pickLocalSource();
-            }}
-            readOnly={target === "local" && !manualSource}
             placeholder={target === "local" ? "/Users/you/projects/..." : "/var/www/..."}
             style={{
               width: "100%",
@@ -300,30 +187,25 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
               border: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))",
               background: "var(--site-input-bg, rgba(255,255,255,0.03))",
               color: "inherit",
-              cursor: target === "local" && !manualSource ? "pointer" : "text",
+              cursor: "text",
             }}
           />
           {target === "local" ? (
-            <button
-              type="button"
-              onClick={() => setManualSource((v) => !v)}
-              style={{
-                marginTop: 6,
-                border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
-                background: "var(--dash-card-bg, rgba(255,255,255,0.03))",
-                color: "inherit",
-                borderRadius: 999,
-                fontSize: 12,
-                fontWeight: 800,
-                padding: "4px 8px",
-                cursor: "pointer",
-              }}
-            >
-              {manualSource ? "Use picker mode" : "Type path manually"}
-            </button>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+              <button type="button" onClick={() => void pasteClipboard("src")} style={smallHelperButtonStyle}>
+                Paste path
+              </button>
+              {localSourceExamples.map((example) => (
+                <button key={example.label} type="button" onClick={() => setSrc(example.path)} style={smallHelperButtonStyle}>
+                  {example.label}
+                </button>
+              ))}
+            </div>
           ) : null}
           <div style={{ ...tinyText, marginTop: 6 }}>
-            Uses your existing context scrub/exclude policy (node_modules, .git, .next, secrets, temp files).
+            {target === "local"
+              ? "The browser does not inspect this local path. The copied terminal command validates it honestly."
+              : "Server mode validates the VPS path before it runs."}
           </div>
         </div>
 
@@ -332,10 +214,6 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
           <input
             value={outdir}
             onChange={(event) => setOutdir(event.target.value)}
-            onClick={() => {
-              if (target === "local" && !manualOutdir) void pickLocalOutdir();
-            }}
-            readOnly={target === "local" && !manualOutdir}
             placeholder={target === "local" ? localDefaultOutdir : serverDefaultOutdir}
             style={{
               width: "100%",
@@ -344,27 +222,20 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
               border: "1px solid var(--dash-card-border, rgba(255,255,255,0.10))",
               background: "var(--site-input-bg, rgba(255,255,255,0.03))",
               color: "inherit",
-              cursor: target === "local" && !manualOutdir ? "pointer" : "text",
+              cursor: "text",
             }}
           />
           {target === "local" ? (
-            <button
-              type="button"
-              onClick={() => setManualOutdir((v) => !v)}
-              style={{
-                marginTop: 6,
-                border: "1px solid var(--dash-card-border, rgba(255,255,255,0.12))",
-                background: "var(--dash-card-bg, rgba(255,255,255,0.03))",
-                color: "inherit",
-                borderRadius: 999,
-                fontSize: 12,
-                fontWeight: 800,
-                padding: "4px 8px",
-                cursor: "pointer",
-              }}
-            >
-              {manualOutdir ? "Use picker mode" : "Type path manually"}
-            </button>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+              <button type="button" onClick={() => void pasteClipboard("outdir")} style={smallHelperButtonStyle}>
+                Paste path
+              </button>
+              {localOutdirExamples.map((example) => (
+                <button key={example.label} type="button" onClick={() => setOutdir(example.path)} style={smallHelperButtonStyle}>
+                  {example.label}
+                </button>
+              ))}
+            </div>
           ) : null}
           <div style={{ ...tinyText, marginTop: 6 }}>Writes .zip/.tgz plus .sha256 sidecars.</div>
         </div>
@@ -429,11 +300,11 @@ export default function ArchiveFolderCard(props: { userRole: AppRole }) {
 
       {target === "local" ? (
         <div style={{ ...tinyText, marginTop: 8 }}>
-          Click Source/Output fields to pick folders. Browser security only reveals folder name, so the parent path is preserved.
+          Local MBP mode does not upload or enumerate files. Copy the command and run it in your terminal.
         </div>
       ) : null}
 
-      {pickerNote ? <div style={{ ...tinyText, marginTop: 6 }}>{pickerNote}</div> : null}
+      {clipboardNote ? <div style={{ ...tinyText, marginTop: 6 }}>{clipboardNote}</div> : null}
 
       {target === "local" ? (
         <pre

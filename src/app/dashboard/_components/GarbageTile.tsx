@@ -47,6 +47,16 @@ export default function GarbageTile(props: {
   const topCandidates = estimate?.candidates?.slice(0, 4) ?? [];
   const cleanup = estimate?.lastCleanupResult ?? null;
   const cleanupFreed = cleanup?.freedBytesActual ?? cleanup?.freedBytesEstimated ?? null;
+  const cleanupRootFreeDelta =
+    typeof cleanup?.rootAvailableBeforeBytes === "number" && typeof cleanup?.rootAvailableAfterBytes === "number"
+      ? cleanup.rootAvailableAfterBytes - cleanup.rootAvailableBeforeBytes
+      : null;
+  const cleanupRootFreeDeltaLabel =
+    typeof cleanupRootFreeDelta === "number"
+      ? cleanupRootFreeDelta >= 0
+        ? `root ${fmtBytes(cleanupRootFreeDelta)} freer`
+        : `root ${fmtBytes(Math.abs(cleanupRootFreeDelta))} tighter`
+      : null;
   const progress = estimate?.cleanupProgress ?? null;
   const progressLines = progress?.recentLines.slice(-4) ?? [];
   const progressStepLabel = progress?.currentLabel ?? cleanupPhaseLabel(progress?.phase);
@@ -187,6 +197,7 @@ export default function GarbageTile(props: {
           {cleanup ? (
             <div className="power-vitals-reclaim-stage-pill">
               Last pass {cleanup.ok ? "clean" : "partial"} · {fmtBytes(cleanupFreed)}
+              {cleanupRootFreeDeltaLabel ? ` · ${cleanupRootFreeDeltaLabel}` : ""}
             </div>
           ) : null}
         </div>
@@ -300,6 +311,9 @@ export default function GarbageTile(props: {
           <div className="garbage-tile-meta-strip">
             Last pass: {cleanup.ok ? "clean" : "partial"} · reclaimed {fmtBytes(cleanupFreed)} ·{" "}
             {typeof cleanup.deletedCount === "number" ? `${cleanup.deletedCount} target(s)` : "details pending"}
+            {typeof cleanup.rootAvailableBeforeBytes === "number" && typeof cleanup.rootAvailableAfterBytes === "number"
+              ? ` · root free ${fmtBytes(cleanup.rootAvailableBeforeBytes)} -> ${fmtBytes(cleanup.rootAvailableAfterBytes)}`
+              : ""}
           </div>
         ) : null}
 

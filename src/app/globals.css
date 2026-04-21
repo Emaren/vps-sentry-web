@@ -2393,6 +2393,78 @@ html[data-site-theme="sepia"] .dashboard-shell {
   padding: 9px 10px;
 }
 
+.pm-project-discovery {
+  display: grid;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--dash-sev-warn-border) 58%, var(--dash-card-border) 42%);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--dash-sev-warn-bg) 34%, var(--dash-card-bg) 66%);
+  margin-bottom: 14px;
+  padding: 12px;
+}
+
+.pm-project-discovery-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pm-project-discovery-kicker {
+  color: var(--dash-meta);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.pm-project-discovery-title {
+  color: var(--dash-fg);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.35;
+  margin-top: 5px;
+}
+
+.pm-project-discovery-note {
+  color: var(--dash-meta);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.pm-project-discovery-list {
+  display: grid;
+  gap: 8px;
+}
+
+.pm-project-discovery-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 70%, transparent 30%);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dash-card-bg) 72%, transparent 28%);
+  padding: 9px 10px;
+}
+
+.pm-project-discovery-name {
+  color: var(--dash-fg);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.pm-project-discovery-path {
+  color: color-mix(in srgb, var(--dash-fg) 78%, var(--dash-meta) 22%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
 .pm-project-storage-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

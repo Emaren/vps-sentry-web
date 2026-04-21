@@ -24,6 +24,21 @@ type ProjectStorageLargestDir = {
   diskBytes: number | null;
 };
 
+type ProjectStorageLocation = {
+  storageClass: string | null;
+  label: string | null;
+  path: string | null;
+  realPath: string | null;
+  isSymlink: boolean | null;
+  isRootResident: boolean | null;
+  isVolumeBacked: boolean | null;
+  mountPoint: string | null;
+  deviceSource: string | null;
+  filesystemType: string | null;
+  volumeId: string | null;
+  volumeLabel: string | null;
+};
+
 type ProjectStorageBucket = {
   label: string;
   diskBytes: number | null;
@@ -41,6 +56,12 @@ type ProjectStorageHostFilesystem = {
   usedPercent: number | null;
   warnPercent: number | null;
   failPercent: number | null;
+  deviceSource: string | null;
+  deviceSizeBytes: number | null;
+  filesystemType: string | null;
+  mountPoint: string | null;
+  filesystemGapBytes: number | null;
+  filesystemResizePending: boolean | null;
   level: "ok" | "warn" | "critical" | null;
 };
 
@@ -51,6 +72,15 @@ type ProjectStorageMountedFilesystem = ProjectStorageHostFilesystem & {
   previousTotalBytes: number | null;
   capacityChangedBytes: number | null;
   capacityChangeDirection: "expanded" | "shrunk" | null;
+};
+
+type ProjectStorageRoot = {
+  label: string | null;
+  path: string | null;
+  realPath: string | null;
+  exists: boolean | null;
+  diskBytes: number | null;
+  storageLocation: ProjectStorageLocation | null;
 };
 
 type ProjectStorageProject = {
@@ -64,8 +94,63 @@ type ProjectStorageProject = {
   deltaDiskBytes: number | null;
   deltaApparentBytes: number | null;
   deltaFileCount: number | null;
+  storageClass: string | null;
+  storageLabel: string | null;
+  rootResidentBytes: number | null;
+  mountedVolumeBytes: number | null;
+  symlinkedToVolumeBytes: number | null;
+  volumeBackedBytes: number | null;
+  otherMountBytes: number | null;
+  roots: ProjectStorageRoot[];
   buckets: Record<string, ProjectStorageBucket>;
   largestDirs: ProjectStorageLargestDir[];
+};
+
+type ProjectStorageRootConsumer = {
+  id: string;
+  projectId: string | null;
+  projectLabel: string | null;
+  path: string | null;
+  realPath: string | null;
+  label: string;
+  bytes: number | null;
+  bucket: string | null;
+  category: string | null;
+  categoryLabel: string | null;
+  reclaimability: string | null;
+  storageClass: string | null;
+  storageLabel: string | null;
+};
+
+type ProjectStorageRootResidency = {
+  rootResidentBytes: number | null;
+  mountedVolumeBytes: number | null;
+  symlinkedToVolumeBytes: number | null;
+  volumeBackedBytes: number | null;
+  otherMountBytes: number | null;
+  unknownStorageBytes: number | null;
+  topRootProjects: ProjectStorageRootConsumer[];
+  topConsumers: ProjectStorageRootConsumer[];
+  categoryTotals: Array<{ key: string; label: string; bytes: number | null; count: number | null }>;
+};
+
+type ProjectStorageDiscoveryCandidate = {
+  id: string;
+  label: string;
+  path: string | null;
+  realPath: string | null;
+  scope: string | null;
+  state: string | null;
+  storageLocation: ProjectStorageLocation | null;
+  markerPaths: string[];
+  suggestedNote: string | null;
+};
+
+type ProjectStorageDiscovery = {
+  scope: string | null;
+  mode: string | null;
+  rootPaths: string[];
+  candidates: ProjectStorageDiscoveryCandidate[];
 };
 
 type ProjectStoragePayload = {
@@ -75,6 +160,8 @@ type ProjectStoragePayload = {
   bucketOrder: string[];
   hostFilesystem: ProjectStorageHostFilesystem | null;
   mountedFilesystems: ProjectStorageMountedFilesystem[];
+  rootResidency: ProjectStorageRootResidency | null;
+  discovery: ProjectStorageDiscovery | null;
   projects: Record<string, ProjectStorageProject>;
 };
 
@@ -288,6 +375,15 @@ function toInt(v: unknown): number | null {
   return null;
 }
 
+function toBool(v: unknown): boolean | null {
+  if (typeof v === "boolean") return v;
+  return null;
+}
+
+function toStringOrNull(v: unknown): string | null {
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+}
+
 function isTcp(proto: string | undefined): boolean {
   if (!proto) return true;
   return proto.toLowerCase().startsWith("tcp");
@@ -422,6 +518,100 @@ function pickPortsFromDerived(d: DerivedDashboard): { local: PortEntry[]; pub: P
   };
 }
 
+function parseStorageLocation(value: unknown): ProjectStorageLocation | null {
+  const rec = asRecord(value);
+  if (!Object.keys(rec).length) return null;
+  return {
+    storageClass: toStringOrNull(rec.class),
+    label: toStringOrNull(rec.label),
+    path: toStringOrNull(rec.path),
+    realPath: toStringOrNull(rec.real_path),
+    isSymlink: toBool(rec.is_symlink),
+    isRootResident: toBool(rec.is_root_resident),
+    isVolumeBacked: toBool(rec.is_volume_backed),
+    mountPoint: toStringOrNull(rec.mount_point),
+    deviceSource: toStringOrNull(rec.device_source),
+    filesystemType: toStringOrNull(rec.filesystem_type),
+    volumeId: toStringOrNull(rec.volume_id),
+    volumeLabel: toStringOrNull(rec.volume_label),
+  };
+}
+
+function parseRootConsumer(value: unknown, fallbackId: string): ProjectStorageRootConsumer | null {
+  const rec = asRecord(value);
+  const label = toStringOrNull(rec.label);
+  if (!label) return null;
+  return {
+    id: toStringOrNull(rec.id) ?? fallbackId,
+    projectId: toStringOrNull(rec.project_id),
+    projectLabel: toStringOrNull(rec.project_label),
+    path: toStringOrNull(rec.path),
+    realPath: toStringOrNull(rec.real_path),
+    label,
+    bytes: toInt(rec.bytes),
+    bucket: toStringOrNull(rec.bucket),
+    category: toStringOrNull(rec.category),
+    categoryLabel: toStringOrNull(rec.category_label),
+    reclaimability: toStringOrNull(rec.reclaimability),
+    storageClass: toStringOrNull(rec.storage_class),
+    storageLabel: toStringOrNull(rec.storage_label),
+  };
+}
+
+function parseRootResidency(value: unknown): ProjectStorageRootResidency | null {
+  const rec = asRecord(value);
+  if (!Object.keys(rec).length) return null;
+  const categoryTotals = safeArray<Record<string, unknown>>(rec.category_totals)
+    .map((entry) => ({
+      key: toStringOrNull(entry.key) ?? "unknown",
+      label: toStringOrNull(entry.label) ?? toStringOrNull(entry.key) ?? "Unknown",
+      bytes: toInt(entry.bytes),
+      count: toInt(entry.count),
+    }))
+    .filter((entry) => entry.label.length > 0);
+
+  return {
+    rootResidentBytes: toInt(rec.root_resident_bytes),
+    mountedVolumeBytes: toInt(rec.mounted_volume_bytes),
+    symlinkedToVolumeBytes: toInt(rec.symlinked_to_volume_bytes),
+    volumeBackedBytes: toInt(rec.volume_backed_bytes),
+    otherMountBytes: toInt(rec.other_mount_bytes),
+    unknownStorageBytes: toInt(rec.unknown_storage_bytes),
+    topRootProjects: safeArray<unknown>(rec.top_root_projects)
+      .map((entry, index) => parseRootConsumer(entry, `root-project-${index}`))
+      .filter((entry): entry is ProjectStorageRootConsumer => Boolean(entry)),
+    topConsumers: safeArray<unknown>(rec.top_consumers)
+      .map((entry, index) => parseRootConsumer(entry, `root-consumer-${index}`))
+      .filter((entry): entry is ProjectStorageRootConsumer => Boolean(entry)),
+    categoryTotals,
+  };
+}
+
+function parseDiscovery(value: unknown): ProjectStorageDiscovery | null {
+  const rec = asRecord(value);
+  if (!Object.keys(rec).length) return null;
+  const candidates = safeArray<Record<string, unknown>>(rec.candidates)
+    .map((entry, index) => ({
+      id: toStringOrNull(entry.id) ?? `candidate-${index}`,
+      label: toStringOrNull(entry.label) ?? toStringOrNull(entry.id) ?? "Detected project",
+      path: toStringOrNull(entry.path),
+      realPath: toStringOrNull(entry.real_path),
+      scope: toStringOrNull(entry.scope),
+      state: toStringOrNull(entry.state),
+      storageLocation: parseStorageLocation(entry.storage_location),
+      markerPaths: safeArray<string>(entry.marker_paths).filter((item) => typeof item === "string" && item.trim().length > 0),
+      suggestedNote: toStringOrNull(asRecord(entry.suggested_tracking).note),
+    }))
+    .filter((entry) => entry.label.length > 0);
+
+  return {
+    scope: toStringOrNull(rec.scope),
+    mode: toStringOrNull(rec.mode),
+    rootPaths: safeArray<string>(rec.root_paths).filter((item) => typeof item === "string" && item.trim().length > 0),
+    candidates,
+  };
+}
+
 function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | null {
   const rec = asRecord(value);
   const projectsRec = asRecord(rec?.projects);
@@ -456,6 +646,14 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
         matchCount: toInt(bucket.match_count),
       };
     }
+    const roots = safeArray<Record<string, unknown>>(project.roots).map((entry) => ({
+      label: toStringOrNull(entry.label),
+      path: toStringOrNull(entry.path),
+      realPath: toStringOrNull(entry.real_path),
+      exists: toBool(entry.exists),
+      diskBytes: toInt(entry.disk_bytes),
+      storageLocation: parseStorageLocation(entry.storage_location),
+    }));
 
     projects[key] = {
       measuredAt: typeof project.measured_at === "string" ? project.measured_at : null,
@@ -468,6 +666,14 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
       deltaDiskBytes: toInt(project.delta_disk_bytes),
       deltaApparentBytes: toInt(project.delta_apparent_bytes),
       deltaFileCount: toInt(project.delta_file_count),
+      storageClass: toStringOrNull(project.storage_class),
+      storageLabel: toStringOrNull(project.storage_label),
+      rootResidentBytes: toInt(project.root_resident_bytes),
+      mountedVolumeBytes: toInt(project.mounted_volume_bytes),
+      symlinkedToVolumeBytes: toInt(project.symlinked_to_volume_bytes),
+      volumeBackedBytes: toInt(project.volume_backed_bytes),
+      otherMountBytes: toInt(project.other_mount_bytes),
+      roots,
       buckets,
       largestDirs,
     };
@@ -485,6 +691,12 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
     usedPercent: parseUsedPercent(entry.used_percent),
     warnPercent: parseUsedPercent(entry.warn_percent),
     failPercent: parseUsedPercent(entry.fail_percent),
+    deviceSource: typeof entry.device_source === "string" ? entry.device_source : null,
+    deviceSizeBytes: toInt(entry.device_size_bytes),
+    filesystemType: typeof entry.filesystem_type === "string" ? entry.filesystem_type : null,
+    mountPoint: typeof entry.mount_point === "string" ? entry.mount_point : null,
+    filesystemGapBytes: toInt(entry.filesystem_gap_bytes),
+    filesystemResizePending: typeof entry.filesystem_resize_pending === "boolean" ? entry.filesystem_resize_pending : null,
     previousTotalBytes: toInt(entry.previous_total_bytes),
     capacityChangedBytes: toInt(entry.capacity_changed_bytes),
     capacityChangeDirection:
@@ -512,6 +724,15 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
           usedPercent: parseUsedPercent(hostFilesystemRec.used_percent),
           warnPercent: parseUsedPercent(hostFilesystemRec.warn_percent),
           failPercent: parseUsedPercent(hostFilesystemRec.fail_percent),
+          deviceSource: typeof hostFilesystemRec.device_source === "string" ? hostFilesystemRec.device_source : null,
+          deviceSizeBytes: toInt(hostFilesystemRec.device_size_bytes),
+          filesystemType: typeof hostFilesystemRec.filesystem_type === "string" ? hostFilesystemRec.filesystem_type : null,
+          mountPoint: typeof hostFilesystemRec.mount_point === "string" ? hostFilesystemRec.mount_point : null,
+          filesystemGapBytes: toInt(hostFilesystemRec.filesystem_gap_bytes),
+          filesystemResizePending:
+            typeof hostFilesystemRec.filesystem_resize_pending === "boolean"
+              ? hostFilesystemRec.filesystem_resize_pending
+              : null,
           level:
             hostFilesystemRec.level === "ok" || hostFilesystemRec.level === "warn" || hostFilesystemRec.level === "critical"
               ? hostFilesystemRec.level
@@ -519,6 +740,8 @@ function parseProjectStoragePayload(value: unknown): ProjectStoragePayload | nul
         }
       : null,
     mountedFilesystems,
+    rootResidency: parseRootResidency(rec?.root_residency),
+    discovery: parseDiscovery(rec?.discovery),
     projects,
   };
 }
@@ -574,6 +797,44 @@ function resolveBackendLabel(project: Pick<ProjectDef, "subtitle" | "backendHref
   const resolved = resolveBackendHref(project);
   if (resolved) return backendLabelFromHref(resolved);
   return project.subtitle?.trim() ?? "";
+}
+
+function storageClassLabel(storageClass: string | null | undefined): string {
+  switch ((storageClass ?? "").trim()) {
+    case "root_disk":
+      return "root disk";
+    case "mounted_volume":
+      return "mounted volume";
+    case "symlinked_to_volume":
+      return "symlinked to volume";
+    case "other_mount":
+      return "other mount";
+    case "mixed":
+      return "mixed storage";
+    case "missing":
+      return "missing";
+    default:
+      return storageClass ? storageClass.replace(/_/g, " ") : "storage pending";
+  }
+}
+
+function storageToneClass(storageClass: string | null | undefined): string {
+  if (storageClass === "root_disk") return "pm-project-health-pill pm-project-health-pill-bad";
+  if (storageClass === "symlinked_to_volume" || storageClass === "mounted_volume") {
+    return "pm-project-health-pill pm-project-health-pill-ok";
+  }
+  if (storageClass === "mixed" || storageClass === "other_mount") {
+    return "pm-project-health-pill pm-project-health-pill-warn";
+  }
+  return "pm-project-health-pill";
+}
+
+function rootPathLabel(root: ProjectStorageRoot | undefined): string | null {
+  if (!root) return null;
+  const path = root.path ?? null;
+  const realPath = root.realPath ?? null;
+  if (path && realPath && path !== realPath) return `${path} -> ${realPath}`;
+  return path ?? realPath;
 }
 
 type FocusPanelItem = {
@@ -674,6 +935,8 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
   const { local: portsLocal, pub: portsPublic } = livePorts;
   const [projectStorage, setProjectStorage] = React.useState<ProjectStoragePayload | null>(snapshotProjectStorage);
   const mountedFilesystems = projectStorage?.mountedFilesystems ?? [];
+  const rootResidency = projectStorage?.rootResidency ?? null;
+  const discoveryCandidates = projectStorage?.discovery?.candidates ?? [];
   const primaryMountedFilesystem =
     mountedFilesystems.find((fs) => fs.exists !== false) ?? mountedFilesystems[0] ?? null;
   const totalTrackedDisk = Object.values(projectStorage?.projects ?? {}).reduce(
@@ -817,6 +1080,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
         ? clampBar((storage.diskBytes / totalTrackedDisk) * 100)
         : 0;
     const diskMetaParts = [
+      storage ? (storage.storageLabel ? storage.storageLabel : storageClassLabel(storage.storageClass)) : null,
       typeof storage?.apparentBytes === "number" ? `${fmtBytes(storage.apparentBytes)} apparent` : null,
       typeof storage?.fileCount === "number" ? `${fmtFileCount(storage.fileCount)} files` : null,
     ].filter((value): value is string => Boolean(value));
@@ -850,6 +1114,19 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
       typeof storage?.rootsConfigured === "number" && storage.rootsConfigured > 0 && storage.rootsPresent === 0
         ? "Tracked roots missing"
         : null;
+    const primaryRoot = storage?.roots.find((root) => root.exists !== false) ?? storage?.roots[0];
+    const storageClass = storage?.storageClass ?? primaryRoot?.storageLocation?.storageClass ?? null;
+    const storageLabel = storage?.storageLabel ?? primaryRoot?.storageLocation?.label ?? storageClassLabel(storageClass);
+    const rootPath = rootPathLabel(primaryRoot);
+    const rootResidentBytes = storage?.rootResidentBytes ?? null;
+    const volumeBackedBytes = storage?.volumeBackedBytes ?? null;
+    const storageBreakdown = [
+      typeof rootResidentBytes === "number" && rootResidentBytes > 0 ? `root ${fmtBytes(rootResidentBytes)}` : null,
+      typeof volumeBackedBytes === "number" && volumeBackedBytes > 0 ? `volume ${fmtBytes(volumeBackedBytes)}` : null,
+      rootPath,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join(" · ");
 
     const portsLabel =
       services.length > 0
@@ -892,6 +1169,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
       diskMeta,
       diskDeltaLabel,
       diskStatusLabel,
+      storageClass,
+      storageLabel,
+      storageBreakdown,
       bucketHighlights,
       largestDirHighlights,
       portsLabel,
@@ -981,26 +1261,49 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           .filter((value): value is string => Boolean(value))
           .join(" · ") || null,
     }));
-  const diskFocusItems = projectCards
-    .filter((project) => typeof project.diskBytes === "number" && project.diskBytes > 0)
-    .slice()
-    .sort((a, b) => (b.diskBytes ?? -1) - (a.diskBytes ?? -1))
-    .slice(0, 4)
-    .map((project) => ({
-      key: `disk-${project.key}`,
-      label: project.name,
-      value: fmtBytes(project.diskBytes),
-      meta: project.diskMeta,
-      note:
-        [
-          project.diskDeltaLabel,
-          project.largestDirHighlights[0]
-            ? `${project.largestDirHighlights[0].label} · ${project.largestDirHighlights[0].value}`
-            : null,
-        ]
-          .filter((value): value is string => Boolean(value))
-          .join(" · ") || null,
-    }));
+  const diskFocusItems =
+    rootResidency?.topConsumers && rootResidency.topConsumers.length > 0
+      ? rootResidency.topConsumers.slice(0, 4).map((consumer) => ({
+          key: `root-consumer-${consumer.id}`,
+          label: consumer.projectLabel ? `${consumer.projectLabel}: ${consumer.label}` : consumer.label,
+          value: fmtBytes(consumer.bytes),
+          meta:
+            [
+              consumer.categoryLabel,
+              consumer.reclaimability ? `posture ${consumer.reclaimability}` : null,
+              consumer.storageLabel,
+            ]
+              .filter((value): value is string => Boolean(value))
+              .join(" · ") || "Root consumer.",
+          note:
+            [
+              consumer.path,
+              consumer.realPath && consumer.realPath !== consumer.path ? `real ${consumer.realPath}` : null,
+            ]
+              .filter((value): value is string => Boolean(value))
+              .join(" · ") || null,
+        }))
+      : projectCards
+          .filter((project) => typeof project.diskBytes === "number" && project.diskBytes > 0)
+          .slice()
+          .sort((a, b) => (b.diskBytes ?? -1) - (a.diskBytes ?? -1))
+          .slice(0, 4)
+          .map((project) => ({
+            key: `disk-${project.key}`,
+            label: project.name,
+            value: fmtBytes(project.diskBytes),
+            meta: project.diskMeta,
+            note:
+              [
+                project.storageBreakdown,
+                project.diskDeltaLabel,
+                project.largestDirHighlights[0]
+                  ? `${project.largestDirHighlights[0].label} · ${project.largestDirHighlights[0].value}`
+                  : null,
+              ]
+                .filter((value): value is string => Boolean(value))
+                .join(" · ") || null,
+          }));
   const memoryFreeMb =
     typeof hostVitals.memoryTotalMb === "number" && typeof hostVitals.memoryUsedMb === "number"
       ? Math.max(0, hostVitals.memoryTotalMb - hostVitals.memoryUsedMb)
@@ -1011,8 +1314,13 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
       : hostFilesystem?.level === "ok"
         ? "ok"
         : "default";
+  const mountedResizePending =
+    primaryMountedFilesystem?.filesystemResizePending === true &&
+    typeof primaryMountedFilesystem.deviceSizeBytes === "number" &&
+    typeof primaryMountedFilesystem.totalBytes === "number" &&
+    primaryMountedFilesystem.deviceSizeBytes > primaryMountedFilesystem.totalBytes;
   const mountedTone =
-    primaryMountedFilesystem?.level === "critical" || primaryMountedFilesystem?.level === "warn"
+    mountedResizePending || primaryMountedFilesystem?.level === "critical" || primaryMountedFilesystem?.level === "warn"
       ? "warn"
       : primaryMountedFilesystem?.level === "ok"
         ? "ok"
@@ -1040,6 +1348,35 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           primaryMountedFilesystem.capacityChangeDirection === "shrunk" ? "Resized down" : "Expanded"
         } from ${fmtBytes(primaryMountedFilesystem.previousTotalBytes)} by ${fmtSignedBytes(primaryMountedFilesystem.capacityChangedBytes)}`
       : null;
+  const mountedResizePendingMeta =
+    mountedResizePending && primaryMountedFilesystem
+      ? [
+          `Device ${fmtBytes(primaryMountedFilesystem.deviceSizeBytes)}`,
+          `filesystem still ${fmtBytes(primaryMountedFilesystem.totalBytes)} usable`,
+          typeof primaryMountedFilesystem.filesystemGapBytes === "number"
+            ? `${fmtBytes(primaryMountedFilesystem.filesystemGapBytes)} not yet usable`
+            : "filesystem grow pending",
+        ].join(" · ")
+      : null;
+  const mountedDeviceMeta =
+    !mountedResizePending &&
+    primaryMountedFilesystem &&
+    typeof primaryMountedFilesystem.deviceSizeBytes === "number" &&
+    typeof primaryMountedFilesystem.totalBytes === "number"
+      ? `Device ${fmtBytes(primaryMountedFilesystem.deviceSizeBytes)} · filesystem usable ${fmtBytes(primaryMountedFilesystem.totalBytes)}`
+      : null;
+  const mountedCapacityValue =
+    mountedResizePending && primaryMountedFilesystem
+      ? `${fmtBytes(primaryMountedFilesystem.deviceSizeBytes)} device`
+      : fmtBytes(primaryMountedFilesystem?.totalBytes ?? null);
+  const mountedMeta = primaryMountedFilesystem
+    ? (mountedResizePendingMeta
+        ? [mountedResizePendingMeta, mountedUsageMeta]
+        : [mountedDeviceMeta, mountedResizeMeta, mountedUsageMeta]
+      )
+        .filter((value): value is string => Boolean(value))
+        .join(" · ")
+    : "No mounted volume tracked yet.";
 
   const activeFocusPanel =
     activeTopTab === "power" ? (
@@ -1109,7 +1446,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
       <FocusWorkbench
         tab="disk"
         title="Disk Workbench"
-        subtitle="Root volume pressure, mounted volume telemetry, and the heaviest tracked project footprints on this VPS."
+        subtitle="Root pressure, mounted-volume health, and which project mass actually lives on each filesystem."
         pill={`${fmtPercent(hostVitals.diskUsedPercent)} root used`}
         items={diskFocusItems}
         emptyLabel="Tracked project roots have not reported disk data yet."
@@ -1127,19 +1464,26 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           },
           {
             label: primaryMountedFilesystem?.label ?? "Mounted volume",
-            value: fmtBytes(primaryMountedFilesystem?.totalBytes ?? null),
-            meta:
-              primaryMountedFilesystem
-                ? [mountedResizeMeta, mountedUsageMeta]
-                    .filter((value): value is string => Boolean(value))
-                    .join(" · ")
-                : "No mounted volume tracked yet.",
+            value: mountedCapacityValue,
+            meta: mountedMeta,
             tone: mountedTone,
           },
           {
             label: "Free now",
             value: fmtBytes(hostVitals.diskAvailableBytes),
             meta: "Immediate headroom on the tracked root filesystem.",
+          },
+          {
+            label: "Root-resident",
+            value: fmtBytes(rootResidency?.rootResidentBytes ?? null),
+            meta: "Tracked project bytes still living on /.",
+            tone: (rootResidency?.rootResidentBytes ?? 0) > 0 ? "warn" : "ok",
+          },
+          {
+            label: "Volume-backed",
+            value: fmtBytes(rootResidency?.volumeBackedBytes ?? null),
+            meta: "Tracked project bytes on mounted volume paths or symlinks.",
+            tone: (rootResidency?.volumeBackedBytes ?? 0) > 0 ? "ok" : "default",
           },
           {
             label: "Tracked apps",
@@ -1260,6 +1604,42 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
             {projectCards.length} main project{projectCards.length === 1 ? "" : "s"} (status + CPU share + RAM by bound port/PID + Disk on tracked project trees)
           </div>
 
+          {discoveryCandidates.length > 0 ? (
+            <div className="pm-project-discovery" aria-label="Untracked project discovery">
+              <div className="pm-project-discovery-head">
+                <div>
+                  <div className="pm-project-discovery-kicker">Project Discovery</div>
+                  <div className="pm-project-discovery-title">
+                    VPS-side scan found {discoveryCandidates.length} likely untracked project{discoveryCandidates.length === 1 ? "" : "s"}.
+                  </div>
+                </div>
+                <div className="pm-project-health-pill pm-project-health-pill-warn">VPS scan only</div>
+              </div>
+              <div className="pm-project-discovery-note">
+                Local MBP tracking is not inferred in the browser. Add local roots through a committed registry entry or a local command-driven discovery pass.
+              </div>
+              <div className="pm-project-discovery-list">
+                {discoveryCandidates.slice(0, 4).map((candidate) => (
+                  <div key={candidate.id} className="pm-project-discovery-row">
+                    <div>
+                      <div className="pm-project-discovery-name">{candidate.label}</div>
+                      <div className="pm-project-discovery-path">
+                        {candidate.path}
+                        {candidate.realPath && candidate.realPath !== candidate.path ? ` -> ${candidate.realPath}` : ""}
+                      </div>
+                      {candidate.suggestedNote ? (
+                        <div className="pm-project-discovery-note">{candidate.suggestedNote}</div>
+                      ) : null}
+                    </div>
+                    <div className={storageToneClass(candidate.storageLocation?.storageClass)}>
+                      {candidate.storageLocation?.label ?? storageClassLabel(candidate.storageLocation?.storageClass)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="pm-projects-tiles" role="list" aria-label="Projects tiles">
             {projectCards.map((p) => (
               <div key={p.key} className="pm-project-card" role="listitem">
@@ -1294,6 +1674,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
                     <>
                       <span className="pm-project-health-pill">pending deploy</span>
                       <span className="pm-project-health-pill">no live ports mapped yet</span>
+                      <span className={storageToneClass(p.storageClass)}>{p.storageLabel}</span>
                     </>
                   ) : (
                     <>
@@ -1304,6 +1685,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
                       <span className={p.publicCount > 0 ? "pm-project-health-pill pm-project-health-pill-warn" : "pm-project-health-pill"}>
                         public {p.publicCount}
                       </span>
+                      <span className={storageToneClass(p.storageClass)}>{p.storageLabel}</span>
                     </>
                   )}
                 </div>
@@ -1345,6 +1727,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
                     </div>
                     <div className="pm-project-metric-value pm-project-metric-value-disk">{fmtBytes(p.diskBytes)}</div>
                     <div className="pm-project-metric-sub">{p.diskMeta}</div>
+                    {p.storageBreakdown ? <div className="pm-project-metric-sub">{p.storageBreakdown}</div> : null}
                     {p.diskStatusLabel ? <div className="pm-project-metric-sub pm-project-metric-sub-alert">{p.diskStatusLabel}</div> : null}
                     <div className="pm-project-metric-bar">
                       <span style={{ width: `${p.diskBarPercent}%` }} />
@@ -1433,8 +1816,8 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
                   ) : null}
                   <div className="pm-project-list-sub">
                     {p.isDormant
-                      ? "pending deploy · dormant by design"
-                      : `required ${p.requiredUpCount}/${p.requiredCount} · public ${p.publicCount}`}
+                      ? `pending deploy · dormant by design · ${p.storageLabel}`
+                      : `required ${p.requiredUpCount}/${p.requiredCount} · public ${p.publicCount} · ${p.storageLabel}`}
                   </div>
                 </div>
 

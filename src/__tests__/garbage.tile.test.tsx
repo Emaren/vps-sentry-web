@@ -118,6 +118,8 @@ describe("GarbageTile", () => {
             finishedAt: "2026-02-09T00:00:12.000Z",
             freedBytesEstimated: 693000000,
             freedBytesActual: 680000000,
+            rootAvailableBeforeBytes: null,
+            rootAvailableAfterBytes: null,
             deletedCount: 14,
             buckets: [],
             errors: [],

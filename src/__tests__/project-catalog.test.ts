@@ -21,4 +21,15 @@ describe("project catalog", () => {
       { label: "api", port: 3410, required: true },
     ]);
   });
+
+  it("tracks AoE2DEWarWagers as a project-level volume-backed app", () => {
+    const project = MAIN_PROJECTS.find((entry) => entry.key === "aoe2dewarwagers");
+    expect(project).toBeDefined();
+    expect(project?.services).toEqual([
+      { label: "web", port: 4000, required: true },
+      { label: "api", port: 4400, required: true },
+    ]);
+    expect(project?.storage?.vpsRoots).toContain("/var/www/AoE2DEWarWagers");
+    expect(project?.storage?.contextRoots).toContain("~/projects/AoE2DEWarWagers/aoe2de-watcher");
+  });
 });

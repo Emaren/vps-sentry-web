@@ -10,6 +10,8 @@ export type GarbageReclaimResponse = {
   cleanup?: {
     freedBytesActual?: number | null;
     freedBytesEstimated?: number | null;
+    rootAvailableBeforeBytes?: number | null;
+    rootAvailableAfterBytes?: number | null;
     deletedCount?: number | null;
   } | null;
 };
