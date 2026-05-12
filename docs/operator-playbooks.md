@@ -123,20 +123,21 @@ Runbook:
 2. Use **Scan Now** for a fresh host snapshot before killing or restarting anything.
 3. If root disk is critical and **Safe Reclaim** has bytes available, run **Zap Safe Hogs** from the dashboard.
 4. If root disk remains critical, open **Review Guided** or the **Guided Reclaim Cockpit** in the Reclaim lane. The cockpit shows large dependency-tree wins, mapped service units when VPSSentry can prove them, and the required Stop -> Remove -> Install -> Build -> Start -> Scan sequence.
-5. If safe reclaim is `0B`, treat guided dependency-tree reclaim as the main disk path. Do not delete those trees casually; the UI should show the project, exact path, service refs, and rebuild requirement before an operator acts.
-6. For CPU hotspots, inspect the Power lane and confirm whether the process is a build/deploy burst, a normal hot service, or a runtime IOC. Counterstrike is only for IOC signals, not ordinary CPU pressure.
-7. In `/admin`, run workflow `degraded-performance` when broader degradation continues:
+5. If safe reclaim is `0B`, treat guided dependency-tree reclaim as the main disk path. Prefer moving root-backed dependency trees onto the mounted volume with symlinks over blind deletion when the service must keep restarting cleanly.
+6. If a CPU hotspot is an executable from `/tmp` or `/var/tmp`, contain it as runtime evidence: quarantine the binary/config, stop the owning service, remove the temp executable, add a noexec temp mount for that service, restart, then rescan.
+7. For ordinary CPU hotspots, inspect the Power lane and confirm whether the process is a build/deploy burst, a normal hot service, or a runtime IOC. Counterstrike is only for IOC signals, not ordinary CPU pressure.
+8. In `/admin`, run workflow `degraded-performance` when broader degradation continues:
    - `status-snapshot`
    - `drain-queue` (low limit)
-8. Run load sanity:
+9. Run load sanity:
    ```bash
    make perf-load-smoke
    ```
-9. Recheck security baseline:
+10. Recheck security baseline:
    ```bash
    make security-headers-check
    ```
-10. If still degraded, review system metrics and consider controlled restart/rollback.
+11. If still degraded, review system metrics and consider controlled restart/rollback.
 
 Exit criteria:
 
