@@ -200,6 +200,7 @@ make db-pg-rollback
   - `/api/ops/observability`
   - `/api/ops/slo`
   - `/api/ops/report-now`
+  - `/api/ops/scan-now`
   - `/api/ops/test-email`
 - Billing/auth:
   - `/api/auth/[...nextauth]`

@@ -54,11 +54,19 @@ function hasRuntimeContainmentSignal(alertsPreview?: ExplainAlertPreview[]): boo
       signal.includes("suspicious_process_ioc") ||
       signal.includes("suspicious process ioc") ||
       signal.includes("outbound_scan_ioc") ||
-      signal.includes("outbound scan ioc") ||
-      signal.includes("cpu_hotspot") ||
-      signal.includes("cpu hotspot")
+      signal.includes("outbound scan ioc")
     );
   });
+}
+
+function isCpuHotspotSignal(alert: Pick<ExplainAlertPreview, "title" | "detail" | "code">): boolean {
+  const signal = normalizeAlertSignal(alert);
+  return signal.includes("cpu_hotspot") || signal.includes("cpu hotspot");
+}
+
+function hasCpuHotspotSignal(alertsPreview?: ExplainAlertPreview[]): boolean {
+  if (!alertsPreview || alertsPreview.length === 0) return false;
+  return alertsPreview.some((alert) => isCpuHotspotSignal(alert));
 }
 
 function isDiskPressureSignal(alert: Pick<ExplainAlertPreview, "title" | "detail" | "code">): boolean {
@@ -82,6 +90,7 @@ function hasResidualManualAlertSignal(alertsPreview?: ExplainAlertPreview[]): bo
     (alert) =>
       !isBaselineDriftSignal(alert) &&
       !isDiskPressureSignal(alert) &&
+      !isCpuHotspotSignal(alert) &&
       !hasRuntimeContainmentSignal([alert])
   );
 }
@@ -146,6 +155,7 @@ export function buildActionsNeeded(input: {
   const queueQueued = Math.max(0, Math.trunc(input.queueQueuedCount ?? 0));
   const queueDlq = Math.max(0, Math.trunc(input.queueDlqCount ?? 0));
   const runtimeContainmentNeeded = hasRuntimeContainmentSignal(input.alertsPreview);
+  const cpuHotspotNeeded = hasCpuHotspotSignal(input.alertsPreview);
   const diskPressureNeeded = hasDiskPressureSignal(input.alertsPreview);
   const baselineDriftNeeded = hasBaselineDriftSignal(input.alertsPreview);
 
@@ -172,6 +182,12 @@ export function buildActionsNeeded(input: {
   if (diskPressureNeeded) {
     out.push(
       "Disk pressure: run safe reclaim now, then wait for a fresh snapshot. The host stays red until root usage drops back under the fail line."
+    );
+  }
+
+  if (cpuHotspotNeeded) {
+    out.push(
+      "CPU hotspot: refresh the scan and inspect the hottest process. VPSSentry will not kill or restart a busy service unless a specific operator action says so."
     );
   }
 
@@ -308,7 +324,7 @@ export function buildExplainText(input: {
 
   lines.push("");
   lines.push(
-    "Fix Now starts with the safest automation available. It can launch Counterstrike for runtime IOC signals, run safe disk reclaim for root pressure, reconcile planned baseline drift, and then wait for a fresh snapshot. The host intentionally stays out of green if the latest scan still shows unresolved drift, exposure, runtime threat, or root disk pressure above the fail line."
+    "Fix Now starts with the safest automation available. It can launch Counterstrike for runtime IOC signals, run safe disk reclaim for root pressure, refresh CPU hotspot evidence without killing services, reconcile planned baseline drift, and then wait for a fresh snapshot. The host intentionally stays out of green if the latest scan still shows unresolved drift, exposure, runtime threat, or root disk pressure above the fail line."
   );
 
   return lines.join("\n");
@@ -327,6 +343,7 @@ export function buildFixSteps(input: {
   const queueQueued = Math.max(0, Math.trunc(input.queueQueuedCount ?? 0));
   const queueDlq = Math.max(0, Math.trunc(input.queueDlqCount ?? 0));
   const runtimeContainmentNeeded = hasRuntimeContainmentSignal(input.alertsPreview);
+  const cpuHotspotNeeded = hasCpuHotspotSignal(input.alertsPreview);
   const diskPressureNeeded = hasDiskPressureSignal(input.alertsPreview);
   const baselineDriftNeeded = hasBaselineDriftSignal(input.alertsPreview);
   const previewCount = input.alertsPreview?.length ?? 0;
@@ -361,6 +378,14 @@ export function buildFixSteps(input: {
     steps.push({
       id: "disk-pressure",
       label: "Run safe disk reclaim for root pressure, then refresh host headroom",
+      status: "idle",
+    });
+  }
+
+  if (cpuHotspotNeeded) {
+    steps.push({
+      id: "cpu-hotspot",
+      label: "Refresh CPU hotspot evidence without killing or restarting the process",
       status: "idle",
     });
   }

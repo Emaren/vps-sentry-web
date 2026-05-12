@@ -114,21 +114,28 @@ Use when latency or error rates rise without clear security signals:
 - `api_latency`
 - `high_error_rate`
 - `resource_pressure`
+- `cpu_hotspot`
+- `host_disk_critical`
 
 Runbook:
 
-1. In `/admin`, run workflow `degraded-performance`:
+1. On `/dashboard`, open the Power / Memory / Disk / Reclaim surface and read **Sentry Diagnosis** first.
+2. Use **Scan Now** for a fresh host snapshot before killing or restarting anything.
+3. If root disk is critical and **Safe Reclaim** has bytes available, run **Zap Safe Hogs** from the dashboard.
+4. If root disk is critical and safe reclaim is `0B`, inspect the listed root pressure leaders. Guided dependency-tree reclaim requires a service stop/reinstall/build plan; do not delete those trees casually.
+5. For CPU hotspots, inspect the Power lane and confirm whether the process is a build/deploy burst, a normal hot service, or a runtime IOC. Counterstrike is only for IOC signals, not ordinary CPU pressure.
+6. In `/admin`, run workflow `degraded-performance` when broader degradation continues:
    - `status-snapshot`
    - `drain-queue` (low limit)
-2. Run load sanity:
+7. Run load sanity:
    ```bash
    make perf-load-smoke
    ```
-3. Recheck security baseline:
+8. Recheck security baseline:
    ```bash
    make security-headers-check
    ```
-4. If still degraded, review system metrics and consider controlled restart/rollback.
+9. If still degraded, review system metrics and consider controlled restart/rollback.
 
 Exit criteria:
 

@@ -275,10 +275,13 @@ function isRuntimeThreatAlert(alert: FixStatusAlert): boolean {
     signal.includes("suspicious_process_ioc") ||
     signal.includes("suspicious process ioc") ||
     signal.includes("outbound_scan_ioc") ||
-    signal.includes("outbound scan ioc") ||
-    signal.includes("cpu_hotspot") ||
-      signal.includes("cpu hotspot")
+    signal.includes("outbound scan ioc")
   );
+}
+
+function isCpuHotspotAlert(alert: FixStatusAlert): boolean {
+  const signal = normalizeAlertSignal(alert);
+  return signal.includes("cpu_hotspot") || signal.includes("cpu hotspot");
 }
 
 export function isDiskPressureAlert(alert: FixStatusAlert): boolean {
@@ -887,8 +890,8 @@ function buildPrimaryCue(input: {
     return (
       signal.includes("suspicious_process_ioc") ||
       signal.includes("suspicious process ioc") ||
-      signal.includes("cpu_hotspot") ||
-      signal.includes("cpu hotspot")
+      signal.includes("outbound_scan_ioc") ||
+      signal.includes("outbound scan ioc")
     );
   });
   if (runtimeAlert) {
@@ -902,6 +905,23 @@ function buildPrimaryCue(input: {
         : procLine
           ? `${procLine} is still flagged. Fix Now will try Counterstrike first, but the host stays red until the next clean snapshot clears this runtime IOC.`
           : "A suspicious runtime IOC is still active. Fix Now will try Counterstrike first, but the host stays red until the next clean snapshot clears it.",
+    };
+  }
+
+  const cpuAlert = (input.alertsPreview ?? []).find((alert) =>
+    isCpuHotspotAlert({
+      code: alert.code ?? null,
+      title: alert.title,
+      detail: alert.detail ?? "",
+    })
+  );
+  if (cpuAlert) {
+    return {
+      tone: "warn",
+      title: "Primary blocker: CPU pressure is still hot",
+      detail: cpuAlert.detail
+        ? `${cpuAlert.detail} Fix Now will refresh the host scan and preserve the evidence, but it will not kill or restart that process automatically.`
+        : "A process is saturating CPU. Fix Now will refresh the host scan and preserve the evidence, but it will not kill or restart that process automatically.",
     };
   }
 
@@ -1238,6 +1258,42 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       };
     }
 
+    if (stepId === "cpu-hotspot") {
+      const run = await postJson("/api/ops/scan-now");
+      if (!run.ok) {
+        return {
+          ok: false,
+          detail: `Fresh CPU scan could not start: ${run.error}`,
+        };
+      }
+
+      const statusTs = asString(run.payload.statusTs);
+      const statusAdvanced = asBoolean(run.payload.statusAdvanced) === true;
+      const scan = asRecord(run.payload.scan);
+      const scanStarted = asBoolean(scan?.started) === true;
+      const scanError = asString(scan?.error);
+      const detailParts = [
+        scanStarted
+          ? "Started an immediate VPS scan for fresh CPU/process evidence."
+          : "Requested a fresh CPU/process scan.",
+      ];
+      if (!scanStarted && scanError) {
+        detailParts.push(`Scan start was not confirmed (${scanError}).`);
+      }
+      if (statusAdvanced) {
+        detailParts.push("Snapshot timestamp advanced.");
+      } else {
+        detailParts.push("Snapshot timestamp has not advanced yet.");
+      }
+      if (statusTs) detailParts.push(`Latest status timestamp: ${statusTs}.`);
+      detailParts.push("No process was killed or restarted by this step.");
+
+      return {
+        ok: true,
+        detail: detailParts.join(" "),
+      };
+    }
+
     if (stepId === "contain-runtime-ioc") {
       const statusSnap = await readFixStatusSnapshot();
       const playbookId = pickCounterstrikePlaybookId({
@@ -1382,7 +1438,10 @@ export default function StatusActionPopup(props: StatusActionPopupProps) {
       if (statusSnap) {
         const residualAlerts = statusSnap.alerts.filter(
           (alert) =>
-            !isBaselineDriftAlert(alert) && !isDiskPressureAlert(alert) && !isRuntimeThreatAlert(alert)
+            !isBaselineDriftAlert(alert) &&
+            !isDiskPressureAlert(alert) &&
+            !isCpuHotspotAlert(alert) &&
+            !isRuntimeThreatAlert(alert)
         );
         if (residualAlerts.length === 0) {
           return {

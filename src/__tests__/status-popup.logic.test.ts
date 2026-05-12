@@ -125,6 +125,27 @@ describe("status-popup logic", () => {
     expect(steps.find((s) => s.id === "contain-runtime-ioc")?.label).toContain("Run Counterstrike");
   });
 
+  it("treats CPU hotspot as pressure evidence instead of Counterstrike containment", () => {
+    const steps = buildFixSteps({
+      alertsCount: 1,
+      publicPortsCount: 0,
+      stale: false,
+      allowlistedTotal: 1,
+      alertsPreview: [
+        {
+          title: "CPU hotspot detected",
+          code: "cpu_hotspot",
+          severity: "warn",
+          detail: "Host CPU at 100.0% with process cpu-logind using 94.3% CPU cap.",
+        },
+      ],
+    });
+
+    expect(steps.map((s) => s.id)).toEqual(["ports-allowlisted", "cpu-hotspot", "report"]);
+    expect(steps.find((s) => s.id === "cpu-hotspot")?.label).toContain("without killing");
+    expect(steps.map((s) => s.id)).not.toContain("contain-runtime-ioc");
+  });
+
   it("prioritizes disk reclaim and baseline drift before generic alert remediation", () => {
     const steps = buildFixSteps({
       alertsCount: 4,

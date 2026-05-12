@@ -7,6 +7,7 @@ import Box from "./Box";
 import GarbageTile from "./GarbageTile";
 import PowerVitalsLiveGrid, { type PowerVitalsTopTab } from "./PowerVitalsLiveGrid";
 import ReclaimCategoryTile from "./ReclaimCategoryTile";
+import { triggerGarbageReclaim } from "./reclaim-utils";
 
 type PortEntry = {
   proto?: string;
@@ -852,6 +853,21 @@ type FocusPanelStat = {
   tone?: "default" | "ok" | "warn";
 };
 
+type SentryDiagnosisIssue = {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
+  tone: "ok" | "warn" | "bad";
+};
+
+type SentryDiagnosisLeader = {
+  key: string;
+  label: string;
+  value: string;
+  meta: string | null;
+};
+
 function FocusWorkbench(props: {
   tab: Exclude<PowerVitalsTopTab, "reclaim">;
   title: string;
@@ -922,6 +938,126 @@ function FocusWorkbench(props: {
   );
 }
 
+function SentryDiagnosisPanel(props: {
+  issues: SentryDiagnosisIssue[];
+  leaders: SentryDiagnosisLeader[];
+  canReclaim: boolean;
+  safeReclaimableBytes: number;
+  busyAction: "scan" | "reclaim" | null;
+  feedback: string | null;
+  feedbackTone: "ok" | "bad" | "meta";
+  onScanNow: () => void;
+  onSafeReclaim: () => void;
+  onInspectDisk: () => void;
+  onInspectPower: () => void;
+}) {
+  const {
+    busyAction,
+    canReclaim,
+    feedback,
+    feedbackTone,
+    issues,
+    leaders,
+    onInspectDisk,
+    onInspectPower,
+    onSafeReclaim,
+    onScanNow,
+    safeReclaimableBytes,
+  } = props;
+  const primaryIssue = issues[0];
+  const canRunSafeReclaim = canReclaim && safeReclaimableBytes > 0 && busyAction === null;
+
+  return (
+    <div className="sentry-diagnosis-panel" aria-label="VPSSentry diagnosis and quick actions">
+      <div className="sentry-diagnosis-main">
+        <div className="sentry-diagnosis-head">
+          <div>
+            <div className="sentry-diagnosis-kicker">Sentry Diagnosis</div>
+            <div className="sentry-diagnosis-title">
+              {primaryIssue?.label ?? "No pressure blockers detected"}
+            </div>
+          </div>
+          <div className={`sentry-diagnosis-status sentry-diagnosis-status-${primaryIssue?.tone ?? "ok"}`}>
+            {primaryIssue?.value ?? "clear"}
+          </div>
+        </div>
+
+        <div className="sentry-diagnosis-grid">
+          {issues.map((issue) => (
+            <div key={issue.key} className={`sentry-diagnosis-issue sentry-diagnosis-issue-${issue.tone}`}>
+              <div className="sentry-diagnosis-issue-label">{issue.label}</div>
+              <div className="sentry-diagnosis-issue-value">{issue.value}</div>
+              <div className="sentry-diagnosis-issue-detail">{issue.detail}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="sentry-diagnosis-actions">
+          <button
+            type="button"
+            className="sentry-diagnosis-button"
+            onClick={onScanNow}
+            disabled={busyAction !== null}
+          >
+            {busyAction === "scan" ? "Scanning..." : "Scan Now"}
+          </button>
+          <button
+            type="button"
+            className="sentry-diagnosis-button sentry-diagnosis-button-secondary"
+            onClick={onInspectDisk}
+          >
+            Inspect Disk
+          </button>
+          <button
+            type="button"
+            className="sentry-diagnosis-button sentry-diagnosis-button-secondary"
+            onClick={onInspectPower}
+          >
+            Inspect Power
+          </button>
+          <button
+            type="button"
+            className="sentry-diagnosis-button sentry-diagnosis-button-zap"
+            onClick={onSafeReclaim}
+            disabled={!canRunSafeReclaim}
+          >
+            {busyAction === "reclaim"
+              ? "Zapping..."
+              : safeReclaimableBytes > 0
+                ? "Zap Safe Hogs"
+                : "Safe Reclaim Empty"}
+          </button>
+        </div>
+
+        {feedback ? (
+          <div className={`sentry-diagnosis-feedback sentry-diagnosis-feedback-${feedbackTone}`}>
+            {feedback}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="sentry-diagnosis-side">
+        <div className="sentry-diagnosis-side-title">Root pressure leaders</div>
+        {leaders.length > 0 ? (
+          <div className="sentry-diagnosis-leaders">
+            {leaders.map((leader) => (
+              <div key={leader.key} className="sentry-diagnosis-leader">
+                <div>
+                  <div className="sentry-diagnosis-leader-label">{leader.label}</div>
+                  {leader.meta ? <div className="sentry-diagnosis-leader-meta">{leader.meta}</div> : null}
+                </div>
+                <div className="sentry-diagnosis-leader-value">{leader.value}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="sentry-diagnosis-empty">Disk leaders will appear after the next project storage scan.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function PowerMemoryTile(props: { derived: DerivedDashboard; canReclaim: boolean }) {
   const { canReclaim, derived: d } = props;
   const snapshotProjectStorage = pickProjectStorageFromDerived(d);
@@ -968,6 +1104,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
   const [garbageEstimate, setGarbageEstimate] = React.useState<DashboardGarbageEstimate | null>(d.garbageEstimate);
   const [projectLiveVitals, setProjectLiveVitals] = React.useState<Record<string, ProjectLiveVitals>>({});
   const [liveConnected, setLiveConnected] = React.useState(false);
+  const [opsBusyAction, setOpsBusyAction] = React.useState<"scan" | "reclaim" | null>(null);
+  const [opsFeedback, setOpsFeedback] = React.useState<string | null>(null);
+  const [opsFeedbackTone, setOpsFeedbackTone] = React.useState<"ok" | "bad" | "meta">("meta");
 
   React.useEffect(() => {
     setLivePorts(initialPorts);
@@ -1208,6 +1347,55 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
       setActiveTopTab(tab);
     });
   };
+
+  async function handleScanNow() {
+    if (opsBusyAction) return;
+    setOpsBusyAction("scan");
+    setOpsFeedbackTone("meta");
+    setOpsFeedback("Starting an immediate VPS scan...");
+    try {
+      const res = await fetch("/api/ops/scan-now", { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        statusTs?: string;
+        statusAdvanced?: boolean;
+      };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      setOpsFeedbackTone("ok");
+      setOpsFeedback(
+        data.statusAdvanced
+          ? `Fresh scan landed at ${data.statusTs ?? "the latest snapshot"}.`
+          : "Scan started. The live feed will update when the snapshot advances."
+      );
+    } catch (error: unknown) {
+      setOpsFeedbackTone("bad");
+      setOpsFeedback(error instanceof Error ? error.message : String(error));
+    } finally {
+      setOpsBusyAction(null);
+    }
+  }
+
+  async function handleSafeReclaim() {
+    if (opsBusyAction || !canReclaim) return;
+    setOpsBusyAction("reclaim");
+    setOpsFeedbackTone("meta");
+    setOpsFeedback("Launching safe hog zap...");
+    try {
+      const data = await triggerGarbageReclaim("safe");
+      setOpsFeedbackTone("ok");
+      setOpsFeedback(data.detail || "Safe reclaim started. The reclaim lane will update as progress is published.");
+      setActiveTopTab("reclaim");
+    } catch (error: unknown) {
+      setOpsFeedbackTone("bad");
+      setOpsFeedback(error instanceof Error ? error.message : String(error));
+    } finally {
+      setOpsBusyAction(null);
+    }
+  }
+
   const cpuFocusItems = d.vitalsProcesses
     .filter((row) => !row.isOther && (typeof row.cpuCapacityPercent === "number" || typeof row.cpuSharePercent === "number"))
     .slice()
@@ -1304,6 +1492,9 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
                 .filter((value): value is string => Boolean(value))
                 .join(" · ") || null,
           }));
+  const safeReclaimableBytes = Math.max(0, garbageEstimate?.safeReclaimableBytes ?? 0);
+  const guidedReclaimableBytes = Math.max(0, garbageEstimate?.guidedReclaimableBytes ?? 0);
+  const reclaimableBytes = Math.max(0, garbageEstimate?.reclaimableBytesTotal ?? safeReclaimableBytes);
   const memoryFreeMb =
     typeof hostVitals.memoryTotalMb === "number" && typeof hostVitals.memoryUsedMb === "number"
       ? Math.max(0, hostVitals.memoryTotalMb - hostVitals.memoryUsedMb)
@@ -1377,6 +1568,86 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
         .filter((value): value is string => Boolean(value))
         .join(" · ")
     : "No mounted volume tracked yet.";
+  const diskUsedPercent = hostVitals.diskUsedPercent ?? hostFilesystem?.usedPercent ?? null;
+  const diskFailPercent = hostFilesystem?.failPercent ?? 92;
+  const diskWarnPercent = hostFilesystem?.warnPercent ?? 85;
+  const diskCritical =
+    hostFilesystem?.level === "critical" ||
+    (typeof diskUsedPercent === "number" &&
+      typeof diskFailPercent === "number" &&
+      diskUsedPercent >= diskFailPercent);
+  const diskWarning =
+    !diskCritical &&
+    (hostFilesystem?.level === "warn" ||
+      (typeof diskUsedPercent === "number" &&
+        typeof diskWarnPercent === "number" &&
+        diskUsedPercent >= diskWarnPercent));
+  const memoryCritical = (hostVitals.memoryUsedPercent ?? 0) >= 92;
+  const memoryWarning = !memoryCritical && (hostVitals.memoryUsedPercent ?? 0) >= 85;
+  const safeReclaimEmptyUnderPressure = (diskCritical || diskWarning) && safeReclaimableBytes <= 0;
+  const diagnosisIssues: SentryDiagnosisIssue[] = [];
+
+  if (diskCritical || diskWarning) {
+    diagnosisIssues.push({
+      key: "disk-pressure",
+      label: diskCritical ? "Root disk above fail line" : "Root disk nearing fail line",
+      value: fmtPercent(diskUsedPercent),
+      detail: `${fmtBytes(hostVitals.diskAvailableBytes)} free on /. Safe reclaim: ${fmtBytes(safeReclaimableBytes)}${
+        guidedReclaimableBytes > 0 ? ` · guided: ${fmtBytes(guidedReclaimableBytes)}` : ""
+      }.`,
+      tone: diskCritical ? "bad" : "warn",
+    });
+  }
+
+  if (safeReclaimEmptyUnderPressure) {
+    diagnosisIssues.push({
+      key: "safe-reclaim-empty",
+      label: "Safe reclaim catalog is empty",
+      value: "0B safe",
+      detail:
+        reclaimableBytes > 0
+          ? "Only guided/manual reclaim remains; inspect root pressure leaders before deleting anything."
+          : "No safe cleanup target matched; the next move is guided review of the largest root-resident app trees.",
+      tone: "warn",
+    });
+  }
+
+  if (showCpuHotspot) {
+    diagnosisIssues.push({
+      key: "cpu-hotspot",
+      label: "CPU hotspot is active",
+      value: fmtPercent(topCpuCapacity),
+      detail: `${topCpuProcess?.friendlyName ?? topCpuProcess?.name ?? "Unknown process"} is the current pressure leader. Refresh evidence before restarting anything.`,
+      tone: "warn",
+    });
+  }
+
+  if (memoryCritical || memoryWarning) {
+    diagnosisIssues.push({
+      key: "memory-pressure",
+      label: memoryCritical ? "Memory pressure is critical" : "Memory pressure is elevated",
+      value: fmtPercent(hostVitals.memoryUsedPercent),
+      detail: `${fmtSizeFromMb(memoryFreeMb)} headroom remains. Inspect the Memory lane before restarting a resident service.`,
+      tone: memoryCritical ? "bad" : "warn",
+    });
+  }
+
+  if (diagnosisIssues.length === 0) {
+    diagnosisIssues.push({
+      key: "clear",
+      label: "No pressure blocker in the latest vitals",
+      value: "clear",
+      detail: "Scan cadence and project telemetry are available; keep watching for drift or exposure alerts.",
+      tone: "ok",
+    });
+  }
+
+  const diagnosisLeaders: SentryDiagnosisLeader[] = diskFocusItems.slice(0, 4).map((item) => ({
+    key: item.key,
+    label: item.label,
+    value: item.value,
+    meta: item.note ?? item.meta,
+  }));
 
   const activeFocusPanel =
     activeTopTab === "power" ? (
@@ -1562,6 +1833,20 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
 
           {activeFocusPanel}
         </div>
+
+        <SentryDiagnosisPanel
+          issues={diagnosisIssues}
+          leaders={diagnosisLeaders}
+          canReclaim={canReclaim}
+          safeReclaimableBytes={safeReclaimableBytes}
+          busyAction={opsBusyAction}
+          feedback={opsFeedback}
+          feedbackTone={opsFeedbackTone}
+          onScanNow={handleScanNow}
+          onSafeReclaim={handleSafeReclaim}
+          onInspectDisk={() => handleTopTabSelect("disk")}
+          onInspectPower={() => handleTopTabSelect("power")}
+        />
 
         {showCpuHotspot ? (
           <div className="pm-cpu-hotspot">

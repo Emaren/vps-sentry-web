@@ -59,6 +59,22 @@ The upgraded system should meet these goals:
 - Planned work:
   Maintenance windows suppress paging during expected deploy/restart windows.
 
+## May 12, 2026 Operator Autopilot Tranche
+
+Live finding:
+
+- Root disk pressure can be real while safe reclaim is `0B`.
+- CPU hotspots are pressure evidence, not automatically runtime IOC evidence.
+- Operators need scan/diagnose/reclaim controls directly in the dashboard before dropping to SSH.
+
+Implementation direction:
+
+1. Keep Counterstrike reserved for runtime IOC signals.
+2. Add a scan-only dashboard action that starts `vps-sentry.service` and waits for a newer status timestamp.
+3. Put the diagnosis beside the vitals: broken layer, current pressure, safe reclaim status, and root pressure leaders.
+4. Publish guided reclaim candidates from the host estimator when large dependency trees are consuming root disk.
+5. Make safe cleanup one-click only when the host has explicitly cataloged safe bytes; guided dependency-tree reclaim stays deliberate.
+
 ## Current State
 
 Today the system already has useful pieces:
