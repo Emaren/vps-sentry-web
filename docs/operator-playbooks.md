@@ -122,20 +122,21 @@ Runbook:
 1. On `/dashboard`, open the Power / Memory / Disk / Reclaim surface and read **Sentry Diagnosis** first.
 2. Use **Scan Now** for a fresh host snapshot before killing or restarting anything.
 3. If root disk is critical and **Safe Reclaim** has bytes available, run **Zap Safe Hogs** from the dashboard.
-4. If root disk is critical and safe reclaim is `0B`, inspect the listed root pressure leaders. Guided dependency-tree reclaim requires a service stop/reinstall/build plan; do not delete those trees casually.
-5. For CPU hotspots, inspect the Power lane and confirm whether the process is a build/deploy burst, a normal hot service, or a runtime IOC. Counterstrike is only for IOC signals, not ordinary CPU pressure.
-6. In `/admin`, run workflow `degraded-performance` when broader degradation continues:
+4. If root disk remains critical, open **Review Guided** or the **Guided Reclaim Cockpit** in the Reclaim lane. The cockpit shows large dependency-tree wins, mapped service units when VPSSentry can prove them, and the required Stop -> Remove -> Install -> Build -> Start -> Scan sequence.
+5. If safe reclaim is `0B`, treat guided dependency-tree reclaim as the main disk path. Do not delete those trees casually; the UI should show the project, exact path, service refs, and rebuild requirement before an operator acts.
+6. For CPU hotspots, inspect the Power lane and confirm whether the process is a build/deploy burst, a normal hot service, or a runtime IOC. Counterstrike is only for IOC signals, not ordinary CPU pressure.
+7. In `/admin`, run workflow `degraded-performance` when broader degradation continues:
    - `status-snapshot`
    - `drain-queue` (low limit)
-7. Run load sanity:
+8. Run load sanity:
    ```bash
    make perf-load-smoke
    ```
-8. Recheck security baseline:
+9. Recheck security baseline:
    ```bash
    make security-headers-check
    ```
-9. If still degraded, review system metrics and consider controlled restart/rollback.
+10. If still degraded, review system metrics and consider controlled restart/rollback.
 
 Exit criteria:
 

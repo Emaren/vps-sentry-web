@@ -1439,6 +1439,93 @@ html[data-site-theme="sepia"] .dashboard-shell {
   line-height: 1.45;
 }
 
+.guided-reclaim-card {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+}
+
+.guided-reclaim-sequence {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.guided-reclaim-sequence span {
+  border: 1px solid color-mix(in srgb, var(--dash-sev-high-border) 54%, transparent 46%);
+  border-radius: 999px;
+  padding: 6px 7px;
+  background: color-mix(in srgb, var(--dash-sev-high-bg) 36%, transparent 64%);
+  color: var(--dash-sev-high-text);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.guided-reclaim-list {
+  display: grid;
+  gap: 8px;
+}
+
+.guided-reclaim-row {
+  display: grid;
+  gap: 5px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 78%, transparent 22%);
+  background: color-mix(in srgb, var(--dash-card-bg) 70%, transparent 30%);
+}
+
+.guided-reclaim-row-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.guided-reclaim-title {
+  color: var(--dash-fg);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.guided-reclaim-bytes {
+  color: var(--dash-fg);
+  font-size: 12px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.guided-reclaim-meta,
+.guided-reclaim-plan,
+.guided-reclaim-lock {
+  color: var(--dash-meta);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.guided-reclaim-path {
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: color-mix(in srgb, #020617 54%, var(--dash-card-bg) 46%);
+  color: color-mix(in srgb, var(--dash-fg) 78%, var(--dash-meta) 22%);
+  font-family: var(--font-geist-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.guided-reclaim-lock {
+  border-top: 1px solid color-mix(in srgb, var(--dash-card-border) 70%, transparent 30%);
+  padding-top: 9px;
+}
+
 .power-vitals-bar {
   height: 8px;
   width: 100%;
@@ -2912,6 +2999,10 @@ html[data-site-theme="sepia"] .dashboard-shell {
 }
 
 @media (max-width: 560px) {
+  .guided-reclaim-sequence {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .pm-project-metrics {
     grid-template-columns: 1fr;
   }
@@ -4036,6 +4127,10 @@ html[data-site-theme="sepia"] .dashboard-shell {
   .power-vitals-reclaim-stage-support,
   .power-vitals-focus-panel-side {
     grid-template-columns: 1fr;
+  }
+
+  .guided-reclaim-sequence {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .power-vitals-row {

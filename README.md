@@ -209,6 +209,11 @@ make db-pg-rollback
   - `/api/billing/cancel`
   - `/api/billing/webhook`
 
+Dashboard reclaim note:
+
+- **Zap Safe Hogs** calls `/api/ops/garbage/reclaim` for safe-only cleanup.
+- **Review Guided** opens the Guided Reclaim Cockpit for larger dependency-tree wins. It is a planning surface, not a delete button: guided targets should show the project, exact path, service refs when available, and the Stop -> Remove -> Install -> Build -> Start -> Scan sequence.
+
 ## Runbooks
 
 - `../CURRENT_STATE.md`

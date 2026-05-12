@@ -1,13 +1,13 @@
 "use client";
 
 import React from "react";
-import type { DashboardGarbageEstimate, DerivedDashboard } from "../_lib/derive";
+import type { DashboardGarbageCandidate, DashboardGarbageEstimate, DerivedDashboard } from "../_lib/derive";
 import { MAIN_PROJECTS, type ProjectDef } from "../_lib/project-catalog";
 import Box from "./Box";
 import GarbageTile from "./GarbageTile";
 import PowerVitalsLiveGrid, { type PowerVitalsTopTab } from "./PowerVitalsLiveGrid";
 import ReclaimCategoryTile from "./ReclaimCategoryTile";
-import { triggerGarbageReclaim } from "./reclaim-utils";
+import { liveBadgeClass, triggerGarbageReclaim } from "./reclaim-utils";
 
 type PortEntry = {
   proto?: string;
@@ -943,6 +943,7 @@ function SentryDiagnosisPanel(props: {
   leaders: SentryDiagnosisLeader[];
   canReclaim: boolean;
   safeReclaimableBytes: number;
+  guidedReclaimableBytes: number;
   busyAction: "scan" | "reclaim" | null;
   feedback: string | null;
   feedbackTone: "ok" | "bad" | "meta";
@@ -950,15 +951,18 @@ function SentryDiagnosisPanel(props: {
   onSafeReclaim: () => void;
   onInspectDisk: () => void;
   onInspectPower: () => void;
+  onInspectGuided: () => void;
 }) {
   const {
     busyAction,
     canReclaim,
     feedback,
     feedbackTone,
+    guidedReclaimableBytes,
     issues,
     leaders,
     onInspectDisk,
+    onInspectGuided,
     onInspectPower,
     onSafeReclaim,
     onScanNow,
@@ -1017,6 +1021,14 @@ function SentryDiagnosisPanel(props: {
           </button>
           <button
             type="button"
+            className="sentry-diagnosis-button sentry-diagnosis-button-secondary"
+            onClick={onInspectGuided}
+            disabled={guidedReclaimableBytes <= 0}
+          >
+            {guidedReclaimableBytes > 0 ? "Review Guided" : "No Guided Wins"}
+          </button>
+          <button
+            type="button"
             className="sentry-diagnosis-button sentry-diagnosis-button-zap"
             onClick={onSafeReclaim}
             disabled={!canRunSafeReclaim}
@@ -1053,6 +1065,120 @@ function SentryDiagnosisPanel(props: {
         ) : (
           <div className="sentry-diagnosis-empty">Disk leaders will appear after the next project storage scan.</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function serviceRefsLabel(candidate: DashboardGarbageCandidate): string {
+  if (candidate.serviceRefs.length === 0) return "service map pending";
+  return candidate.serviceRefs.slice(0, 3).join(", ");
+}
+
+function guidedCandidateMeta(candidate: DashboardGarbageCandidate): string {
+  return [
+    candidate.projectLabel,
+    candidate.requiresStop ? "requires stop" : "inspect first",
+    candidate.regrows ? "reinstall/build after removal" : null,
+    serviceRefsLabel(candidate),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
+}
+
+function GuidedReclaimPanel(props: {
+  estimate: DashboardGarbageEstimate | null;
+  connected: boolean;
+  streamLabel: string;
+  canReclaim: boolean;
+  busyAction: "scan" | "reclaim" | null;
+  safeReclaimableBytes: number;
+  onScanNow: () => void;
+  onSafeReclaim: () => void;
+}) {
+  const { busyAction, canReclaim, connected, estimate, onSafeReclaim, onScanNow, safeReclaimableBytes, streamLabel } =
+    props;
+  const [planOpen, setPlanOpen] = React.useState(false);
+  const guidedCandidates = (estimate?.candidates ?? [])
+    .filter((candidate) => candidate.category === "guided" || candidate.risk === "guided")
+    .slice()
+    .sort((a, b) => (b.bytes ?? 0) - (a.bytes ?? 0));
+  const totalGuided =
+    estimate?.guidedReclaimableBytes ??
+    guidedCandidates.reduce((sum, candidate) => sum + (candidate.bytes ?? 0), 0);
+  const topGuided = guidedCandidates.slice(0, planOpen ? 6 : 3);
+  const canRunSafeFirst = canReclaim && safeReclaimableBytes > 0 && busyAction === null;
+
+  return (
+    <div className="power-vitals-kpi-card power-vitals-kpi-card-live guided-reclaim-card">
+      <div className="power-vitals-kpi-headline">
+        <div className="power-vitals-kpi-label">Guided Reclaim Cockpit</div>
+        <span className={liveBadgeClass(connected)}>{streamLabel}</span>
+      </div>
+
+      <div className="power-vitals-kpi-value">{fmtBytes(totalGuided)}</div>
+      <div className="power-vitals-kpi-meta">
+        Larger wins that VPSSentry can explain, but will not delete until the service stop and rebuild path is explicit.
+      </div>
+
+      <div className="guided-reclaim-sequence" aria-label="Guided reclaim sequence">
+        <span>Stop</span>
+        <span>Remove</span>
+        <span>Install</span>
+        <span>Build</span>
+        <span>Start</span>
+        <span>Scan</span>
+      </div>
+
+      {topGuided.length > 0 ? (
+        <div className="guided-reclaim-list">
+          {topGuided.map((candidate) => (
+            <div key={candidate.id} className="guided-reclaim-row">
+              <div className="guided-reclaim-row-head">
+                <span className="guided-reclaim-title">{candidate.projectLabel ?? candidate.label}</span>
+                <span className="guided-reclaim-bytes">{fmtBytes(candidate.bytes)}</span>
+              </div>
+              <div className="guided-reclaim-meta">{guidedCandidateMeta(candidate)}</div>
+              {planOpen ? (
+                <>
+                  <div className="guided-reclaim-path">{candidate.path}</div>
+                  <div className="guided-reclaim-plan">
+                    Stop mapped service first; remove the dependency tree only after a reinstall/build path is ready;
+                    restart the service and run a fresh scan before calling the disk fixed.
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="garbage-tile-empty">No guided reclaim target matched in the latest scan.</div>
+      )}
+
+      <div className="garbage-tile-actions">
+        <button
+          type="button"
+          className="garbage-tile-button garbage-tile-button-secondary"
+          onClick={() => setPlanOpen((value) => !value)}
+          disabled={guidedCandidates.length === 0}
+        >
+          {planOpen ? "Collapse Plan" : "Build Plan"}
+        </button>
+        <button type="button" className="garbage-tile-button garbage-tile-button-secondary" onClick={onScanNow}>
+          {busyAction === "scan" ? "Scanning..." : "Scan Now"}
+        </button>
+        <button
+          type="button"
+          className="garbage-tile-button"
+          onClick={onSafeReclaim}
+          disabled={!canRunSafeFirst}
+        >
+          {safeReclaimableBytes > 0 ? "Zap Safe First" : "No Safe Zap"}
+        </button>
+      </div>
+
+      <div className="guided-reclaim-lock">
+        Guided deletion is intentionally locked behind a stop/reinstall/verify workflow.
       </div>
     </div>
   );
@@ -1794,6 +1920,16 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
             streamLabel={liveStreamLabel}
             canReclaim={canReclaim}
           />
+          <GuidedReclaimPanel
+            estimate={garbageEstimate}
+            connected={liveConnected}
+            streamLabel={liveStreamLabel}
+            canReclaim={canReclaim}
+            busyAction={opsBusyAction}
+            safeReclaimableBytes={safeReclaimableBytes}
+            onScanNow={handleScanNow}
+            onSafeReclaim={handleSafeReclaim}
+          />
         </GarbageTile>
       </div>
     );
@@ -1839,6 +1975,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           leaders={diagnosisLeaders}
           canReclaim={canReclaim}
           safeReclaimableBytes={safeReclaimableBytes}
+          guidedReclaimableBytes={guidedReclaimableBytes}
           busyAction={opsBusyAction}
           feedback={opsFeedback}
           feedbackTone={opsFeedbackTone}
@@ -1846,6 +1983,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           onSafeReclaim={handleSafeReclaim}
           onInspectDisk={() => handleTopTabSelect("disk")}
           onInspectPower={() => handleTopTabSelect("power")}
+          onInspectGuided={() => handleTopTabSelect("reclaim")}
         />
 
         {showCpuHotspot ? (

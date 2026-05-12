@@ -144,4 +144,45 @@ describe("PowerMemoryTile", () => {
     expect(html).toContain("Scan Now");
     expect(html).toContain("Safe Reclaim Empty");
   });
+
+  it("renders guided dependency reclaim as a deliberate plan, not a safe zap", () => {
+    const derived = makeDerived();
+    derived.garbageEstimate = {
+      ...derived.garbageEstimate!,
+      reclaimableBytesTotal: 1513575117,
+      guidedReclaimableBytes: 1513575117,
+      candidates: [
+        {
+          id: "guided_review:/var/www/AoE2HDBets/app-prodn/node_modules",
+          key: "guided_node_modules",
+          label: "Large dependency trees",
+          path: "/var/www/AoE2HDBets/app-prodn/node_modules",
+          bytes: 1513575117,
+          action: "guided_review",
+          kind: "directory",
+          category: "guided",
+          categoryLabel: "Guided Reclaim",
+          risk: "guided",
+          riskLabel: "Guided",
+          requiresStop: true,
+          regrows: true,
+          explanation: "Large dependency tree on the root filesystem.",
+          previewCommand: "du -sh /var/www/AoE2HDBets/app-prodn/node_modules",
+          executeCommand: "guided_review",
+          projectId: "aoe2hdbets",
+          projectLabel: "AoE2HDBets",
+          projectUrl: "https://aoe2hdbets.com",
+          serviceRefs: ["aoe2hdbets-web.service"],
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(<PowerMemoryTile derived={derived} canReclaim={true} />);
+
+    expect(html).toContain("Guided Reclaim Cockpit");
+    expect(html).toContain("Review Guided");
+    expect(html).toContain("AoE2HDBets");
+    expect(html).toContain("aoe2hdbets-web.service");
+    expect(html).toContain("Guided deletion is intentionally locked");
+  });
 });

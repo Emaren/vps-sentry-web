@@ -73,7 +73,9 @@ Implementation direction:
 2. Add a scan-only dashboard action that starts `vps-sentry.service` and waits for a newer status timestamp.
 3. Put the diagnosis beside the vitals: broken layer, current pressure, safe reclaim status, and root pressure leaders.
 4. Publish guided reclaim candidates from the host estimator when large dependency trees are consuming root disk.
-5. Make safe cleanup one-click only when the host has explicitly cataloged safe bytes; guided dependency-tree reclaim stays deliberate.
+5. Enrich guided reclaim candidates with proven systemd service refs when a service working directory or `ExecStart` path overlaps the candidate path.
+6. Show a Guided Reclaim Cockpit in the dashboard with Stop -> Remove -> Install -> Build -> Start -> Scan sequencing.
+7. Make safe cleanup one-click only when the host has explicitly cataloged safe bytes; guided dependency-tree reclaim stays deliberate until a full service-aware workflow exists.
 
 ## Current State
 
