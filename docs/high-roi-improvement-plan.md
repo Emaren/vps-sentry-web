@@ -89,6 +89,7 @@ Status:
 
 - May 18, 2026: first pass completed for reclaim labels and top CPU pressure wording.
 - May 18, 2026: second pass completed for Counterstrike render framing. Stale analysis-only runs with zero candidates no longer claim to be the current red-state blocker when the live threat snapshot is standby; the panel now uses IOC/playbook action labels instead of vague `Zap` wording.
+- May 18, 2026: containment/reclaim pass completed. Llama temp-exec IOC evidence was quarantined, `llama-chat.service` gained `/var/tmp` noexec containment, safe caches and root-resident dependency trees were moved off `/`, and the dashboard returned root pressure to green after a forced scan.
 
 ### 2. Strengthen Data Contracts
 
@@ -151,7 +152,7 @@ Exit criteria:
 
 ### 4. First-Class Temp-Executable Containment
 
-Broken layer: remediation wiring.
+Broken layer: remediation wiring and source explainability.
 
 Files to inspect/edit:
 
@@ -166,6 +167,7 @@ Files to inspect/edit:
 Actions:
 
 - model `/tmp`, `/var/tmp`, and `/dev/shm` executables as a distinct containment class
+- include owning-unit temp hardening state in IOC details when VPSSentry can prove the unit
 - quarantine evidence before deletion
 - stop only the owning service when ownership is proven
 - add service-specific noexec temp mounts when appropriate
@@ -257,9 +259,9 @@ Exit criteria:
 
 ## Immediate Next Slices
 
-1. Build executable guided dependency-tree relocation with dry-run, typed confirmation, service stop/start, rescan, and rollback notes.
-2. Add strict dashboard fixtures for healthy, stale, root-pressure, and runtime-IOC states.
-3. Tighten Counterstrike armed-state derivation for protected-path/container-loader IOC signals so the tile, status popup, and host playbook runner all explain the same current threat shape.
+1. Turn the proven guided dependency-tree relocation path into a first-class dashboard workflow with dry-run, typed confirmation, service stop/start, rescan, and rollback notes.
+2. Add strict dashboard fixtures for healthy, stale, root-pressure, runtime-IOC, and post-containment states.
+3. Promote temp-exec containment into a reusable VPSSentry workflow so evidence capture, unit-scoped noexec hardening, restart, and rescan are one auditable operator sequence.
 4. Finish host-side alert delivery so `vps-sentry-web` is not required to report its own failure.
 5. Add authenticated visual regression coverage for the dashboard command surface.
 

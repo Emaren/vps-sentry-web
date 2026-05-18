@@ -124,7 +124,7 @@ Runbook:
 3. If root disk is critical and **Safe Reclaim** has bytes available, run **Run Safe Reclaim** from the dashboard.
 4. If root disk remains critical, open **Review Guided** or the **Guided Reclaim Cockpit** in the Reclaim lane. The cockpit shows large dependency-tree wins, mapped service units when VPSSentry can prove them, and the required Stop -> Remove -> Install -> Build -> Start -> Scan sequence.
 5. If safe reclaim is `0B`, treat guided dependency-tree reclaim as the main disk path. Prefer moving root-backed dependency trees onto the mounted volume with symlinks over blind deletion when the service must keep restarting cleanly.
-6. If a CPU hotspot is an executable from `/tmp` or `/var/tmp`, contain it as runtime evidence: quarantine the binary/config, stop the owning service, remove the temp executable, add a noexec temp mount for that service, restart, then rescan.
+6. If a CPU hotspot is an executable from `/tmp`, `/var/tmp`, `/dev/shm`, or `/run`, contain it as runtime evidence: quarantine the binary/config, stop only the proven owning service, add `TemporaryFileSystem=<path>:rw,nosuid,nodev,noexec,...` for the abused temp path, restart, then rescan.
 7. For ordinary CPU hotspots, inspect the Power lane and confirm whether the process is a build/deploy burst, a normal hot service, or a runtime IOC. Counterstrike is only for IOC signals, not ordinary CPU pressure.
 8. In `/admin`, run workflow `degraded-performance` when broader degradation continues:
    - `status-snapshot`
@@ -144,6 +144,7 @@ Exit criteria:
 - latency and error profile stabilizes
 - load smoke has no unexpected failures
 - security checks still pass
+- runtime IOC rows are zero, or each remaining IOC names the owning unit and its temp-exec hardening state
 
 ## Audit Expectations
 
