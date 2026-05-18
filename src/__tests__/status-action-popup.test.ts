@@ -6,7 +6,9 @@ import {
   pickCounterstrikePlaybookId,
 } from "@/app/dashboard/_components/status-popup/StatusActionPopup";
 
-function makeSnapshot() {
+type CounterstrikeSnapshot = NonNullable<Parameters<typeof pickCounterstrikePlaybookId>[0]["snapshot"]>;
+
+function makeSnapshot(): CounterstrikeSnapshot {
   return {
     alerts: [],
     unexpectedPublicPortsCount: 0,
