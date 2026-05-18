@@ -1029,14 +1029,14 @@ function SentryDiagnosisPanel(props: {
           </button>
           <button
             type="button"
-            className="sentry-diagnosis-button sentry-diagnosis-button-zap"
+            className="sentry-diagnosis-button sentry-diagnosis-button-safe"
             onClick={onSafeReclaim}
             disabled={!canRunSafeReclaim}
           >
             {busyAction === "reclaim"
-              ? "Zapping..."
+              ? "Reclaiming..."
               : safeReclaimableBytes > 0
-                ? "Zap Safe Hogs"
+                ? "Run Safe Reclaim"
                 : "Safe Reclaim Empty"}
           </button>
         </div>
@@ -1173,7 +1173,7 @@ function GuidedReclaimPanel(props: {
           onClick={onSafeReclaim}
           disabled={!canRunSafeFirst}
         >
-          {safeReclaimableBytes > 0 ? "Zap Safe First" : "No Safe Zap"}
+          {safeReclaimableBytes > 0 ? "Run Safe First" : "No Safe Reclaim"}
         </button>
       </div>
 
@@ -1508,7 +1508,7 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
     if (opsBusyAction || !canReclaim) return;
     setOpsBusyAction("reclaim");
     setOpsFeedbackTone("meta");
-    setOpsFeedback("Launching safe hog zap...");
+    setOpsFeedback("Starting safe reclaim...");
     try {
       const data = await triggerGarbageReclaim("safe");
       setOpsFeedbackTone("ok");
@@ -1899,22 +1899,22 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
           canReclaim={canReclaim}
         >
           <ReclaimCategoryTile
-            title="Garbage Dump"
-            subtitle="Dead-weight junk you can usually delete outright."
+            title="Safe Cleanup"
+            subtitle="Cataloged safe cleanup targets that can usually be removed outright."
             category="garbage"
-            actionLabel="Clean Safe Junk"
-            emptyLabel="No garbage-dump targets matched in the latest scan."
+            actionLabel="Clean Safe Targets"
+            emptyLabel="No safe cleanup targets matched in the latest scan."
             estimate={garbageEstimate}
             connected={liveConnected}
             streamLabel={liveStreamLabel}
             canReclaim={canReclaim}
           />
           <ReclaimCategoryTile
-            title="Recycling Center"
+            title="Rebuildable Caches"
             subtitle="Caches and rebuildable artifacts that can regenerate later."
             category="recycling"
             actionLabel="Recycle Caches"
-            emptyLabel="No recycling targets matched in the latest scan."
+            emptyLabel="No rebuildable cache targets matched in the latest scan."
             estimate={garbageEstimate}
             connected={liveConnected}
             streamLabel={liveStreamLabel}

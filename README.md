@@ -211,7 +211,7 @@ make db-pg-rollback
 
 Dashboard reclaim note:
 
-- **Zap Safe Hogs** calls `/api/ops/garbage/reclaim` for safe-only cleanup.
+- **Run Safe Reclaim** calls `/api/ops/garbage/reclaim` for safe-only cleanup.
 - **Review Guided** opens the Guided Reclaim Cockpit for larger dependency-tree wins. It is a planning surface, not a delete button: guided targets should show the project, exact path, service refs when available, and the Stop -> Remove -> Install -> Build -> Start -> Scan sequence.
 
 ## Runbooks
@@ -224,6 +224,7 @@ Dashboard reclaim note:
 - `docs/fleet-rollout-runbook.md`
 - `docs/incident-workflows.md`
 - `docs/operator-playbooks.md`
+- `docs/high-roi-improvement-plan.md`
 - `docs/observability-runbook.md`
 - `docs/slo-burn-rate-runbook.md`
 - `docs/sqlite-postgres-migration.md`

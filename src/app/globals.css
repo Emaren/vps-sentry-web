@@ -1868,7 +1868,7 @@ html[data-site-theme="sepia"] .dashboard-shell {
   border-color: color-mix(in srgb, var(--dash-card-border) 88%, transparent 12%);
 }
 
-.sentry-diagnosis-button-zap {
+.sentry-diagnosis-button-safe {
   border-color: color-mix(in srgb, var(--dash-sev-ok-border) 72%, transparent 28%);
   background: linear-gradient(
     135deg,

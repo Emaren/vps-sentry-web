@@ -575,6 +575,8 @@ The next slice should be small and valuable:
 
 That is the minimum slice that turns VPS Sentry from "can notice the dashboard is down" into "can actually page you when the dashboard is down."
 
+For the broader codebase/UI roadmap, use `docs/high-roi-improvement-plan.md`. That plan keeps render clarity, data contracts, guided reclaim, runtime containment, host-side paging, visual QA, sync, and deploy work ordered by return and operational risk.
+
 ## Open Decisions
 
 These should be decided before or during Phase 1:

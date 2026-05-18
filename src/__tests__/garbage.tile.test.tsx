@@ -23,14 +23,14 @@ describe("GarbageTile", () => {
           categoryTotals: [
             {
               key: "garbage",
-              label: "Garbage Dump",
+              label: "Safe Cleanup",
               description: "Dead-weight junk.",
               bytes: 268435456,
               count: 12,
             },
             {
               key: "recycling",
-              label: "Recycling Center",
+              label: "Rebuildable Caches",
               description: "Caches that can regenerate.",
               bytes: 544210944,
               count: 7,
@@ -75,7 +75,7 @@ describe("GarbageTile", () => {
               action: "remove_path",
               kind: "path",
               category: "garbage",
-              categoryLabel: "Garbage Dump",
+              categoryLabel: "Safe Cleanup",
               risk: "safe",
               riskLabel: "Safe now",
               requiresStop: false,
@@ -97,7 +97,7 @@ describe("GarbageTile", () => {
               action: "remove_path",
               kind: "path",
               category: "recycling",
-              categoryLabel: "Recycling Center",
+              categoryLabel: "Rebuildable Caches",
               risk: "safe",
               riskLabel: "Safe now",
               requiresStop: false,
@@ -130,10 +130,10 @@ describe("GarbageTile", () => {
     );
 
     expect(html).toContain("Reclaimable Space");
-    expect(html).toContain("Slaughter Safe Hogs");
+    expect(html).toContain("Run Safe Reclaim");
     expect(html).toContain("Stale /tmp files");
     expect(html).toContain("Package manager caches");
-    expect(html).toContain("Preview Hogs");
+    expect(html).toContain("Preview Targets");
   });
 
   it("renders cleanup progress details when a reclaim pass is running", () => {

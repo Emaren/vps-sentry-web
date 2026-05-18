@@ -13,7 +13,7 @@ export default function ThreatSignals({ threat }: { threat?: unknown }) {
   const blocks: React.ReactNode[] = [];
   const entries: Array<[string, unknown]> = [
     ["Suspicious processes", t["suspicious_processes"]],
-    ["Top CPU (new hogs)", t["top_cpu"]],
+    ["Top CPU pressure", t["top_cpu"]],
     ["Outbound suspicious (pool/stratum)", t["outbound_suspicious"]],
     ["Persistence hits (user/system)", t["persistence_hits"]],
   ];

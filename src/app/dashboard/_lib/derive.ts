@@ -325,10 +325,10 @@ function normalizeGarbageRiskKey(raw: string | null | undefined): DashboardGarba
 }
 
 function defaultGarbageCategoryLabel(key: DashboardGarbageCategoryKey): string {
-  if (key === "recycling") return "Recycling Center";
+  if (key === "recycling") return "Rebuildable Caches";
   if (key === "guided") return "Guided Reclaim";
   if (key === "blocked") return "Blocked / Manual";
-  return "Garbage Dump";
+  return "Safe Cleanup";
 }
 
 function defaultGarbageCategoryDescription(key: DashboardGarbageCategoryKey): string | null {

@@ -145,7 +145,7 @@ describe("PowerMemoryTile", () => {
     expect(html).toContain("Safe Reclaim Empty");
   });
 
-  it("renders guided dependency reclaim as a deliberate plan, not a safe zap", () => {
+  it("renders guided dependency reclaim as a deliberate plan, not a safe reclaim action", () => {
     const derived = makeDerived();
     derived.garbageEstimate = {
       ...derived.garbageEstimate!,

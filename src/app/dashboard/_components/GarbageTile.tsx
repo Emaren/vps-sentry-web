@@ -88,7 +88,7 @@ export default function GarbageTile(props: {
     if (!canReclaim || busy) return;
     setBusy(true);
     setFeedbackTone("meta");
-    setFeedback("Launching Space Hog Slaughter in safe mode…");
+    setFeedback("Starting safe reclaim...");
 
     try {
       const data = await triggerGarbageReclaim("safe");
@@ -191,7 +191,7 @@ export default function GarbageTile(props: {
           <div>
             <div className="power-vitals-reclaim-stage-kicker">Reclaim Workbench</div>
             <div className="power-vitals-reclaim-stage-title">
-              Safe hog preview, cleanup controls, and last-pass telemetry.
+              Safe reclaim preview, cleanup controls, and last-pass telemetry.
             </div>
           </div>
           {cleanup ? (
@@ -227,14 +227,14 @@ export default function GarbageTile(props: {
             onClick={handleReclaim}
             disabled={!canReclaim || isCleanupActive}
           >
-            {isCleanupActive ? "Slaughtering…" : "Slaughter Safe Hogs"}
+            {isCleanupActive ? "Reclaiming..." : "Run Safe Reclaim"}
           </button>
           <button
             type="button"
             className="garbage-tile-button garbage-tile-button-secondary"
             onClick={() => setPreviewOpen((value) => !value)}
           >
-            {previewOpen ? "Hide Preview" : "Preview Hogs"}
+            {previewOpen ? "Hide Preview" : "Preview Targets"}
           </button>
           {!canReclaim ? <span className="garbage-tile-action-note">Ops role required.</span> : null}
         </div>
