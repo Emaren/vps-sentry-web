@@ -129,6 +129,12 @@ function playbookMeta(id: string | null | undefined) {
   return getCounterstrikePlaybook(id) ?? DEFAULT_COUNTERSTRIKE_PLAYBOOK;
 }
 
+function displayPlaybookLabel(raw: unknown, playbook: ReturnType<typeof playbookMeta>): string {
+  const value = asString(raw);
+  if (!value || /^zap!?\s*#/i.test(value)) return playbook.label;
+  return value;
+}
+
 function parseArmedState(value: unknown): CounterstrikeArmedState | null {
   const raw = asDict(value);
   if (!raw) return null;
@@ -178,7 +184,7 @@ function normalizeRunState(raw: JsonDict | null): CounterstrikeRunState | null {
     runId: asString(raw.run_id) ?? "unknown",
     pid: asInt(raw.pid),
     playbook: playbook.id,
-    playbookLabel: asString(raw.playbook_label) ?? playbook.label,
+    playbookLabel: displayPlaybookLabel(raw.playbook_label, playbook),
     playbookTitle: asString(raw.playbook_title) ?? playbook.title,
     mode: (asString(raw.mode) as CounterstrikeRunState["mode"]) ?? "analyze",
     startedAt: asString(raw.started_at),
@@ -219,7 +225,7 @@ function normalizeRunResult(raw: JsonDict | null): CounterstrikeRunResult | null
   return {
     runId: asString(raw.run_id) ?? "unknown",
     playbook: playbook.id,
-    playbookLabel: asString(raw.playbook_label) ?? playbook.label,
+    playbookLabel: displayPlaybookLabel(raw.playbook_label, playbook),
     playbookTitle: asString(raw.playbook_title) ?? playbook.title,
     mode: asString(raw.mode) ?? "analyze",
     status: asString(raw.status) ?? "failed",

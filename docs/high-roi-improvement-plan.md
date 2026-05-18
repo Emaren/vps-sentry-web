@@ -88,6 +88,7 @@ Exit criteria:
 Status:
 
 - May 18, 2026: first pass completed for reclaim labels and top CPU pressure wording.
+- May 18, 2026: second pass completed for Counterstrike render framing. Stale analysis-only runs with zero candidates no longer claim to be the current red-state blocker when the live threat snapshot is standby; the panel now uses IOC/playbook action labels instead of vague `Zap` wording.
 
 ### 2. Strengthen Data Contracts
 
@@ -258,8 +259,9 @@ Exit criteria:
 
 1. Build executable guided dependency-tree relocation with dry-run, typed confirmation, service stop/start, rescan, and rollback notes.
 2. Add strict dashboard fixtures for healthy, stale, root-pressure, and runtime-IOC states.
-3. Finish host-side alert delivery so `vps-sentry-web` is not required to report its own failure.
-4. Add authenticated visual regression coverage for the dashboard command surface.
+3. Tighten Counterstrike armed-state derivation for protected-path/container-loader IOC signals so the tile, status popup, and host playbook runner all explain the same current threat shape.
+4. Finish host-side alert delivery so `vps-sentry-web` is not required to report its own failure.
+5. Add authenticated visual regression coverage for the dashboard command surface.
 
 ## Do Not Do Casually
 

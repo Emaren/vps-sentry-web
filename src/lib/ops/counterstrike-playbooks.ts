@@ -11,7 +11,7 @@ export type CounterstrikePlaybook = {
 export const COUNTERSTRIKE_PLAYBOOKS: CounterstrikePlaybook[] = [
   {
     id: "zap-01-miner-persistence-purge",
-    label: "Zap! #1",
+    label: "IOC-1",
     title: "Miner Persistence Purge",
     description:
       "Kill suspicious miner-style processes in writable paths, quarantine binaries, and scrub matching cron persistence.",
@@ -19,7 +19,7 @@ export const COUNTERSTRIKE_PLAYBOOKS: CounterstrikePlaybook[] = [
   },
   {
     id: "zap-02-busybox-loader-cutoff",
-    label: "Zap! #2",
+    label: "IOC-2",
     title: "BusyBox Loader Cutoff",
     description:
       "Cut containerized BusyBox or shell loader loops, preserve decoded payload evidence, and remove the restartable rogue container when it matches the IOC profile.",

@@ -59,8 +59,8 @@ Runbook:
 
 1. Open the dashboard and inspect Counterstrike before changing anything.
 2. Match the playbook to the threat shape:
-   - `Zap #1` for writable-path miner / persistence cleanup
-   - `Zap #2` for protected-path or container-loader cases where the runtime is using legit host tools in a hostile way
+   - `IOC-1` for writable-path miner / persistence cleanup
+   - `IOC-2` for protected-path or container-loader cases where the runtime is using legit host tools in a hostile way
 3. Before execute, confirm the plan is targeting the actual loader or container, not a normal system binary in isolation.
 4. Run the selected playbook.
 5. Immediately refresh the host snapshot:

@@ -3368,6 +3368,29 @@ html[data-site-theme="sepia"] .dashboard-shell {
   line-height: 1.45;
 }
 
+.counterstrike-standby-note {
+  border: 1px solid color-mix(in srgb, var(--dash-card-border) 84%, transparent 16%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dash-card-bg) 82%, transparent 18%);
+  padding: 11px 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.counterstrike-standby-title {
+  color: var(--dash-meta);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.counterstrike-standby-copy {
+  color: var(--dash-fg);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .counterstrike-progress {
   border: 1px solid color-mix(in srgb, var(--dash-sev-high-border) 72%, transparent 28%);
   border-radius: 12px;

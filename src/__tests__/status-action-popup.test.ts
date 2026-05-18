@@ -81,7 +81,7 @@ describe("StatusActionPopup baseline drift helpers", () => {
     expect(isBaselineDriftAlert(alert)).toBe(false);
   });
 
-  it("picks Zap #2 when protected-path runtime signals are present", () => {
+  it("picks IOC-2 when protected-path runtime signals are present", () => {
     const snapshot = makeSnapshot();
     snapshot.suspiciousProcesses = [
       {
@@ -99,7 +99,7 @@ describe("StatusActionPopup baseline drift helpers", () => {
     expect(playbookId).toBe("zap-02-busybox-loader-cutoff");
   });
 
-  it("keeps Zap #1 for ordinary writable-path runtime candidates", () => {
+  it("keeps IOC-1 for ordinary writable-path runtime candidates", () => {
     const snapshot = makeSnapshot();
     snapshot.suspiciousProcesses = [
       {

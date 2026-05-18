@@ -293,7 +293,7 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
     setBusyMode(mode);
     setConsoleOpen(true);
     setFeedbackTone("meta");
-    setFeedback(`${selectedPlaybook.label} is starting in ${mode} mode…`);
+    setFeedback(`${selectedPlaybook.title} is starting in ${mode} mode...`);
 
     try {
       const res = await fetch("/api/ops/counterstrike/run", {
@@ -315,7 +315,7 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
         setSnapshot(data.snapshot);
       }
       setFeedbackTone("meta");
-      setFeedback(data.detail || `${selectedPlaybook.label} started.`);
+      setFeedback(data.detail || `${selectedPlaybook.title} started.`);
       if (historyOpen) {
         setHistory((current) => current);
       }
@@ -332,23 +332,29 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
   const canMutate = canRun && snapshot?.canRun !== false;
   const lastPlan = last?.plannedActions ?? null;
   const lastPlanCopy = planSummary(lastPlan);
-  const analysisOnlyNoShot =
+  const analysisOnlyNoCandidateRun =
     !running &&
     last?.status === "analysis_only" &&
     (last?.plannedActions?.candidateCount ?? 0) === 0;
-  const recommendZapTwo = analysisOnlyNoShot && last?.playbook === DEFAULT_COUNTERSTRIKE_PLAYBOOK.id;
-  const analysisOnlyBlockerCopy = analysisOnlyNoShot
+  const analysisOnlyNeedsFollowUp = analysisOnlyNoCandidateRun && armed.active;
+  const recommendProtectedLoaderPlaybook =
+    analysisOnlyNeedsFollowUp && last?.playbook === DEFAULT_COUNTERSTRIKE_PLAYBOOK.id;
+  const analysisOnlyBlockerCopy = analysisOnlyNeedsFollowUp
     ? last?.playbook === DEFAULT_COUNTERSTRIKE_PLAYBOOK.id
-      ? "No safe kill shot found yet. Zap #1 analyzed the threat feed, but the latest run still had zero containable writable-path candidates, so the host remains red."
-      : "No safe kill shot found yet. The latest Counterstrike analysis still had zero containable candidates, so the host remains red."
+      ? "Current runtime IOC evidence is still present. IOC-1 found no safe writable-path containment target; review IOC-2 only if the evidence matches a protected-path loader or rogue container."
+      : "Current runtime IOC evidence is still present. The latest analysis found no safe containment target; inspect the evidence before executing another playbook."
     : null;
+  const analysisOnlyStandbyCopy =
+    analysisOnlyNoCandidateRun && !armed.active
+      ? "The latest analysis found zero safe containment targets, and the current threat snapshot has no runtime IOC candidates. Work any remaining red state from Sentry Diagnosis, disk, drift, or exposure panels."
+      : null;
 
   return (
     <Box className="counterstrike-tile" style={{ marginTop: 12 }}>
       <div className="counterstrike-head">
         <div>
           <div className="counterstrike-kicker">Counterstrike</div>
-          <div className="counterstrike-title">One-click response playbooks</div>
+          <div className="counterstrike-title">Runtime IOC response playbooks</div>
         </div>
         <div className="dashboard-chip-row">
           <span className={statusChipClass(armed.active ? "armed" : "standby")}>
@@ -361,7 +367,8 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
       <div className="counterstrike-playbooks-grid">
         {playbooks.map((playbook) => {
           const active = playbook.id === selectedPlaybook.id;
-          const recommended = recommendZapTwo && playbook.id === "zap-02-busybox-loader-cutoff";
+          const recommended =
+            recommendProtectedLoaderPlaybook && playbook.id === "zap-02-busybox-loader-cutoff";
           return (
             <button
               key={playbook.id}
@@ -424,7 +431,7 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
           onClick={() => void handleRun("execute")}
           disabled={!canMutate || Boolean(running) || Boolean(busyMode)}
         >
-          {busyMode === "execute" ? "Launching…" : selectedPlaybook.label}
+          {busyMode === "execute" ? "Launching..." : "Execute Selected"}
         </button>
         <button
           type="button"
@@ -432,7 +439,7 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
           onClick={() => void handleRun("analyze")}
           disabled={!canMutate || Boolean(running) || Boolean(busyMode)}
         >
-          {busyMode === "analyze" ? "Launching…" : "Analyze Selected"}
+          {busyMode === "analyze" ? "Launching..." : "Analyze Selected"}
         </button>
         <button
           type="button"
@@ -440,7 +447,7 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
           onClick={() => void handleRun("dry-run")}
           disabled={!canMutate || Boolean(running) || Boolean(busyMode)}
         >
-          {busyMode === "dry-run" ? "Launching…" : "Dry Run Selected"}
+          {busyMode === "dry-run" ? "Launching..." : "Dry Run Selected"}
         </button>
         <button
           type="button"
@@ -464,13 +471,20 @@ export default function CounterstrikeTile(props: CounterstrikeTileProps) {
 
       {analysisOnlyBlockerCopy ? (
         <div className="counterstrike-blocker">
-          <div className="counterstrike-blocker-title">Why You’re Still Red</div>
+          <div className="counterstrike-blocker-title">Current Runtime Signal Still Active</div>
           <div className="counterstrike-blocker-copy">{analysisOnlyBlockerCopy}</div>
           <div className="counterstrike-blocker-note">
-            {recommendZapTwo
-              ? "This is where Zap #2 comes in: it is meant for system-binary loader cases like BusyBox or sh running from a rogue container, not just writable-path binaries."
+            {recommendProtectedLoaderPlaybook
+              ? "IOC-2 is for protected-path loader cases like BusyBox or sh inside a rogue container, not ordinary CPU pressure or disk pressure."
               : armed.reason || last?.summary}
           </div>
+        </div>
+      ) : null}
+
+      {analysisOnlyStandbyCopy ? (
+        <div className="counterstrike-standby-note">
+          <div className="counterstrike-standby-title">Runtime containment standby</div>
+          <div className="counterstrike-standby-copy">{analysisOnlyStandbyCopy}</div>
         </div>
       ) : null}
 
