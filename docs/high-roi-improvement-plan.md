@@ -90,6 +90,7 @@ Status:
 - May 18, 2026: first pass completed for reclaim labels and top CPU pressure wording.
 - May 18, 2026: second pass completed for Counterstrike render framing. Stale analysis-only runs with zero candidates no longer claim to be the current red-state blocker when the live threat snapshot is standby; the panel now uses IOC/playbook action labels instead of vague `Zap` wording.
 - May 18, 2026: containment/reclaim pass completed. Llama temp-exec IOC evidence was quarantined, `llama-chat.service` gained `/var/tmp` noexec containment, safe caches and root-resident dependency trees were moved off `/`, and the dashboard returned root pressure to green after a forced scan.
+- May 20, 2026 local / May 21, 2026 UTC: follow-up IOC pass found `llama-chat.service` still able to execute from private temp paths even though the unit declared `TemporaryFileSystem=...noexec`. Counterstrike contained the two live temp executables, the live service namespace was corrected to real noexec tmpfs mounts, and the host detector was updated to verify live `/proc/<pid>/mountinfo` before calling temp-exec hardening protected.
 
 ### 2. Strengthen Data Contracts
 
@@ -182,6 +183,10 @@ Exit criteria:
 
 - runtime IOC containment is auditable and not confused with ordinary CPU pressure
 - post-action dashboard state reflects the new scan, not the pre-action snapshot
+
+Status:
+
+- May 20, 2026 local / May 21, 2026 UTC: source/normalize fix completed for one high-ROI failure mode. VPSSentry now distinguishes declared noexec hardening from actually mounted noexec in the process namespace and reports `ineffective` when systemd config and live mount options diverge. Counterstrike now preserves `/proc/<pid>/exe` and `/proc/<pid>/mountinfo` before killing temp-exec candidates so deleted/private-temp payloads leave useful evidence.
 
 ### 5. Host-Side Alert Delivery
 
