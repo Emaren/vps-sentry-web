@@ -170,8 +170,8 @@ describe("PowerMemoryTile", () => {
           previewCommand: "du -sh /var/www/AoE2HDBets/app-prodn/node_modules",
           executeCommand: "guided_review",
           projectId: "aoe2hdbets",
-          projectLabel: "AoE2HDBets",
-          projectUrl: "https://aoe2hdbets.com",
+          projectLabel: "AoE2War",
+          projectUrl: "https://aoe2war.com",
           serviceRefs: ["aoe2hdbets-web.service"],
         },
       ],
@@ -181,7 +181,7 @@ describe("PowerMemoryTile", () => {
 
     expect(html).toContain("Guided Reclaim Cockpit");
     expect(html).toContain("Review Guided");
-    expect(html).toContain("AoE2HDBets");
+    expect(html).toContain("AoE2War");
     expect(html).toContain("aoe2hdbets-web.service");
     expect(html).toContain("Guided deletion is intentionally locked");
   });

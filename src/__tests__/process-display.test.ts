@@ -10,7 +10,7 @@ describe("resolveProcessDisplay", () => {
       ports: [3030],
     });
 
-    expect(out.friendlyName).toBe("aoe2hdbets-web :3030");
+    expect(out.friendlyName).toBe("aoe2war-web :3030");
     expect(out.secondaryText).toBe("pid 3431042 · next-server");
   });
 
@@ -23,7 +23,7 @@ describe("resolveProcessDisplay", () => {
       ports: [3330],
     });
 
-    expect(out.friendlyName).toBe("aoe2hdbets-api :3330");
+    expect(out.friendlyName).toBe("aoe2war-api :3330");
   });
 
   it("humanizes well-known host daemons", () => {

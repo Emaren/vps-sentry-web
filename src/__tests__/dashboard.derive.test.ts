@@ -177,7 +177,7 @@ describe("deriveDashboard", () => {
       } as Status,
     });
 
-    expect(out.vitalsProcesses[0]?.friendlyName).toBe("aoe2hdbets-web :3030");
+    expect(out.vitalsProcesses[0]?.friendlyName).toBe("aoe2war-web :3030");
     expect(out.vitalsProcesses[0]?.secondaryText).toBe("pid 3431042 · next-server");
     expect(out.vitalsProcesses[0]?.detailTitle).toContain("Ports: :3030");
   });

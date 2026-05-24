@@ -6,6 +6,7 @@ export type ProjectService = {
 
 export type ProjectDef = {
   key: string;
+  displayKey?: string;
   name: string;
   subtitle: string;
   href?: string;
@@ -31,10 +32,11 @@ export const MAIN_PROJECTS: ProjectDef[] = [
   },
   {
     key: "aoe2hdbets",
-    name: "AoE2HDBets",
-    subtitle: "api-prodn.aoe2hdbets.com",
-    href: "https://aoe2hdbets.com",
-    backendHref: "https://api-prodn.aoe2hdbets.com",
+    displayKey: "aoe2war",
+    name: "AoE2War",
+    subtitle: "api-prodn.aoe2war.com",
+    href: "https://aoe2war.com",
+    backendHref: "https://api-prodn.aoe2war.com",
     services: [
       { label: "web", port: 3030, required: true },
       { label: "api", port: 3330, required: true },

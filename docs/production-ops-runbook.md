@@ -74,6 +74,21 @@ sudo systemctl start vps-sentry.service
 - The mounted-volume stat now leads with total capacity, not used space, and will show a resize delta when the previous snapshot saw a different disk size.
 - After a web deploy that changes the dashboard bundle, any already-open browser tab may need one reload before it starts consuming the upgraded live feed logic.
 
+Current storage policy:
+
+- Root pressure is the primary deploy blocker. Treat `/` as the scarce filesystem even when the mounted volume still has room.
+- The mounted volume is `/mnt/HC_Volume_105319120`.
+- `AoE2War` is the operator-facing name for the active HD stack at `aoe2war.com`; the live code and service paths still use `/var/www/AoE2HDBets` and `aoe2hdbets-*` unit names.
+- `/home/tony/_backup/vps-sentry-web` is intentionally a symlink to `/mnt/HC_Volume_105319120/root-archive/vps-sentry-web-backups` so the hourly VPSSentry backup cron keeps its old path while storing snapshots off the root filesystem.
+- Do not move live DBs, chain homes, WoloChain settlement/operator state, active downloads, or current production `node_modules` without the service-stop, backup, ownership, restart, and smoke-check sequence.
+
+May 24, 2026 reclaim result:
+
+- Before cleanup: root `/` was `78%` used with `8.0G` free; mounted volume was `74%` used with `13G` free.
+- After safe cleanup, backup relocation, rebuild, restart, and fresh scan: root `/` was about `64-65%` used with `13-14G` free; mounted volume was about `77%` used with `12G` free.
+- Safe cleanup covered package caches, disabled snap revisions/cache, user package-manager caches, stale temp files, journal retention, nginx log rotation, generated `.next/cache` directories, and inactive root dev-tool caches.
+- The only relocation in that pass was the VPSSentry backup sink; it copied and verified `1818` files / `1,282,162,535` bytes before replacing the root path with a symlink.
+
 ## 3) Alerting
 
 Manual alert test:

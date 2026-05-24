@@ -125,14 +125,14 @@ export const SCRIPT_ACTIONS: ScriptActionEntry[] = [
   },
   {
     script: "aoe2hdbets-context",
-    title: "AoE2HDBets context ZIP",
-    summary: "Packages AoE2HDBets project context as ZIP+SHA.",
+    title: "AoE2War context ZIP",
+    summary: "Packages the AoE2War project context as ZIP+SHA.",
     requiredRole: "ops",
   },
   {
     script: "aoe2hdbets-context-tgz",
-    title: "AoE2HDBets context TGZ",
-    summary: "Packages AoE2HDBets project context as TGZ+SHA.",
+    title: "AoE2War context TGZ",
+    summary: "Packages the AoE2War project context as TGZ+SHA.",
     requiredRole: "ops",
   },
   {

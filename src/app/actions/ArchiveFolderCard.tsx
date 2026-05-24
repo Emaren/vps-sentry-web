@@ -20,7 +20,7 @@ const localSourceExamples = [
     path: "~/projects/AoE2DEWarWagers",
   },
   {
-    label: "HD watcher",
+    label: "AoE2War watcher",
     path: "~/projects/AoE2HDBets/aoe2-watcher",
   },
 ];

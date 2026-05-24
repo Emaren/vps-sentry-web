@@ -270,7 +270,7 @@ First registry entries should include:
 - TokenTap
 - TMail
 - TokenChain web/indexer
-- AoE2HDBets web/API
+- AoE2War web/API
 - Pulse web/API
 - Redline Legal web/API
 - Wallyverse web/API

@@ -27,6 +27,7 @@ export type ProcessDisplayOutput = {
 
 type ProjectServiceMatch = {
   key: string;
+  displayKey: string;
   name: string;
   serviceLabel: string;
 };
@@ -39,6 +40,7 @@ for (const project of MAIN_PROJECTS) {
     if (!PORT_INDEX.has(service.port)) {
       PORT_INDEX.set(service.port, {
         key: project.key,
+        displayKey: project.displayKey ?? project.key,
         name: project.name,
         serviceLabel: service.label,
       });
@@ -81,12 +83,13 @@ function cleanUnitBase(unit: string | null | undefined): string {
   return trimmed.split("@", 1)[0]?.replace(/_/g, "-") ?? "";
 }
 
-function inferProjectMatch(input: ProcessDisplayInput, ports: number[]): { key: string; name: string } | null {
+function inferProjectMatch(input: ProcessDisplayInput, ports: number[]): { key: string; displayKey: string; name: string } | null {
   const explicitKey = slugify(input.project);
   if (explicitKey) {
     const known = PROJECT_INDEX.get(explicitKey);
     return {
       key: explicitKey,
+      displayKey: known?.displayKey ?? explicitKey,
       name: normalizeText(input.projectLabel) || known?.name || explicitKey,
     };
   }
@@ -94,7 +97,7 @@ function inferProjectMatch(input: ProcessDisplayInput, ports: number[]): { key: 
   for (const port of ports) {
     const match = PORT_INDEX.get(port);
     if (match) {
-      return { key: match.key, name: match.name };
+      return { key: match.key, displayKey: match.displayKey, name: match.name };
     }
   }
 
@@ -112,12 +115,17 @@ function inferProjectMatch(input: ProcessDisplayInput, ports: number[]): { key: 
   for (const project of MAIN_PROJECTS) {
     const key = project.key.toLowerCase();
     if (key.length >= 4 && new RegExp(`(^|[^a-z0-9])${key}([^a-z0-9]|$)`).test(haystack)) {
-      return { key: project.key, name: project.name };
+      return { key: project.key, displayKey: project.displayKey ?? project.key, name: project.name };
+    }
+
+    const displayKey = (project.displayKey ?? "").toLowerCase();
+    if (displayKey.length >= 4 && new RegExp(`(^|[^a-z0-9])${displayKey}([^a-z0-9]|$)`).test(haystack)) {
+      return { key: project.key, displayKey: project.displayKey ?? project.key, name: project.name };
     }
 
     const projectSlug = slugify(project.name.replace(/\bapi\b/gi, ""));
     if (projectSlug.length >= 4 && new RegExp(`(^|[^a-z0-9])${projectSlug}([^a-z0-9]|$)`).test(haystack)) {
-      return { key: project.key, name: project.name };
+      return { key: project.key, displayKey: project.displayKey ?? project.key, name: project.name };
     }
   }
 
@@ -210,13 +218,14 @@ function usefulUnitLabel(unit: string | null | undefined, rawName: string): stri
   return base;
 }
 
-function friendlyBaseForProject(project: { key: string; name: string }, serviceKind: string | null): string {
-  if (!serviceKind) return project.key;
+function friendlyBaseForProject(project: { key: string; displayKey: string; name: string }, serviceKind: string | null): string {
+  const displayKey = project.displayKey || project.key;
+  if (!serviceKind) return displayKey;
   if (["web", "api", "chat-api", "landing", "ops-worker", "worker", "indexer"].includes(serviceKind)) {
-    return `${project.key}-${serviceKind}`;
+    return `${displayKey}-${serviceKind}`;
   }
   if (serviceKind === "node") return `${project.name} node`;
-  return project.key;
+  return displayKey;
 }
 
 function displayValue(value: string | null | undefined): string {
