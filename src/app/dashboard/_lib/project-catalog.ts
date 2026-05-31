@@ -31,6 +31,47 @@ export const MAIN_PROJECTS: ProjectDef[] = [
     services: [{ label: "web", port: 3035, required: true }],
   },
   {
+    key: "ascendai",
+    name: "AscendAI",
+    subtitle: "ascendai.one",
+    href: "https://ascendai.one",
+    services: [{ label: "web", port: 3070, required: true }],
+    storage: {
+      localRoots: ["~/projects/AscendAI"],
+      vpsRoots: ["/var/www/AscendAI", "/mnt/HC_Volume_105319120/www-moved/AscendAI"],
+      contextRoots: ["~/projects/AscendAI"],
+      residencyHint: "symlinked_to_volume",
+    },
+  },
+  {
+    key: "usetab-ca",
+    displayKey: "usetab",
+    name: "UseTab.ca",
+    subtitle: "usetab.ca",
+    href: "https://usetab.ca",
+    services: [{ label: "web", port: 3080, required: true }],
+    storage: {
+      localRoots: ["~/projects/usetab-ca"],
+      vpsRoots: ["/var/www/UseTab", "/mnt/HC_Volume_105319120/www-moved/UseTab"],
+      contextRoots: ["~/projects/usetab-ca"],
+      residencyHint: "symlinked_to_volume",
+    },
+  },
+  {
+    key: "creditchain",
+    name: "CreditChain",
+    subtitle: "chain.usetab.ca / chain.ascendai.one",
+    href: "https://chain.usetab.ca",
+    backendHref: "https://chain.ascendai.one",
+    state: "dormant",
+    services: [],
+    storage: {
+      localRoots: ["~/projects/CreditChain"],
+      contextRoots: ["~/projects/CreditChain"],
+      residencyHint: "mixed",
+    },
+  },
+  {
     key: "aoe2hdbets",
     displayKey: "aoe2war",
     name: "AoE2War",
@@ -132,7 +173,6 @@ export const MAIN_PROJECTS: ProjectDef[] = [
     services: [
       { label: "api", port: 3360, required: true },
       { label: "chat-api", port: 3350, required: true },
-      { label: "landing", port: 3070 },
     ],
   },
   {

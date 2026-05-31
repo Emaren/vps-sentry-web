@@ -32,4 +32,26 @@ describe("project catalog", () => {
     expect(project?.storage?.vpsRoots).toContain("/var/www/AoE2DEWarWagers");
     expect(project?.storage?.contextRoots).toContain("~/projects/AoE2DEWarWagers/aoe2de-watcher");
   });
+
+  it("tracks the new AscendAI and UseTab volume-backed services", () => {
+    const ascend = MAIN_PROJECTS.find((entry) => entry.key === "ascendai");
+    const useTab = MAIN_PROJECTS.find((entry) => entry.key === "usetab-ca");
+
+    expect(ascend?.href).toBe("https://ascendai.one");
+    expect(ascend?.services).toEqual([{ label: "web", port: 3070, required: true }]);
+    expect(ascend?.storage?.vpsRoots).toContain("/mnt/HC_Volume_105319120/www-moved/AscendAI");
+
+    expect(useTab?.href).toBe("https://usetab.ca");
+    expect(useTab?.services).toEqual([{ label: "web", port: 3080, required: true }]);
+    expect(useTab?.storage?.vpsRoots).toContain("/mnt/HC_Volume_105319120/www-moved/UseTab");
+  });
+
+  it("keeps CreditChain visible without pretending the chain service is deployed", () => {
+    const project = MAIN_PROJECTS.find((entry) => entry.key === "creditchain");
+    expect(project).toBeDefined();
+    expect(project?.state).toBe("dormant");
+    expect(project?.href).toBe("https://chain.usetab.ca");
+    expect(project?.backendHref).toBe("https://chain.ascendai.one");
+    expect(project?.services).toEqual([]);
+  });
 });

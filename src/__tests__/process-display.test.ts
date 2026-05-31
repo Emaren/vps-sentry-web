@@ -47,4 +47,18 @@ describe("resolveProcessDisplay", () => {
 
     expect(out.friendlyName).toBe("wheatandstone-web :3010");
   });
+
+  it("maps port 3070 to AscendAI instead of the retired Llama landing entry", () => {
+    const out = resolveProcessDisplay({
+      pid: 4107000,
+      rawName: "next-server",
+      unit: "ascendai-web.service",
+      cwd: "/mnt/HC_Volume_105319120/www-moved/AscendAI",
+      ports: [3070],
+    });
+
+    expect(out.friendlyName).toBe("ascendai-web :3070");
+    expect(out.project).toBe("ascendai");
+    expect(out.projectLabel).toBe("AscendAI");
+  });
 });

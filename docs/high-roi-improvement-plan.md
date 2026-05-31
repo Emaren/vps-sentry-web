@@ -1,6 +1,6 @@
 # VPSSentry High-ROI Improvement Plan
 
-Last updated: May 18, 2026
+Last updated: May 31, 2026
 
 ## Likely Broken Layer
 
@@ -91,6 +91,8 @@ Status:
 - May 18, 2026: second pass completed for Counterstrike render framing. Stale analysis-only runs with zero candidates no longer claim to be the current red-state blocker when the live threat snapshot is standby; the panel now uses IOC/playbook action labels instead of vague `Zap` wording.
 - May 18, 2026: containment/reclaim pass completed. Llama temp-exec IOC evidence was quarantined, `llama-chat.service` gained `/var/tmp` noexec containment, safe caches and root-resident dependency trees were moved off `/`, and the dashboard returned root pressure to green after a forced scan.
 - May 20, 2026 local / May 21, 2026 UTC: follow-up IOC pass found `llama-chat.service` still able to execute from private temp paths even though the unit declared `TemporaryFileSystem=...noexec`. Counterstrike contained the two live temp executables, the live service namespace was corrected to real noexec tmpfs mounts, and the host detector was updated to verify live `/proc/<pid>/mountinfo` before calling temp-exec hardening protected.
+- May 31, 2026: project catalog and host registry updated for `ascendai.one`, `usetab.ca`, and dormant CreditChain chain surfaces at `chain.usetab.ca` / `chain.ascendai.one`. The stale Llama `3070` landing-port claim was removed because live `3070` belongs to `ascendai-web.service`.
+- May 31, 2026: highest immediate reclaim ROI is inactive root VS Code server builds. The estimator now treats inactive `.vscode-server/bin/*` and `.vscode-server/cli/servers/Stable-*` builds as safe recycling candidates while keeping active commits, and no longer attaches `nginx.service` / `ssh.service` to generic host fallback cleanup rows. The safe pass reclaimed `1,990,582,272` bytes and improved root from `85%` used / `5.7G` free to `79%` used / `7.6G` free.
 
 ### 2. Strengthen Data Contracts
 

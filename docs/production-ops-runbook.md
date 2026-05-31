@@ -79,8 +79,19 @@ Current storage policy:
 - Root pressure is the primary deploy blocker. Treat `/` as the scarce filesystem even when the mounted volume still has room.
 - The mounted volume is `/mnt/HC_Volume_105319120`.
 - `AoE2War` is the operator-facing name for the active HD stack at `aoe2war.com`; the live code and service paths still use `/var/www/AoE2HDBets` and `aoe2hdbets-*` unit names.
+- `AscendAI` is volume-backed at `/mnt/HC_Volume_105319120/www-moved/AscendAI`, discoverable through `/var/www/AscendAI`, and served by `ascendai-web.service` on `127.0.0.1:3070`.
+- `UseTab.ca` is volume-backed at `/mnt/HC_Volume_105319120/www-moved/UseTab`, discoverable through `/var/www/UseTab`, and served by `usetab-ca.service` on `127.0.0.1:3080`.
+- `CreditChain` is a local/testnet protocol repo right now. VPSSentry should show the intended chain surfaces, `chain.usetab.ca` and `chain.ascendai.one`, without claiming a live VPS chain service until systemd/nginx storage boundaries exist.
 - `/home/tony/_backup/vps-sentry-web` is intentionally a symlink to `/mnt/HC_Volume_105319120/root-archive/vps-sentry-web-backups` so the hourly VPSSentry backup cron keeps its old path while storing snapshots off the root filesystem.
 - Do not move live DBs, chain homes, WoloChain settlement/operator state, active downloads, or current production `node_modules` without the service-stop, backup, ownership, restart, and smoke-check sequence.
+
+May 31, 2026 live storage check:
+
+- Root `/` was `85%` used with `5.7G` free before the VPSSentry update.
+- Mounted volume `/mnt/HC_Volume_105319120` was `87%` used with `6.4G` free.
+- Safe reclaim initially reported only about `12MB`, but inactive root VS Code server builds accounted for roughly `1.9GB` of high-ROI recycling once active commits were distinguished from stale installs.
+- The safe reclaim run removed `1,990,582,272` bytes and improved root `/` to `79%` used with `7.6G` free. AscendAI, UseTab.ca, VPSSentry web, and nginx stayed active.
+- The dashboard must not describe host fallback cleanup as requiring `nginx.service` or `ssh.service` restarts unless a live systemd path actually overlaps the target.
 
 May 24, 2026 reclaim result:
 
