@@ -46,12 +46,21 @@ describe("project catalog", () => {
     expect(useTab?.storage?.vpsRoots).toContain("/mnt/HC_Volume_105319120/www-moved/UseTab");
   });
 
-  it("keeps CreditChain visible without pretending the chain service is deployed", () => {
-    const project = MAIN_PROJECTS.find((entry) => entry.key === "creditchain");
-    expect(project).toBeDefined();
-    expect(project?.state).toBe("dormant");
-    expect(project?.href).toBe("https://chain.usetab.ca");
-    expect(project?.backendHref).toBe("https://chain.ascendai.one");
-    expect(project?.services).toEqual([]);
+  it("keeps AscendChain and CreditChain split by their intended domains", () => {
+    const ascendChain = MAIN_PROJECTS.find((entry) => entry.key === "ascendchain");
+    const creditChain = MAIN_PROJECTS.find((entry) => entry.key === "creditchain");
+
+    expect(ascendChain).toBeDefined();
+    expect(ascendChain?.name).toBe("AscendChain");
+    expect(ascendChain?.state).toBe("dormant");
+    expect(ascendChain?.href).toBe("https://chain.ascendai.one");
+    expect(ascendChain?.services).toEqual([]);
+
+    expect(creditChain).toBeDefined();
+    expect(creditChain?.name).toBe("CreditChain");
+    expect(creditChain?.state).toBe("dormant");
+    expect(creditChain?.href).toBe("https://chain.usetab.ca");
+    expect(creditChain?.backendHref).toBeUndefined();
+    expect(creditChain?.services).toEqual([]);
   });
 });

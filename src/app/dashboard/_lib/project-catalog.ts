@@ -58,11 +58,18 @@ export const MAIN_PROJECTS: ProjectDef[] = [
     },
   },
   {
+    key: "ascendchain",
+    name: "AscendChain",
+    subtitle: "chain.ascendai.one",
+    href: "https://chain.ascendai.one",
+    state: "dormant",
+    services: [],
+  },
+  {
     key: "creditchain",
     name: "CreditChain",
-    subtitle: "chain.usetab.ca / chain.ascendai.one",
+    subtitle: "chain.usetab.ca",
     href: "https://chain.usetab.ca",
-    backendHref: "https://chain.ascendai.one",
     state: "dormant",
     services: [],
     storage: {

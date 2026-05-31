@@ -285,7 +285,12 @@ PY
     printf 'commit=%s\n' "$commit"
   } >> "$VPS_BACKUP_BASE/backup-history.log"
 
-  old_dirs="$(find "$VPS_BACKUP_BASE" -mindepth 1 -maxdepth 1 -type d -mtime +"$VPS_BACKUP_KEEP_DAYS" -print | sort || true)"
+  backup_prune_base="$VPS_BACKUP_BASE"
+  if resolved_backup_base="$(readlink -f "$VPS_BACKUP_BASE" 2>/dev/null)" && [[ -n "$resolved_backup_base" && -d "$resolved_backup_base" ]]; then
+    backup_prune_base="$resolved_backup_base"
+  fi
+
+  old_dirs="$(find "$backup_prune_base" -mindepth 1 -maxdepth 1 -type d -mtime +"$VPS_BACKUP_KEEP_DAYS" -print | sort || true)"
   if [[ -n "$old_dirs" ]]; then
     while IFS= read -r dir; do
       [[ -z "$dir" ]] && continue
