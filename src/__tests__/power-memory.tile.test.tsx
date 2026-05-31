@@ -105,6 +105,22 @@ function makeDerived(): DerivedDashboard {
           fail_percent: 92,
           level: "critical",
         },
+        mounted_filesystems: [
+          {
+            id: "hetzner-volume",
+            label: "Mounted Volume",
+            path: "/mnt/HC_Volume_105319120",
+            measured_at: "2026-05-12T12:42:21Z",
+            total_bytes: 53687091200,
+            used_bytes: 46170898432,
+            available_bytes: 7516192768,
+            used_percent: 86,
+            warn_percent: 85,
+            fail_percent: 92,
+            level: "warn",
+            exists: true,
+          },
+        ],
         projects: {
           "vps-sentry": {
             measured_at: "2026-05-12T12:42:21Z",
@@ -140,6 +156,7 @@ describe("PowerMemoryTile", () => {
 
     expect(html).toContain("Sentry Diagnosis");
     expect(html).toContain("Root disk above fail line");
+    expect(html).toContain("Mounted volume nearing fail line");
     expect(html).toContain("Safe reclaim catalog is empty");
     expect(html).toContain("Scan Now");
     expect(html).toContain("Safe Reclaim Empty");

@@ -57,6 +57,12 @@ describe("GarbageTile", () => {
               bytes: 134217728,
               count: 4,
             },
+            {
+              key: "volume_relocated_backup",
+              label: "Relocated VPSSentry backup copies",
+              bytes: 1073741824,
+              count: 1,
+            },
           ],
           topPaths: [
             {
@@ -110,6 +116,28 @@ describe("GarbageTile", () => {
               projectUrl: null,
               serviceRefs: [],
             },
+            {
+              id: "volume-archive-1",
+              key: "volume_relocated_backup",
+              label: "Relocated VPSSentry backup copies",
+              path: "/mnt/HC_Volume_105319120/_relocated/home-tony-_backup-20260403-194301",
+              bytes: 1073741824,
+              action: "remove_path",
+              kind: "directory",
+              category: "garbage",
+              categoryLabel: "Safe Cleanup",
+              risk: "safe",
+              riskLabel: "Safe now",
+              requiresStop: false,
+              regrows: false,
+              explanation: "Old relocated VPSSentry backup copy on the mounted volume.",
+              previewCommand: "du -sh /mnt/HC_Volume_105319120/_relocated/home-tony-_backup-20260403-194301",
+              executeCommand: "rm -rf /mnt/HC_Volume_105319120/_relocated/home-tony-_backup-20260403-194301",
+              projectId: null,
+              projectLabel: null,
+              projectUrl: null,
+              serviceRefs: [],
+            },
           ],
           runningCleanup: false,
           lastCleanupResult: {
@@ -133,6 +161,7 @@ describe("GarbageTile", () => {
     expect(html).toContain("Run Safe Reclaim");
     expect(html).toContain("Stale /tmp files");
     expect(html).toContain("Package manager caches");
+    expect(html).toContain("Relocated VPSSentry backup copies");
     expect(html).toContain("Preview Targets");
   });
 

@@ -84,6 +84,7 @@ Current storage policy:
 - `AscendChain` is the dormant chain surface for `chain.ascendai.one`. Do not show a live VPS chain service until systemd/nginx storage boundaries exist.
 - `CreditChain` is a local/testnet protocol repo for `chain.usetab.ca`. Do not attach `chain.ascendai.one` to this project.
 - `/home/tony/_backup/vps-sentry-web` is intentionally a symlink to `/mnt/HC_Volume_105319120/root-archive/vps-sentry-web-backups` so the hourly VPSSentry backup cron keeps its old path while storing snapshots off the root filesystem.
+- Mounted-volume archive reclaim is posture-based: old relocated VPSSentry backup copies may be safe, old `_archive` / `_relocated` app bundles require guided review, and live symlinked dependency trees, databases, trace indexes, downloads, WoloChain state, and settlement backups stay protected.
 - Do not move live DBs, chain homes, WoloChain settlement/operator state, active downloads, or current production `node_modules` without the service-stop, backup, ownership, restart, and smoke-check sequence.
 
 May 31, 2026 live storage check:

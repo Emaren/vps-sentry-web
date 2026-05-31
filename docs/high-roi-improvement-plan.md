@@ -94,6 +94,7 @@ Status:
 - May 31, 2026: project catalog and host registry updated for `ascendai.one`, `usetab.ca`, dormant AscendChain at `chain.ascendai.one`, and dormant CreditChain at `chain.usetab.ca`. The stale Llama `3070` landing-port claim was removed because live `3070` belongs to `ascendai-web.service`.
 - May 31, 2026: highest immediate reclaim ROI is inactive root VS Code server builds. The estimator now treats inactive `.vscode-server/bin/*` and `.vscode-server/cli/servers/Stable-*` builds as safe recycling candidates while keeping active commits, and no longer attaches `nginx.service` / `ssh.service` to generic host fallback cleanup rows. The safe pass reclaimed `1,990,582,272` bytes and improved root from `85%` used / `5.7G` free to `79%` used / `7.6G` free.
 - May 31, 2026: backup retention leak identified after the VPSSentry backup base moved behind a symlink. The backup script now resolves the symlink before pruning old snapshot directories, and host reclaim surfaces stale backup directories as safe cleanup targets.
+- May 31, 2026: mounted-volume archive classification added. Old relocated VPSSentry backup copies are safe reclaim after the age window, old app/archive bundles are guided review, and live symlinked dependencies plus DB/trace/download/WoloChain paths are protected.
 
 ### 2. Strengthen Data Contracts
 

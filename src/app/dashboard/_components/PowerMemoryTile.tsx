@@ -1708,6 +1708,21 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
       (typeof diskUsedPercent === "number" &&
         typeof diskWarnPercent === "number" &&
         diskUsedPercent >= diskWarnPercent));
+  const mountedUsedPercent = primaryMountedFilesystem?.usedPercent ?? null;
+  const mountedFailPercent = primaryMountedFilesystem?.failPercent ?? 92;
+  const mountedWarnPercent = primaryMountedFilesystem?.warnPercent ?? 85;
+  const mountedCritical =
+    mountedResizePending ||
+    primaryMountedFilesystem?.level === "critical" ||
+    (typeof mountedUsedPercent === "number" &&
+      typeof mountedFailPercent === "number" &&
+      mountedUsedPercent >= mountedFailPercent);
+  const mountedWarning =
+    !mountedCritical &&
+    (primaryMountedFilesystem?.level === "warn" ||
+      (typeof mountedUsedPercent === "number" &&
+        typeof mountedWarnPercent === "number" &&
+        mountedUsedPercent >= mountedWarnPercent));
   const memoryCritical = (hostVitals.memoryUsedPercent ?? 0) >= 92;
   const memoryWarning = !memoryCritical && (hostVitals.memoryUsedPercent ?? 0) >= 85;
   const safeReclaimEmptyUnderPressure = (diskCritical || diskWarning) && safeReclaimableBytes <= 0;
@@ -1722,6 +1737,18 @@ export default function PowerMemoryTile(props: { derived: DerivedDashboard; canR
         guidedReclaimableBytes > 0 ? ` · guided: ${fmtBytes(guidedReclaimableBytes)}` : ""
       }.`,
       tone: diskCritical ? "bad" : "warn",
+    });
+  }
+
+  if (mountedCritical || mountedWarning) {
+    diagnosisIssues.push({
+      key: "mounted-volume-pressure",
+      label: mountedCritical ? "Mounted volume above fail line" : "Mounted volume nearing fail line",
+      value: fmtPercent(mountedUsedPercent),
+      detail: `${fmtBytes(primaryMountedFilesystem?.availableBytes ?? null)} free on ${
+        primaryMountedFilesystem?.path ?? "mounted volume"
+      }. Mounted archive reclaim is separated from root cleanup so live app, database, trace, and chain data stay protected.`,
+      tone: mountedCritical ? "bad" : "warn",
     });
   }
 
