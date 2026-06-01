@@ -12,6 +12,14 @@ import {
   triggerGarbageReclaim,
 } from "./reclaim-utils";
 
+function retentionLabel(value: string | null): string | null {
+  if (!value) return null;
+  if (value === "protected_evidence") return "protected evidence";
+  if (value === "restore_backup") return "restore backup";
+  if (value === "unknown_archive") return "archive review";
+  return value.replace(/_/g, " ");
+}
+
 export default function GarbageTile(props: {
   estimate: DashboardGarbageEstimate | null;
   connected: boolean;
@@ -209,7 +217,10 @@ export default function GarbageTile(props: {
                 <div className="garbage-tile-highlight-copy">
                   <span className="garbage-tile-highlight-label">{candidate.label}</span>
                   <span className="garbage-tile-highlight-note">
-                    {candidate.projectLabel ?? candidate.categoryLabel}
+                    {candidate.operatorAction ??
+                      retentionLabel(candidate.retentionClass) ??
+                      candidate.projectLabel ??
+                      candidate.categoryLabel}
                   </span>
                 </div>
                 <span className="garbage-tile-highlight-value">{fmtBytes(candidate.bytes)}</span>
@@ -252,6 +263,8 @@ export default function GarbageTile(props: {
                     {[
                       candidate.categoryLabel,
                       candidate.riskLabel,
+                      retentionLabel(candidate.retentionClass),
+                      candidate.managementState ? candidate.managementState.replace(/_/g, " ") : null,
                       candidate.projectLabel,
                       candidate.requiresStop ? "requires stop-plan" : null,
                       candidate.regrows ? "regrows automatically" : null,
@@ -260,6 +273,9 @@ export default function GarbageTile(props: {
                       .join(" · ")}
                   </div>
                   <div className="garbage-preview-path">{candidate.path}</div>
+                  {candidate.operatorAction ? (
+                    <div className="garbage-preview-note">{candidate.operatorAction}</div>
+                  ) : null}
                   {candidate.explanation ? <div className="garbage-preview-note">{candidate.explanation}</div> : null}
                 </div>
               ))

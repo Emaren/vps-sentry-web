@@ -130,6 +130,11 @@ Exit criteria:
 
 Broken layer: remediation wiring and post-action refresh.
 
+Status update, June 1, 2026:
+
+- The remaining guided archive rows now carry retention posture and management state from the host estimator, so protected evidence and restore backups are not rendered as generic cleanup candidates.
+- Public-facing service hardening checks now feed host threat telemetry and posture scoring. Treat `service_hardening_gap` as the next remediation track, not a space-reclaim task.
+
 Files to inspect/edit:
 
 - `src/app/api/ops/garbage/reclaim/route.ts`

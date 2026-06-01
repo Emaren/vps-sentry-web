@@ -59,12 +59,16 @@ function parseAlerts(status: Record<string, unknown>, ts: string, snapshotId: st
     const alert = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
     const title = asText(alert.title) || "Alert";
     const detail = asText(alert.detail) || undefined;
+    const alertCode = asText(alert.code).toLowerCase();
     const text = `${title}\n${detail ?? ""}`.toLowerCase();
 
     let code = "alert_generic";
     let severity: SignalSeverity = "medium";
 
-    if (textIncludes(text, /(host_disk_critical|host disk pressure|disk pressure)/i)) {
+    if (alertCode === "service_hardening_gap" || textIncludes(text, /(service hardening gap)/i)) {
+      code = "service_hardening_gap";
+      severity = (alert.severity as string) === "critical" ? "critical" : "high";
+    } else if (textIncludes(text, /(host_disk_critical|host disk pressure|disk pressure)/i)) {
       code = "disk_pressure";
       severity = "critical";
     } else if (textIncludes(text, /(cpu_hotspot|cpu hotspot)/i)) {

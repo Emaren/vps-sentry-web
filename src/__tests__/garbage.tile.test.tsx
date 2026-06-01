@@ -93,6 +93,9 @@ describe("GarbageTile", () => {
               projectLabel: null,
               projectUrl: null,
               serviceRefs: [],
+              retentionClass: null,
+              managementState: null,
+              operatorAction: null,
             },
             {
               id: "cache-1",
@@ -115,6 +118,9 @@ describe("GarbageTile", () => {
               projectLabel: null,
               projectUrl: null,
               serviceRefs: [],
+              retentionClass: null,
+              managementState: null,
+              operatorAction: null,
             },
             {
               id: "volume-archive-1",
@@ -137,6 +143,9 @@ describe("GarbageTile", () => {
               projectLabel: null,
               projectUrl: null,
               serviceRefs: [],
+              retentionClass: "protected_evidence",
+              managementState: "policy_required",
+              operatorAction: "Keep guided until evidence retention is explicit.",
             },
           ],
           runningCleanup: false,
@@ -162,6 +171,7 @@ describe("GarbageTile", () => {
     expect(html).toContain("Stale /tmp files");
     expect(html).toContain("Package manager caches");
     expect(html).toContain("Relocated VPSSentry backup copies");
+    expect(html).toContain("Keep guided until evidence retention is explicit.");
     expect(html).toContain("Preview Targets");
   });
 

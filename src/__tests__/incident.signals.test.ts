@@ -63,6 +63,25 @@ describe("incident signal extraction", () => {
     expect(signals.some((s) => s.code === "ssh_invalid_user")).toBe(true);
     expect(signals.some((s) => s.code === "unexpected_public_ports")).toBe(true);
   });
+
+  it("maps public service hardening alerts to posture signals", () => {
+    const signals = extractSignalsFromStatus({
+      snapshotId: "s-hardening",
+      ts: "2026-02-07T06:10:00.000Z",
+      status: {
+        alerts: [
+          {
+            title: "Public service hardening gap detected",
+            code: "service_hardening_gap",
+            severity: "warn",
+            detail: "ascendai-web.service runs as root and lacks NoNewPrivileges.",
+          },
+        ],
+      },
+    });
+
+    expect(signals.some((s) => s.code === "service_hardening_gap" && s.severity === "high")).toBe(true);
+  });
 });
 
 describe("incident timeline correlation", () => {

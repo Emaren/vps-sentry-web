@@ -82,6 +82,27 @@ describe("deriveDashboard", () => {
               bucket: "tmp_stale",
             },
           ],
+          candidates: [
+            {
+              id: "guided:/mnt/HC_Volume_105319120/root-archive/signed-watcher-backups",
+              key: "protected_signed_watcher_review",
+              label: "Protected signed-watcher evidence",
+              path: "/mnt/HC_Volume_105319120/root-archive/signed-watcher-backups",
+              bytes: 542609408,
+              action: "guided_review",
+              kind: "directory",
+              category: "guided",
+              category_label: "Guided Reclaim",
+              risk: "guided",
+              risk_label: "Guided",
+              requires_stop: false,
+              regrows: false,
+              explanation: "Signed watcher backup/evidence material.",
+              retention_class: "protected_evidence",
+              management_state: "policy_required",
+              operator_action: "Keep guided until signed evidence retention is explicit.",
+            },
+          ],
           running_cleanup: false,
           cleanup_progress: {
             started_at: "2026-02-07T00:05:30.000Z",
@@ -129,6 +150,8 @@ describe("deriveDashboard", () => {
     expect(out.vitalsProcesses.length).toBe(2);
     expect((out.canonicalStatus as Status).project_storage).toBeDefined();
     expect(out.garbageEstimate?.safeReclaimableBytes).toBe(812646400);
+    expect(out.garbageEstimate?.candidates[0]?.retentionClass).toBe("protected_evidence");
+    expect(out.garbageEstimate?.candidates[0]?.operatorAction).toContain("signed evidence");
     expect(out.garbageEstimate?.lastCleanupResult?.freedBytesActual).toBe(680000000);
     expect(out.garbageEstimate?.cleanupProgress?.currentLabel).toBe("VS Code cached VSIX downloads");
     expect(out.garbageEstimate?.cleanupProgress?.totalSteps).toBe(3);

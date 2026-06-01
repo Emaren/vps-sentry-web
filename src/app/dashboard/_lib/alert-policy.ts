@@ -98,6 +98,10 @@ function scoreAlert(alert: AlertItem): number {
     score = Math.max(score, 95);
   }
 
+  if (/service_hardening_gap|service hardening gap|public service hardening/i.test(text)) {
+    score = Math.max(score, 72);
+  }
+
   // Important but less conclusive drift.
   if (/watched files changed|packages changed|invalid user|failed password|nft|ufw/i.test(text)) {
     score = Math.max(score, 70);

@@ -190,6 +190,9 @@ describe("PowerMemoryTile", () => {
           projectLabel: "AoE2War",
           projectUrl: "https://aoe2war.com",
           serviceRefs: ["aoe2hdbets-web.service"],
+          retentionClass: null,
+          managementState: null,
+          operatorAction: null,
         },
       ],
     };

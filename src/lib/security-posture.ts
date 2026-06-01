@@ -31,6 +31,7 @@ const CODE_BASE_WEIGHT: Record<string, number> = {
   config_tamper: 30,
   unexpected_public_ports: 28,
   firewall_drift: 20,
+  service_hardening_gap: 18,
   account_drift: 14,
   ssh_failed_password: 12,
   ssh_invalid_user: 11,

@@ -16,6 +16,7 @@ export default function ThreatSignals({ threat }: { threat?: unknown }) {
     ["Top CPU pressure", t["top_cpu"]],
     ["Outbound suspicious (pool/stratum)", t["outbound_suspicious"]],
     ["Persistence hits (user/system)", t["persistence_hits"]],
+    ["Service hardening gaps", t["service_hardening_gaps"]],
   ];
 
   for (let i = 0; i < entries.length; i++) {

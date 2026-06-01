@@ -48,4 +48,26 @@ describe("deriveThreatIndicators", () => {
     const out = deriveThreatIndicators(s);
     expect(out.some((x) => x.severity === "critical")).toBe(false);
   });
+
+  it("surfaces public service hardening gaps from host telemetry", () => {
+    const s: Status = {
+      ...baseStatus(),
+      threat: {
+        suspicious_processes: [],
+        outbound_suspicious: [],
+        persistence_hits: [],
+        service_hardening_gaps: [
+          {
+            unit: "ascendai-web.service",
+            severity: "critical",
+            gaps: ["service runs as root", "NoNewPrivileges is not enabled"],
+          },
+        ],
+      },
+    };
+
+    const out = deriveThreatIndicators(s);
+
+    expect(out.some((x) => x.id === "public-service-hardening-gaps" && x.severity === "critical")).toBe(true);
+  });
 });

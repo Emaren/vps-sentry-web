@@ -130,6 +130,9 @@ export type DashboardGarbageCandidate = {
   projectLabel: string | null;
   projectUrl: string | null;
   serviceRefs: string[];
+  retentionClass: string | null;
+  managementState: string | null;
+  operatorAction: string | null;
 };
 
 export type DashboardGarbageCleanupBucket = {
@@ -415,6 +418,9 @@ function parseGarbageCandidates(
       projectLabel: pickString(row.project_label),
       projectUrl: pickString(row.project_url),
       serviceRefs,
+      retentionClass: pickString(row.retention_class),
+      managementState: pickString(row.management_state),
+      operatorAction: pickString(row.operator_action),
     });
   }
 
@@ -450,6 +456,9 @@ function parseGarbageCandidates(
       projectLabel: null,
       projectUrl: null,
       serviceRefs: [],
+      retentionClass: null,
+      managementState: null,
+      operatorAction: null,
     });
   }
 
@@ -1079,7 +1088,8 @@ export function deriveThreatIndicators(s: Status): ThreatIndicator[] {
   const hasRuntimeSignals =
     Boolean(threat?.suspicious_processes) ||
     Boolean(threat?.outbound_suspicious) ||
-    Boolean(threat?.persistence_hits);
+    Boolean(threat?.persistence_hits) ||
+    Boolean(threat?.service_hardening_gaps);
 
   if (!hasRuntimeSignals) {
     indicators.push({
@@ -1113,6 +1123,21 @@ export function deriveThreatIndicators(s: Status): ThreatIndicator[] {
       title: "High-noise update window",
       detail:
         "Large package churn can mask malicious activity. During update windows, prioritize runtime process/outbound checks in addition to baseline diffs.",
+    });
+  }
+
+  const hardeningGaps = Array.isArray(threat?.service_hardening_gaps) ? threat.service_hardening_gaps : [];
+  if (hardeningGaps.length > 0) {
+    const critical = hardeningGaps.some((row) => {
+      const rec = asRecord(row);
+      return rec?.severity === "critical";
+    });
+    indicators.push({
+      id: "public-service-hardening-gaps",
+      severity: critical ? "critical" : "warn",
+      title: "Public service containment gaps",
+      detail:
+        "At least one public-facing systemd service is running with weaker isolation than VPSSentry expects. Treat this as remediation work, not cleanup.",
     });
   }
 

@@ -37,6 +37,24 @@ describe("security posture scoring", () => {
     expect(posture.band).toBe("guarded");
     expect(posture.stage).toBe("observe");
   });
+
+  it("treats public service hardening gaps as elevated posture risk", () => {
+    const signals: IncidentSignal[] = [
+      {
+        code: "service_hardening_gap",
+        severity: "high",
+        title: "Public service hardening gap detected",
+        detail: "ascendai-web.service runs as root.",
+        ts: "2026-02-07T11:58:00.000Z",
+        source: "alert",
+        snapshotId: "s-hardening",
+      },
+    ];
+
+    const posture = buildSecurityPosture(signals, "fresh", now);
+    expect(posture.score).toBeGreaterThanOrEqual(18);
+    expect(posture.priorityCodes).toContain("service_hardening_gap");
+  });
 });
 
 describe("security posture from snapshots", () => {

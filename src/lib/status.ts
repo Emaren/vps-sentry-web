@@ -283,6 +283,9 @@ export type GarbageEstimateCandidate = {
   project_label?: string;
   project_url?: string;
   service_refs?: string[];
+  retention_class?: string;
+  management_state?: string;
+  operator_action?: string;
 };
 
 export type GarbageCleanupBucket = {
@@ -364,6 +367,7 @@ export type Status = {
     top_cpu?: unknown[];
     outbound_suspicious?: unknown[];
     persistence_hits?: unknown[];
+    service_hardening_gaps?: unknown[];
     indicators?: Array<{
       id: string;
       severity: "info" | "warn" | "critical";
