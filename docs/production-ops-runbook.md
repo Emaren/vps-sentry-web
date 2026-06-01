@@ -85,6 +85,7 @@ Current storage policy:
 - `CreditChain` is a local/testnet protocol repo for `chain.usetab.ca`. Do not attach `chain.ascendai.one` to this project.
 - `/home/tony/_backup/vps-sentry-web` is intentionally a symlink to `/mnt/HC_Volume_105319120/root-archive/vps-sentry-web-backups` so the hourly VPSSentry backup cron keeps its old path while storing snapshots off the root filesystem.
 - Mounted-volume archive reclaim is posture-based: old relocated VPSSentry backup copies may be safe, old `_archive` / `_relocated` app bundles require guided review, and live symlinked dependency trees, databases, trace indexes, downloads, WoloChain state, and settlement backups stay protected.
+- The June 1, 2026 guided archive audit deleted only obsolete AoE2DEWarWagers app/download archive copies after exact symlink, systemd, and nginx reference checks. Keep the remaining `space-hog` and `signed-watcher` archive targets guided until evidence/retention policy is explicit.
 - Do not move live DBs, chain homes, WoloChain settlement/operator state, active downloads, or current production `node_modules` without the service-stop, backup, ownership, restart, and smoke-check sequence.
 
 May 31, 2026 live storage check:
@@ -95,6 +96,7 @@ May 31, 2026 live storage check:
 - The safe reclaim run removed `1,990,582,272` bytes and improved root `/` to `79%` used with `7.6G` free. AscendAI, UseTab.ca, VPSSentry web, and nginx stayed active.
 - The dashboard must not describe host fallback cleanup as requiring `nginx.service` or `ssh.service` restarts unless a live systemd path actually overlaps the target.
 - The hourly VPSSentry backup root may be a symlink into the mounted volume; retention pruning must resolve that symlink before scanning old snapshot directories.
+- June 1 UTC guided archive cleanup reclaimed about `2.88GB` from obsolete AoE2DEWarWagers app/download archive copies. The mounted volume finished around `75%` used with `13G` free, and VPSSentry still reports the remaining evidence/protected archive set as guided review.
 
 May 24, 2026 reclaim result:
 

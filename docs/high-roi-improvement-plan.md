@@ -95,6 +95,7 @@ Status:
 - May 31, 2026: highest immediate reclaim ROI is inactive root VS Code server builds. The estimator now treats inactive `.vscode-server/bin/*` and `.vscode-server/cli/servers/Stable-*` builds as safe recycling candidates while keeping active commits, and no longer attaches `nginx.service` / `ssh.service` to generic host fallback cleanup rows. The safe pass reclaimed `1,990,582,272` bytes and improved root from `85%` used / `5.7G` free to `79%` used / `7.6G` free.
 - May 31, 2026: backup retention leak identified after the VPSSentry backup base moved behind a symlink. The backup script now resolves the symlink before pruning old snapshot directories, and host reclaim surfaces stale backup directories as safe cleanup targets.
 - May 31, 2026: mounted-volume archive classification added. Old relocated VPSSentry backup copies are safe reclaim after the age window, old app/archive bundles are guided review, and live symlinked dependencies plus DB/trace/download/WoloChain paths are protected.
+- June 1, 2026 UTC: guided archive provenance audit reclaimed obsolete AoE2DEWarWagers app/download archive copies after exact symlink, systemd, and nginx reference checks. Guided reclaim dropped to the remaining `space-hog` evidence/protected bundle plus `signed-watcher` backups.
 
 ### 2. Strengthen Data Contracts
 
