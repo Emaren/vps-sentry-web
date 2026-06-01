@@ -96,6 +96,7 @@ Status:
 - May 31, 2026: backup retention leak identified after the VPSSentry backup base moved behind a symlink. The backup script now resolves the symlink before pruning old snapshot directories, and host reclaim surfaces stale backup directories as safe cleanup targets.
 - May 31, 2026: mounted-volume archive classification added. Old relocated VPSSentry backup copies are safe reclaim after the age window, old app/archive bundles are guided review, and live symlinked dependencies plus DB/trace/download/WoloChain paths are protected.
 - June 1, 2026 UTC: guided archive provenance audit reclaimed obsolete AoE2DEWarWagers app/download archive copies after exact symlink, systemd, and nginx reference checks. Guided reclaim dropped to the remaining `space-hog` evidence/protected bundle plus `signed-watcher` backups.
+- June 1, 2026 UTC: signed-watcher backup dedupe hardlinked byte-identical duplicate binaries within the evidence backup set and updated host disk estimates to count shared inodes once per scanned tree.
 
 ### 2. Strengthen Data Contracts
 

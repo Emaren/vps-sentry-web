@@ -86,6 +86,7 @@ Current storage policy:
 - `/home/tony/_backup/vps-sentry-web` is intentionally a symlink to `/mnt/HC_Volume_105319120/root-archive/vps-sentry-web-backups` so the hourly VPSSentry backup cron keeps its old path while storing snapshots off the root filesystem.
 - Mounted-volume archive reclaim is posture-based: old relocated VPSSentry backup copies may be safe, old `_archive` / `_relocated` app bundles require guided review, and live symlinked dependency trees, databases, trace indexes, downloads, WoloChain state, and settlement backups stay protected.
 - The June 1, 2026 guided archive audit deleted only obsolete AoE2DEWarWagers app/download archive copies after exact symlink, systemd, and nginx reference checks. Keep the remaining `space-hog` and `signed-watcher` archive targets guided until evidence/retention policy is explicit.
+- Signed-watcher backups may be hardlink-deduped only when files are byte-identical within the backup set; preserve every path and keep a manifest under `/var/lib/vps-sentry/archive-reclaim/`.
 - Do not move live DBs, chain homes, WoloChain settlement/operator state, active downloads, or current production `node_modules` without the service-stop, backup, ownership, restart, and smoke-check sequence.
 
 May 31, 2026 live storage check:
@@ -97,6 +98,7 @@ May 31, 2026 live storage check:
 - The dashboard must not describe host fallback cleanup as requiring `nginx.service` or `ssh.service` restarts unless a live systemd path actually overlaps the target.
 - The hourly VPSSentry backup root may be a symlink into the mounted volume; retention pruning must resolve that symlink before scanning old snapshot directories.
 - June 1 UTC guided archive cleanup reclaimed about `2.88GB` from obsolete AoE2DEWarWagers app/download archive copies. The mounted volume finished around `75%` used with `13G` free, and VPSSentry still reports the remaining evidence/protected archive set as guided review.
+- June 1 UTC signed-watcher dedupe hardlinked six byte-identical duplicate watcher binaries, reducing that backup set to about `518MB` while preserving all evidence paths.
 
 May 24, 2026 reclaim result:
 
