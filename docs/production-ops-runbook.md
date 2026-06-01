@@ -89,7 +89,7 @@ Current storage policy:
 - Signed-watcher backups may be hardlink-deduped only when files are byte-identical within the backup set; preserve every path and keep a manifest under `/var/lib/vps-sentry/archive-reclaim/`.
 - Space-hog incident bundles may gzip cold raw nginx logs after recording pre/post SHA-256, size, mode, owner, and mtime in `/var/lib/vps-sentry/archive-reclaim/`; do not compress or delete WoloChain chain-home snapshots or settlement restore backups without a named restore/export policy.
 - Guided archive candidates should carry explicit retention posture. `protected_evidence` and `restore_backup` rows are management work, not safe cleanup, and should show the next operator action in the dashboard.
-- Public-facing project services are security posture inputs. A root-run or weakly-contained public systemd unit should appear under `threat.service_hardening_gaps` and may raise `service_hardening_gap` until the unit is hardened or intentionally waived in config.
+- Public-facing app services are security posture inputs. A root-run or weakly-contained public app unit should appear under `threat.service_hardening_gaps` and may raise `service_hardening_gap` until the unit is hardened or intentionally waived in config. OS edge services such as `nginx.service` are skipped by default because their root master process follows a separate hardening profile.
 - Do not move live DBs, chain homes, WoloChain settlement/operator state, active downloads, or current production `node_modules` without the service-stop, backup, ownership, restart, and smoke-check sequence.
 
 May 31, 2026 live storage check:
