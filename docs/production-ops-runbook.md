@@ -62,6 +62,8 @@ App readiness probes:
 
 Disk Workbench reads mounted-volume capacity from `project_storage.mounted_filesystems` in `/var/lib/vps-sentry/public/status.json`, then keeps that block fresh through `/api/dashboard/live`.
 
+The hourly full project-footprint refresh may take longer than a normal cached patrol. `vps-sentry.service` gives the complete oneshot up to two minutes, and the scanner preserves the last schema/config-verified project snapshot before starting the slow refresh. If Disk Workbench ever shows no mounted volume or `0B` tracked apps, inspect `project_storage` in both `public/status.json` and `project-storage.json`, then check the service journal for `start-post operation timed out`; do not assume the volume was unmounted or its data removed.
+
 What this means operationally:
 
 - If a provider-side disk resize lands cleanly on the VPS, VPSSentry should reflect the new capacity on the next host patrol merge without a manual code edit.
