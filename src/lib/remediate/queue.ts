@@ -152,6 +152,21 @@ export type ReplayDeadLetterSummary = {
   items: ReplayRunResult[];
 };
 
+export type RetireDeadLetterResult = {
+  ok: boolean;
+  sourceRunId: string;
+  error?: string;
+};
+
+export type RetireDeadLetterSummary = {
+  ok: boolean;
+  requestedLimit: number;
+  minAgeMinutes: number;
+  retired: number;
+  skipped: number;
+  items: RetireDeadLetterResult[];
+};
+
 function clamp(v: number, min: number, max: number): number {
   if (!Number.isFinite(v)) return min;
   if (v < min) return min;
@@ -1216,6 +1231,102 @@ export async function replayDeadLetterRuns(input?: {
     requestedLimit,
     replayed: items.filter((x) => x.ok).length,
     skipped: items.filter((x) => !x.ok).length,
+    items,
+  };
+}
+
+export async function retireDeadLetterRuns(input?: {
+  limit?: number;
+  minAgeMinutes?: number;
+  retiredByUserId?: string | null;
+  reason?: string | null;
+}): Promise<RetireDeadLetterSummary> {
+  const requestedLimit = clamp(input?.limit ?? 10, 1, 50);
+  const minAgeMinutes = clamp(input?.minAgeMinutes ?? 7 * 24 * 60, 60, 365 * 24 * 60);
+  const cutoff = new Date(Date.now() - minAgeMinutes * 60_000);
+  const reason = (input?.reason ?? "operator-reviewed stale DLQ").trim().slice(0, 400);
+
+  const rows = await prisma.remediationRun.findMany({
+    where: {
+      state: "failed",
+      requestedAt: { lte: cutoff },
+      AND: [
+        { paramsJson: { contains: '"mode":"execute"' } },
+        { paramsJson: { contains: '"dlq":true' } },
+      ],
+    },
+    orderBy: { requestedAt: "asc" },
+    take: requestedLimit,
+    select: {
+      id: true,
+      hostId: true,
+      actionId: true,
+      paramsJson: true,
+      finishedAt: true,
+      error: true,
+      action: { select: { key: true } },
+    },
+  });
+
+  const items: RetireDeadLetterResult[] = [];
+  for (const row of rows) {
+    const payload = toPayloadWithDefaults(row.paramsJson, 3);
+    if (!payload || !payload.queue.dlq) {
+      items.push({
+        ok: false,
+        sourceRunId: row.id,
+        error: "DLQ payload is missing or no longer active",
+      });
+      continue;
+    }
+
+    payload.queue.dlq = false;
+    payload.queue.dlqReason = "retired";
+    payload.queue.nextAttemptAt = null;
+    const marker = `[queue] dlq_retired reason=${reason}`;
+    const nextError = truncateQueueErrorMessage(
+      row.error?.includes("[queue] dlq_retired")
+        ? row.error
+        : `${row.error ?? ""}${row.error ? "\n" : ""}${marker}`
+    );
+
+    await prisma.$transaction([
+      prisma.remediationRun.update({
+        where: { id: row.id },
+        data: {
+          state: "canceled",
+          finishedAt: row.finishedAt ?? new Date(),
+          paramsJson: serializeExecuteRunPayload(payload),
+          error: nextError,
+        },
+      }),
+      prisma.auditLog.create({
+        data: {
+          userId: input?.retiredByUserId ?? null,
+          hostId: row.hostId,
+          action: "remediate.execute.dlq_retired",
+          detail: `Retired stale DLQ run ${row.id} (${row.action.key}) without replay`,
+          metaJson: JSON.stringify({
+            sourceRunId: row.id,
+            actionId: row.actionId,
+            actionKey: row.action.key,
+            reason,
+            minAgeMinutes,
+            replayed: false,
+          }),
+        },
+      }),
+    ]);
+
+    items.push({ ok: true, sourceRunId: row.id });
+  }
+
+  return {
+    ok: items.every((item) => item.ok),
+    requestedLimit,
+    minAgeMinutes,
+    retired: items.filter((item) => item.ok).length,
+    skipped: items.filter((item) => !item.ok).length,
     items,
   };
 }
