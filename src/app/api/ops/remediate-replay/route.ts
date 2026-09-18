@@ -115,12 +115,22 @@ function parseLimit(v: unknown, fallback = 3): number {
   return t;
 }
 
-type ReplayMode = "single" | "dlq-batch";
+type ReplayMode = "single" | "dlq-batch" | "retire-dlq";
 
 function normalizeMode(v: unknown): ReplayMode {
   const t = typeof v === "string" ? v.trim().toLowerCase() : "";
   if (t === "dlq-batch") return "dlq-batch";
+  if (t === "retire-dlq") return "retire-dlq";
   return "single";
+}
+
+function parseAgeMinutes(v: unknown, fallback = 7 * 24 * 60): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  const t = Math.trunc(n);
+  if (t < 60) return 60;
+  if (t > 365 * 24 * 60) return 365 * 24 * 60;
+  return t;
 }
 
 function toTrimmedString(v: unknown, max = 200): string | null {
@@ -161,6 +171,7 @@ async function loadDeps() {
 
   const replayDeadLetterRuns = (queueMod as any).replayDeadLetterRuns as (input: any) => Promise<any>;
   const replayRemediationRun = (queueMod as any).replayRemediationRun as (input: any) => Promise<any>;
+  const retireDeadLetterRuns = (queueMod as any).retireDeadLetterRuns as (input: any) => Promise<any>;
 
   const incrementCounter = (obsMod as any).incrementCounter ?? (() => {});
   const runObservedRoute =
@@ -184,6 +195,7 @@ async function loadDeps() {
     writeAuditLog,
     replayDeadLetterRuns,
     replayRemediationRun,
+    retireDeadLetterRuns,
     incrementCounter,
     runObservedRoute,
   };
@@ -237,6 +249,53 @@ export async function POST(req: Request) {
 
       const body: any = await req.json().catch(() => ({}));
       const mode = normalizeMode(body?.mode);
+
+      if (mode === "retire-dlq") {
+        const limit = parseLimit(body?.limit, 10);
+        const minAgeMinutes = parseAgeMinutes(body?.minAgeMinutes);
+        const reason =
+          toTrimmedString(body?.reason, 400) ?? "operator-reviewed stale DLQ";
+        const summary = await deps.retireDeadLetterRuns({
+          limit,
+          minAgeMinutes,
+          retiredByUserId: actorUserId,
+          reason,
+        });
+
+        deps.incrementCounter("ops.remediate_replay.retire_dlq.total", 1, {
+          authMode,
+          ok: summary?.ok ? "true" : "false",
+        });
+
+        await deps.writeAuditLog({
+          req: safeReq,
+          userId: actorUserId,
+          action: "ops.remediate_replay.retire_dlq",
+          detail:
+            "DLQ retirement requested (retired=" +
+            String(summary?.retired ?? 0) +
+            ", skipped=" +
+            String(summary?.skipped ?? 0) +
+            ")",
+          meta: {
+            route: "/api/ops/remediate-replay",
+            mode,
+            authMode,
+            limit,
+            minAgeMinutes,
+            reason,
+            retired: summary?.retired ?? 0,
+            skipped: summary?.skipped ?? 0,
+            ok: Boolean(summary?.ok),
+            replayed: false,
+          },
+        });
+
+        return NextResponse.json(
+          { ok: Boolean(summary?.ok), mode, summary },
+          { status: summary?.ok ? 200 : 409 }
+        );
+      }
 
       if (mode === "dlq-batch") {
         const limit = parseLimit(body?.limit, 3);
