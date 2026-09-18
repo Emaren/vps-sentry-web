@@ -33,6 +33,12 @@ jobs:
       - name: Generate Prisma Client (SQLite)
         run: pnpm run generate:sqlite
 
+      - name: Production Dependency Audit
+        run: pnpm audit --prod
+
+      - name: Security Posture Contract
+        run: pnpm run security:posture
+
       - name: Run Tests
         run: npm test
 
