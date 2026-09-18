@@ -2,6 +2,7 @@
   "name": "vps-sentry-web",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.34.5",
   "scripts": {
     "dev": "DD_TRACE_ENABLED=false next dev -H 127.0.0.1 -p 3036",
     "build": "DD_TRACE_ENABLED=false next build --webpack",

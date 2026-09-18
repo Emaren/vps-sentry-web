@@ -125,10 +125,10 @@ __DIRTY_STATUS__
 install_and_build() {
   if [[ -f pnpm-lock.yaml ]]; then
     export CI="${CI:-true}"
-    if command -v pnpm >/dev/null 2>&1; then
-      pnpm install --frozen-lockfile
-    elif command -v corepack >/dev/null 2>&1; then
+    if command -v corepack >/dev/null 2>&1; then
       corepack pnpm install --frozen-lockfile
+    elif command -v pnpm >/dev/null 2>&1; then
+      pnpm install --frozen-lockfile
     else
       npm install
     fi
