@@ -14,6 +14,7 @@ VPS_APP_DIR="${VPS_APP_DIR:-}"
 VPS_SERVICE="${VPS_SERVICE:-}"
 VPS_BACKUP_BASE="${VPS_BACKUP_BASE:-/home/tony/_backup/vps-sentry-web}"
 VPS_BACKUP_KEEP_DAYS="${VPS_BACKUP_KEEP_DAYS:-14}"
+VPS_BACKUP_HOURLY_KEEP="${VPS_BACKUP_HOURLY_KEEP:-48}"
 VPS_SQLITE_DB_PATH="${VPS_SQLITE_DB_PATH:-$VPS_APP_DIR/prisma/dev.db}"
 VPS_POSTGRES_DATABASE_URL="${VPS_POSTGRES_DATABASE_URL:-}"
 VPS_LOCAL_EXEC="${VPS_LOCAL_EXEC:-0}"
@@ -43,7 +44,8 @@ Env:
   VPS_LOCAL_EXEC               Set to 1 to run directly on current host (no SSH hop)
   VPS_APP_DIR
   VPS_BACKUP_BASE
-  VPS_BACKUP_KEEP_DAYS
+  VPS_BACKUP_KEEP_DAYS          Maximum daily-history horizon (default: 14)
+  VPS_BACKUP_HOURLY_KEEP        Keep newest snapshots at hourly fidelity (default: 48)
   VPS_SQLITE_DB_PATH
   VPS_POSTGRES_DATABASE_URL
 USAGE
@@ -142,6 +144,7 @@ done
 
 require_app_dir
 require_positive_int "VPS_BACKUP_KEEP_DAYS" "$VPS_BACKUP_KEEP_DAYS"
+require_positive_int "VPS_BACKUP_HOURLY_KEEP" "$VPS_BACKUP_HOURLY_KEEP"
 require_positive_int "VPS_SSH_CONNECT_TIMEOUT" "$VPS_SSH_CONNECT_TIMEOUT"
 require_positive_int "VPS_SSH_CONNECTION_ATTEMPTS" "$VPS_SSH_CONNECTION_ATTEMPTS"
 require_positive_int "VPS_SSH_SERVER_ALIVE_INTERVAL" "$VPS_SSH_SERVER_ALIVE_INTERVAL"
@@ -155,10 +158,11 @@ echo "[backup] host: $VPS_HOST"
 echo "[backup] app_dir: $VPS_APP_DIR"
 echo "[backup] backup_base: $VPS_BACKUP_BASE"
 echo "[backup] keep_days: $VPS_BACKUP_KEEP_DAYS"
+echo "[backup] hourly_keep: $VPS_BACKUP_HOURLY_KEEP"
 echo "[backup] mode: $mode"
 echo "[backup] local_exec: $VPS_LOCAL_EXEC"
 
-remote "VPS_APP_DIR=$(printf %q "$VPS_APP_DIR") VPS_SERVICE=$(printf %q "$VPS_SERVICE") VPS_BACKUP_BASE=$(printf %q "$VPS_BACKUP_BASE") VPS_BACKUP_KEEP_DAYS=$(printf %q "$VPS_BACKUP_KEEP_DAYS") VPS_SQLITE_DB_PATH=$(printf %q "$VPS_SQLITE_DB_PATH") VPS_POSTGRES_DATABASE_URL=$(printf %q "$VPS_POSTGRES_DATABASE_URL") VPS_BACKUP_MODE=$(printf %q "$mode") VPS_BACKUP_LABEL=$(printf %q "$label") bash -s" <<'REMOTE_EOF'
+remote "VPS_APP_DIR=$(printf %q "$VPS_APP_DIR") VPS_SERVICE=$(printf %q "$VPS_SERVICE") VPS_BACKUP_BASE=$(printf %q "$VPS_BACKUP_BASE") VPS_BACKUP_KEEP_DAYS=$(printf %q "$VPS_BACKUP_KEEP_DAYS") VPS_BACKUP_HOURLY_KEEP=$(printf %q "$VPS_BACKUP_HOURLY_KEEP") VPS_SQLITE_DB_PATH=$(printf %q "$VPS_SQLITE_DB_PATH") VPS_POSTGRES_DATABASE_URL=$(printf %q "$VPS_POSTGRES_DATABASE_URL") VPS_BACKUP_MODE=$(printf %q "$mode") VPS_BACKUP_LABEL=$(printf %q "$label") bash -s" <<'REMOTE_EOF'
 set -euo pipefail
 
 if [[ ! -d "$VPS_APP_DIR" ]]; then
@@ -290,16 +294,16 @@ PY
     backup_prune_base="$resolved_backup_base"
   fi
 
-  old_dirs="$(find "$backup_prune_base" -mindepth 1 -maxdepth 1 -type d -mtime +"$VPS_BACKUP_KEEP_DAYS" -print | sort || true)"
-  if [[ -n "$old_dirs" ]]; then
-    while IFS= read -r dir; do
-      [[ -z "$dir" ]] && continue
-      rm -rf "$dir"
-      echo "[backup] pruned:$dir"
-    done <<<"$old_dirs"
-  else
-    echo "[backup] pruned:none"
+  retention_helper="$VPS_APP_DIR/scripts/vps-backup-retention.py"
+  if [[ ! -x "$retention_helper" ]]; then
+    echo "[backup] retention_helper_missing:$retention_helper"
+    exit 1
   fi
+  python3 "$retention_helper" \
+    --root "$backup_prune_base" \
+    --hourly-keep "$VPS_BACKUP_HOURLY_KEEP" \
+    --keep-days "$VPS_BACKUP_KEEP_DAYS" \
+    --apply
 
   echo "[backup] snapshot:$run_dir"
   echo "[backup] PASS"

@@ -6,6 +6,10 @@ cd "$ROOT_DIR"
 
 echo "[gate] branch: $(git rev-parse --abbrev-ref HEAD)"
 
+echo "[gate] backup-retention-unit"
+python3 -m unittest -v tests.test_vps_backup_retention
+bash -n scripts/vps-backup.sh
+
 echo "[gate] test"
 npm test
 
