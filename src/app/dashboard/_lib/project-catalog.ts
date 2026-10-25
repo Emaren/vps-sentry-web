@@ -119,10 +119,13 @@ export const MAIN_PROJECTS: ProjectDef[] = [
   {
     key: "wolochain",
     name: "WoloChain",
-    subtitle: "wolo chain rest/rpc",
+    // wolo-1 mainnet, NOT legacy testnet 1317/26657. Listener presence
+    // only: neither socket counts nor PID matching prove consensus, custody,
+    // transaction finality or the wallet/settlement financial gates.
+    subtitle: "wolo-1 mainnet REST/RPC listeners (not consensus proof)",
     services: [
-      { label: "rest", port: 1317, required: true },
-      { label: "rpc", port: 26657, required: true },
+      { label: "rest", port: 1318, required: true },
+      { label: "rpc", port: 27657, required: true },
     ],
   },
   {
