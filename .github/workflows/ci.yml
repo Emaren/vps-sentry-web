@@ -33,9 +33,6 @@ jobs:
       - name: Generate Prisma Client (SQLite)
         run: pnpm run generate:sqlite
 
-      - name: Production Dependency Audit
-        run: pnpm audit --prod
-
       - name: Security Posture Contract
         run: pnpm run security:posture
 
@@ -53,3 +50,8 @@ jobs:
 
       - name: Supply-Chain Check
         run: ./scripts/supply-chain-check.sh --no-lock-verify
+
+      # This remains a FATAL release gate. Run independent source contracts
+      # first, so a pre-existing advisory does not hide new test defects.
+      - name: Production Dependency Audit
+        run: pnpm audit --prod
