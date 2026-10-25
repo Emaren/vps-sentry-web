@@ -2,6 +2,19 @@ import { describe, expect, it } from "vitest";
 import { MAIN_PROJECTS } from "@/app/dashboard/_lib/project-catalog";
 
 describe("project catalog", () => {
+  it("binds WoloChain listener monitoring to wolo-1 mainnet, not retired testnet", () => {
+    const mainnet = MAIN_PROJECTS.find((entry) => entry.key === "wolochain");
+    expect(mainnet).toBeDefined();
+    expect(mainnet?.subtitle).toContain("not consensus proof");
+    expect(mainnet?.services).toEqual([
+      { label: "rest", port: 1318, required: true },
+      { label: "rpc", port: 27657, required: true },
+    ]);
+    expect(mainnet?.services.some((service) => [1317, 26657].includes(service.port))).toBe(false);
+    const tokenchain = MAIN_PROJECTS.find((entry) => entry.key === "tokenchain");
+    expect(tokenchain?.services).toContainEqual({ label: "p2p", port: 26656, required: true });
+  });
+
   it("tracks Traffic with both live service ports", () => {
     const project = MAIN_PROJECTS.find((entry) => entry.key === "traffic");
     expect(project).toBeDefined();
