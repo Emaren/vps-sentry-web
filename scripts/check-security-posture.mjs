@@ -27,7 +27,7 @@ if (corepackIndex < 0 || globalIndex < 0 || corepackIndex >= globalIndex) {
 }
 
 const expected = {
-  next: "16.3.5",
+  next: "16.4.6",
   react: "19.2.4",
   "react-dom": "19.2.4",
 };
