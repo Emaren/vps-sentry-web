@@ -2,6 +2,8 @@
 import React from "react";
 import { redirect } from "next/navigation";
 import { requireViewerAccess } from "@/lib/rbac";
+import { hasRequiredRole } from "@/lib/rbac-policy";
+import { readFleetProjection } from "@/lib/kingdom-os/reader";
 
 import DashboardView from "./_components/DashboardView";
 import {
@@ -25,7 +27,7 @@ export default async function DashboardPage() {
   const signedInAs = email ?? "user";
 
   // Fetch in parallel (env does not depend on billing)
-  const [env, billing, ops] = await Promise.all([
+  const [env, billing, ops, fleet] = await Promise.all([
     getStatusEnvelopeSafe(),
     getUserBilling(email),
     getDashboardOpsSnapshot({
@@ -33,6 +35,9 @@ export default async function DashboardPage() {
       userEmail: access.identity.email ?? null,
       userRole: access.identity.role,
     }),
+    hasRequiredRole(access.identity.role, "ops")
+      ? readFleetProjection().catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   return (
@@ -41,6 +46,7 @@ export default async function DashboardPage() {
       billing={billing as DashboardBilling}
       ops={ops as DashboardOpsSnapshot}
       signedInAs={signedInAs}
+      fleet={fleet}
       userRole={access.identity.role}
     />
   );
