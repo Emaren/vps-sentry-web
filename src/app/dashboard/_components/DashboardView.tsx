@@ -6,6 +6,7 @@ import SiteThemeControls from "@/app/_components/SiteThemeControls";
 import { hasRequiredRole, type AppRole } from "@/lib/rbac-policy";
 
 import type { DashboardBilling, DashboardEnv, DashboardOpsSnapshot } from "../_lib/types";
+import type { FleetProjection } from "@/lib/kingdom-os/fleet";
 
 import { deriveDashboard, type DerivedDashboard } from "../_lib/derive";
 
@@ -27,6 +28,7 @@ import {
 import DashboardLogoutButton from "./DashboardLogoutButton";
 import LivePulseStrip from "./LivePulseStrip";
 import PowerMemoryTile from "./PowerMemoryTile";
+import FleetOSTiles from "./FleetOSTiles";
 import ViewScreen from "./ViewScreen";
 
 export default function DashboardView(props: {
@@ -35,8 +37,9 @@ export default function DashboardView(props: {
   ops: DashboardOpsSnapshot;
   signedInAs: string;
   userRole: AppRole;
+  fleet: FleetProjection | null;
 }) {
-  const { env, billing, ops, signedInAs, userRole } = props;
+  const { env, billing, ops, signedInAs, userRole, fleet } = props;
   const s = env.last;
 
   const d: DerivedDashboard = deriveDashboard(env);
@@ -109,6 +112,7 @@ export default function DashboardView(props: {
       </div>
 
       <PowerMemoryTile derived={d} canReclaim={ops.access.canOps} />
+      {hasRequiredRole(userRole, "ops") ? <FleetOSTiles fleet={fleet} /> : null}
       <ViewScreen status={s} derived={d} initialPulse={livePulse} />
       <ProtectionRecordSection ops={ops} snapshotTs={d.snapshotTs} />
 
