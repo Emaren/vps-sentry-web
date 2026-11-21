@@ -1,42 +1,14 @@
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireOpsAccess } from "@/lib/rbac";
-import {
-  STATUS_MAX_BYTES,
-  STATUS_PATH,
-  projectFleetStatus,
-} from "@/lib/kingdom-os/fleet";
+import { readFleetProjection } from "@/lib/kingdom-os/reader";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
  * Authenticated READ-ONLY Kingdom OS adapter.
- * No pass-through filesystem paths, host shell commands, scanning, key access,
- * remediation endpoints, queue writes, or financial scope.
+ * No pass-through paths, shell commands, cleaning, keys, or financial authority.
  */
-async function readOriginalStatus(): Promise<{ snapshot: unknown; sha256: string }> {
-  const fh = await open(STATUS_PATH, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const st = await fh.stat();
-    if (!st.isFile() || st.uid !== 0 || st.nlink !== 1 ||
-        (st.mode & 0o022) !== 0 || st.size <= 0 || st.size > STATUS_MAX_BYTES) {
-      throw new Error("untrusted_source_file");
-    }
-    const raw = await fh.readFile();
-    if (raw.length !== st.size) throw new Error("changing_source_file");
-    const snapshot = JSON.parse(raw.toString("utf8")) as unknown;
-    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-      throw new Error("invalid_source_schema");
-    }
-    return { snapshot, sha256: createHash("sha256").update(raw).digest("hex") };
-  } finally {
-    await fh.close();
-  }
-}
-
 export async function GET() {
   if (process.env.NEXT_PHASE === "phase-production-build" ||
       process.env.npm_lifecycle_event === "build") {
@@ -50,8 +22,7 @@ export async function GET() {
     );
   }
   try {
-    const { snapshot, sha256 } = await readOriginalStatus();
-    const fleet = projectFleetStatus(snapshot, sha256);
+    const fleet = await readFleetProjection();
     return NextResponse.json(
       { ok: true, fleet },
       { headers: { "Cache-Control": "private, no-store, max-age=0" } }
